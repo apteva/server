@@ -32,7 +32,7 @@ func (s *Server) handleSetInstallAgentDefault(w http.ResponseWriter, r *http.Req
 	}
 	if *body.Enabled {
 		var eligible int
-		err := s.store.db.QueryRow(`
+		err := s.store.dbQueryRowContext(r.Context(), `
 			SELECT CASE WHEN EXISTS (
 				SELECT 1 FROM mcp_servers m WHERE m.upstream_id=?
 			) OR EXISTS (
@@ -58,7 +58,7 @@ func (s *Server) handleSetInstallAgentDefault(w http.ResponseWriter, r *http.Req
 	if *body.Enabled {
 		enabled = 1
 	}
-	res, err := s.store.db.Exec(`UPDATE app_installs SET default_for_new_agents=? WHERE id=?`, enabled, installID)
+	res, err := s.store.dbExecContext(r.Context(), `UPDATE app_installs SET default_for_new_agents=? WHERE id=?`, enabled, installID)
 	if err != nil {
 		http.Error(w, "failed to update app default", http.StatusInternalServerError)
 		return
@@ -78,7 +78,7 @@ func (s *Server) handleSetInstallAgentDefault(w http.ResponseWriter, r *http.Req
 // Only running apps which can actually contribute an MCP surface or skill are
 // eligible; UI-only apps are intentionally absent from an agent's config.
 func (s *Server) defaultAppInstallIDsForProject(projectID string) ([]int64, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT i.id, a.name, COALESCE(i.project_id,'')
 		FROM app_installs i
 		JOIN apps a ON a.id=i.app_id

@@ -1,16 +1,51 @@
 {
   "slug": "ovhcloud",
   "name": "OVHcloud",
-  "description": "MCP server for OVHcloud Public Cloud - instances, flavors, images, regions, volumes, SSH keys (covers EU, North America, Singapore, Sydney, Mumbai, São Paulo)",
+  "description": "OVHcloud infrastructure: Public Cloud instances, VPS and dedicated/eco bare metal; order catalogs, carts, delivery, Linux installation, lifecycle, upgrades, volumes, snapshots and S3 object storage. VPS and dedicated cancellation can require email-token confirmation.",
   "logo": "https://www.google.com/s2/favicons?domain=ovhcloud.com&sz=128",
-  "categories": ["cloud", "servers", "vps", "infrastructure", "europe", "global"],
-  "base_url": "https://api.ovh.com/1.0",
+  "categories": [
+    "cloud",
+    "servers",
+    "vps",
+    "infrastructure",
+    "europe",
+    "global"
+  ],
+  "base_url": "{{credential.api_endpoint}}",
   "auth": {
-    "types": ["bearer"],
-    "headers": { "Authorization": "Bearer {{access_token}}" },
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}"
+    },
     "credential_fields": [
-      { "name": "access_token", "label": "OAuth2 Access Token", "description": "Obtain via OAuth2 client_credentials at oauth2/token (eu/ca/us endpoints)" },
-      { "name": "service_name", "label": "Cloud Project ID", "description": "OVHcloud Public Cloud project (serviceName)" }
+      {
+        "name": "access_token",
+        "label": "OAuth2 Access Token",
+        "required": true,
+        "description": "OVH OAuth2 bearer token with permissions for the selected product families and order/billing routes."
+      },
+      {
+        "name": "service_name",
+        "label": "Public Cloud project ID",
+        "required": false,
+        "exposure": "public",
+        "description": "Required for Public Cloud compute, block storage and object storage. Not required for standalone VPS/dedicated ordering."
+      },
+      {
+        "name": "api_endpoint",
+        "label": "OVH API endpoint",
+        "type": "select",
+        "options": [
+          "https://eu.api.ovh.com/1.0",
+          "https://ca.api.ovh.com/1.0",
+          "https://api.us.ovhcloud.com/1.0"
+        ],
+        "default": "https://eu.api.ovh.com/1.0",
+        "required": false,
+        "exposure": "public"
+      }
     ]
   },
   "tools": [
@@ -19,7 +54,11 @@
       "description": "List Public Cloud projects",
       "method": "GET",
       "path": "/cloud/project",
-      "input_schema": { "type": "object", "properties": {} }
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     },
     {
       "name": "list_instances",
@@ -29,8 +68,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "region": { "type": "string" }
+          "region": {
+            "type": "string"
+          }
         },
         "required": []
       }
@@ -43,10 +83,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "instanceId": { "type": "string" }
+          "instanceId": {
+            "type": "string"
+          }
         },
-        "required": ["instanceId"]
+        "required": [
+          "instanceId"
+        ]
       }
     },
     {
@@ -57,16 +100,35 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "name": { "type": "string" },
-          "region": { "type": "string", "description": "e.g. SBG5, GRA11, BHS5, SGP1, SYD1, WAW1" },
-          "flavorId": { "type": "string" },
-          "imageId": { "type": "string" },
-          "sshKeyId": { "type": "string" },
-          "userData": { "type": "string" },
-          "monthlyBilling": { "type": "boolean" }
+          "name": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string",
+            "description": "e.g. SBG5, GRA11, BHS5, SGP1, SYD1, WAW1"
+          },
+          "flavorId": {
+            "type": "string"
+          },
+          "imageId": {
+            "type": "string"
+          },
+          "sshKeyId": {
+            "type": "string"
+          },
+          "userData": {
+            "type": "string"
+          },
+          "monthlyBilling": {
+            "type": "boolean"
+          }
         },
-        "required": ["name", "region", "flavorId", "imageId"]
+        "required": [
+          "name",
+          "region",
+          "flavorId",
+          "imageId"
+        ]
       }
     },
     {
@@ -77,10 +139,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "instanceId": { "type": "string" }
+          "instanceId": {
+            "type": "string"
+          }
         },
-        "required": ["instanceId"]
+        "required": [
+          "instanceId"
+        ]
       }
     },
     {
@@ -91,11 +156,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "instanceId": { "type": "string" },
-          "type": { "type": "string", "description": "soft | hard" }
+          "instanceId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "soft | hard"
+          }
         },
-        "required": ["instanceId", "type"]
+        "required": [
+          "instanceId",
+          "type"
+        ]
       }
     },
     {
@@ -106,10 +178,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "instanceId": { "type": "string" }
+          "instanceId": {
+            "type": "string"
+          }
         },
-        "required": ["instanceId"]
+        "required": [
+          "instanceId"
+        ]
       }
     },
     {
@@ -120,10 +195,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "instanceId": { "type": "string" }
+          "instanceId": {
+            "type": "string"
+          }
         },
-        "required": ["instanceId"]
+        "required": [
+          "instanceId"
+        ]
       }
     },
     {
@@ -134,8 +212,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "region": { "type": "string" }
+          "region": {
+            "type": "string"
+          }
         },
         "required": []
       }
@@ -148,9 +227,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "region": { "type": "string" },
-          "osType": { "type": "string" }
+          "region": {
+            "type": "string"
+          },
+          "osType": {
+            "type": "string"
+          }
         },
         "required": []
       }
@@ -162,7 +244,7 @@
       "path": "/cloud/project/{{credential.service_name}}/region",
       "input_schema": {
         "type": "object",
-        "properties": { "serviceName": { "type": "string" } },
+        "properties": {},
         "required": []
       }
     },
@@ -173,7 +255,7 @@
       "path": "/cloud/project/{{credential.service_name}}/sshkey",
       "input_schema": {
         "type": "object",
-        "properties": { "serviceName": { "type": "string" } },
+        "properties": {},
         "required": []
       }
     },
@@ -185,8 +267,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "region": { "type": "string" }
+          "region": {
+            "type": "string"
+          }
         },
         "required": []
       }
@@ -196,56 +279,186 @@
       "description": "Get OVHcloud Block Storage volume details",
       "method": "GET",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "create_volume",
       "description": "Create an OVHcloud Block Storage volume",
       "method": "POST",
       "path": "/cloud/project/{{credential.service_name}}/volume",
-      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "availabilityZone": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" }, "size": { "type": "integer", "description": "Size in GiB" }, "type": { "type": "string", "description": "Provider volume type, for example classic or high-speed" }, "snapshotId": { "type": "string" }, "imageId": { "type": "string" } }, "required": ["region", "size", "type"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string"
+          },
+          "availabilityZone": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "Size in GiB"
+          },
+          "type": {
+            "type": "string",
+            "description": "Provider volume type, for example classic or high-speed"
+          },
+          "snapshotId": {
+            "type": "string"
+          },
+          "imageId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "region",
+          "size",
+          "type"
+        ]
+      }
     },
     {
       "name": "update_volume",
       "description": "Update an OVHcloud volume name or description",
       "method": "PUT",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "attach_volume",
       "description": "Attach a volume to an OVHcloud Public Cloud instance",
       "method": "POST",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/attach",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "instanceId": { "type": "string" } }, "required": ["volumeId", "instanceId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId",
+          "instanceId"
+        ]
+      }
     },
     {
       "name": "detach_volume",
       "description": "Detach a volume from an instance without deleting it",
       "method": "POST",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/detach",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "instanceId": { "type": "string" } }, "required": ["volumeId", "instanceId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId",
+          "instanceId"
+        ]
+      }
     },
     {
       "name": "resize_volume",
       "description": "Increase an OVHcloud volume size",
       "method": "POST",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/upsize",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "size": { "type": "integer", "description": "New larger size in GiB" } }, "required": ["volumeId", "size"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "description": "New larger size in GiB"
+          }
+        },
+        "required": [
+          "volumeId",
+          "size"
+        ]
+      }
     },
     {
       "name": "delete_volume",
       "description": "Delete an unattached OVHcloud volume",
       "method": "DELETE",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "volume_snapshot_create",
       "description": "Create a snapshot of an OVHcloud volume",
       "method": "POST",
       "path": "/cloud/project/{{credential.service_name}}/volume/{volumeId}/snapshot",
-      "input_schema": { "type": "object", "properties": { "volumeId": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } }, "required": ["volumeId"] }
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volumeId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volumeId"
+        ]
+      }
     },
     {
       "name": "list_snapshots",
@@ -255,11 +468,3827 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "serviceName": { "type": "string" },
-          "region": { "type": "string" }
+          "region": {
+            "type": "string"
+          }
         },
         "required": []
       }
+    },
+    {
+      "name": "cart_list",
+      "description": "cart list",
+      "method": "GET",
+      "path": "/order/cart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Filter the value of description property (=)"
+          }
+        }
+      },
+      "query_params": [
+        "description"
+      ]
+    },
+    {
+      "name": "cart_create",
+      "description": "cart create",
+      "method": "POST",
+      "path": "/order/cart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "expire": {
+            "type": "string"
+          },
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      }
+    },
+    {
+      "name": "cart_delete",
+      "description": "cart delete",
+      "method": "DELETE",
+      "path": "/order/cart/{cartId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_get",
+      "description": "cart get",
+      "method": "GET",
+      "path": "/order/cart/{cartId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_assign",
+      "description": "cart assign",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/assign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_dedicated_plans",
+      "description": "cart dedicated plans",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/baremetalServers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_dedicated_add",
+      "description": "cart dedicated add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/baremetalServers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string"
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "pricingMode": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "duration",
+          "planCode",
+          "pricingMode",
+          "quantity",
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_dedicated_options",
+      "description": "cart dedicated options",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/baremetalServers/options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "planCode": {
+            "type": "string",
+            "description": "Identifier of a baremetal server offer"
+          }
+        },
+        "required": [
+          "cartId",
+          "planCode"
+        ]
+      },
+      "query_params": [
+        "planCode"
+      ]
+    },
+    {
+      "name": "cart_dedicated_option_add",
+      "description": "cart dedicated option add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/baremetalServers/options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "integer"
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "pricingMode": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "duration",
+          "itemId",
+          "planCode",
+          "pricingMode",
+          "quantity",
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_quote",
+      "description": "cart quote",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/checkout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_checkout",
+      "description": "cart checkout",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/checkout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "autoPayWithPreferredPaymentMethod": {
+            "type": "boolean"
+          },
+          "waiveRetractationPeriod": {
+            "type": "boolean"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_eco_plans",
+      "description": "cart eco plans",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/eco",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_eco_add",
+      "description": "cart eco add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/eco",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string"
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "pricingMode": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "duration",
+          "planCode",
+          "pricingMode",
+          "quantity",
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_eco_options",
+      "description": "cart eco options",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/eco/options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "planCode": {
+            "type": "string",
+            "description": "Identifier of a Eco offer"
+          }
+        },
+        "required": [
+          "cartId",
+          "planCode"
+        ]
+      },
+      "query_params": [
+        "planCode"
+      ]
+    },
+    {
+      "name": "cart_eco_option_add",
+      "description": "cart eco option add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/eco/options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "integer"
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "pricingMode": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "duration",
+          "itemId",
+          "planCode",
+          "pricingMode",
+          "quantity",
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_item_delete",
+      "description": "cart item delete",
+      "method": "DELETE",
+      "path": "/order/cart/{cartId}/item/{itemId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          }
+        },
+        "required": [
+          "cartId",
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "cart_item_get",
+      "description": "cart item get",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/item/{itemId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          }
+        },
+        "required": [
+          "cartId",
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "cart_configuration_list",
+      "description": "cart configuration list",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/item/{itemId}/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          },
+          "label": {
+            "type": "string",
+            "description": "Filter the value of label property (=)"
+          }
+        },
+        "required": [
+          "cartId",
+          "itemId"
+        ]
+      },
+      "query_params": [
+        "label"
+      ]
+    },
+    {
+      "name": "cart_configuration_add",
+      "description": "cart configuration add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/item/{itemId}/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "cartId",
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "cart_configuration_delete",
+      "description": "cart configuration delete",
+      "method": "DELETE",
+      "path": "/order/cart/{cartId}/item/{itemId}/configuration/{configurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "configurationId": {
+            "type": "integer",
+            "description": "Configuration ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          }
+        },
+        "required": [
+          "cartId",
+          "configurationId",
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "cart_configuration_get",
+      "description": "cart configuration get",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/item/{itemId}/configuration/{configurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "configurationId": {
+            "type": "integer",
+            "description": "Configuration ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          }
+        },
+        "required": [
+          "cartId",
+          "configurationId",
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "cart_required_configuration",
+      "description": "cart required configuration",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/item/{itemId}/requiredConfiguration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "itemId": {
+            "type": "integer",
+            "description": "Item ID"
+          }
+        },
+        "required": [
+          "cartId",
+          "itemId"
+        ]
+      }
+    },
+    {
+      "name": "cart_vps_plans",
+      "description": "cart vps plans",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/vps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_vps_add",
+      "description": "cart vps add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/vps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string"
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "pricingMode": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "duration",
+          "planCode",
+          "pricingMode",
+          "quantity",
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "cart_vps_options",
+      "description": "cart vps options",
+      "method": "GET",
+      "path": "/order/cart/{cartId}/vps/options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          },
+          "planCode": {
+            "type": "string",
+            "description": "Identifier of the VPS you want to consult options"
+          }
+        },
+        "required": [
+          "cartId",
+          "planCode"
+        ]
+      },
+      "query_params": [
+        "planCode"
+      ]
+    },
+    {
+      "name": "cart_vps_option_add",
+      "description": "cart vps option add",
+      "method": "POST",
+      "path": "/order/cart/{cartId}/vps/options",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "integer"
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "pricingMode": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "cartId": {
+            "type": "string",
+            "description": "Cart ID"
+          }
+        },
+        "required": [
+          "duration",
+          "itemId",
+          "planCode",
+          "pricingMode",
+          "quantity",
+          "cartId"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_catalog",
+      "description": "dedicated catalog",
+      "method": "GET",
+      "path": "/order/catalog/public/baremetalServers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ]
+    },
+    {
+      "name": "public_cloud_catalog",
+      "description": "public cloud catalog",
+      "method": "GET",
+      "path": "/order/catalog/public/cloud",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ]
+    },
+    {
+      "name": "eco_catalog",
+      "description": "eco catalog",
+      "method": "GET",
+      "path": "/order/catalog/public/eco",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ]
+    },
+    {
+      "name": "vps_catalog",
+      "description": "vps catalog",
+      "method": "GET",
+      "path": "/order/catalog/public/vps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ]
+    },
+    {
+      "name": "get_account",
+      "description": "get account",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "order_get",
+      "description": "order get",
+      "method": "GET",
+      "path": "/me/order/{orderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "description": ""
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "order_details_list",
+      "description": "order details list",
+      "method": "GET",
+      "path": "/me/order/{orderId}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "description": ""
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "order_detail_get",
+      "description": "order detail get",
+      "method": "GET",
+      "path": "/me/order/{orderId}/details/{orderDetailId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderDetailId": {
+            "type": "integer",
+            "description": ""
+          },
+          "orderId": {
+            "type": "integer",
+            "description": ""
+          }
+        },
+        "required": [
+          "orderDetailId",
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "order_detail_extension",
+      "description": "order detail extension",
+      "method": "GET",
+      "path": "/me/order/{orderId}/details/{orderDetailId}/extension",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderDetailId": {
+            "type": "integer",
+            "description": ""
+          },
+          "orderId": {
+            "type": "integer",
+            "description": ""
+          }
+        },
+        "required": [
+          "orderDetailId",
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "order_status",
+      "description": "order status",
+      "method": "GET",
+      "path": "/me/order/{orderId}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "integer",
+            "description": ""
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "account_ssh_keys_list",
+      "description": "account ssh keys list",
+      "method": "GET",
+      "path": "/me/sshKey",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "account_ssh_key_create",
+      "description": "account ssh key create",
+      "method": "POST",
+      "path": "/me/sshKey",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "account_ssh_key_delete",
+      "description": "account ssh key delete",
+      "method": "DELETE",
+      "path": "/me/sshKey/{keyName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyName": {
+            "type": "string",
+            "description": "Name of this public SSH key"
+          }
+        },
+        "required": [
+          "keyName"
+        ]
+      }
+    },
+    {
+      "name": "account_ssh_key_get",
+      "description": "account ssh key get",
+      "method": "GET",
+      "path": "/me/sshKey/{keyName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyName": {
+            "type": "string",
+            "description": "Name of this public SSH key"
+          }
+        },
+        "required": [
+          "keyName"
+        ]
+      }
+    },
+    {
+      "name": "vps_list",
+      "description": "vps list",
+      "method": "GET",
+      "path": "/vps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iamTags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {}
+            },
+            "description": "Filter resources on IAM tags"
+          }
+        }
+      },
+      "query_params": [
+        "iamTags"
+      ]
+    },
+    {
+      "name": "vps_get",
+      "description": "vps get",
+      "method": "GET",
+      "path": "/vps/{serviceName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_update",
+      "description": "vps update",
+      "method": "PUT",
+      "path": "/vps/{serviceName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "keymap": {
+            "type": "string",
+            "enum": [
+              "fr",
+              "us"
+            ]
+          },
+          "netbootMode": {
+            "type": "string",
+            "enum": [
+              "distant",
+              "local",
+              "rescue"
+            ]
+          },
+          "slaMonitoring": {
+            "type": "boolean"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_upgrade_catalog",
+      "description": "vps upgrade catalog",
+      "method": "GET",
+      "path": "/vps/{serviceName}/availableUpgrade",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_termination_confirm",
+      "description": "vps termination confirm",
+      "method": "POST",
+      "path": "/vps/{serviceName}/confirmTermination",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentary": {
+            "type": "string"
+          },
+          "commentaryFutureUse": {
+            "type": "string"
+          },
+          "commentaryReason": {
+            "type": "string"
+          },
+          "futureUse": {
+            "type": "string",
+            "enum": [
+              "NOT_REPLACING_SERVICE",
+              "OTHER",
+              "SUBSCRIBE_AN_OTHER_SERVICE",
+              "SUBSCRIBE_OTHER_KIND_OF_SERVICE_WITH_COMPETITOR",
+              "SUBSCRIBE_SIMILAR_SERVICE_WITH_COMPETITOR"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "FEATURES_DONT_SUIT_ME",
+              "LACK_OF_PERFORMANCES",
+              "MIGRATED_TO_ANOTHER_OVH_PRODUCT",
+              "MIGRATED_TO_COMPETITOR",
+              "NOT_ENOUGH_RECOGNITION",
+              "NOT_NEEDED_ANYMORE",
+              "NOT_RELIABLE",
+              "NO_ANSWER",
+              "OTHER",
+              "PRODUCT_DIMENSION_DONT_SUIT_ME",
+              "PRODUCT_TOOLS_DONT_SUIT_ME",
+              "TOO_EXPENSIVE",
+              "TOO_HARD_TO_USE",
+              "UNSATIFIED_BY_CUSTOMER_SUPPORT"
+            ]
+          },
+          "token": {
+            "type": "string"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "token",
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_images_list",
+      "description": "vps images list",
+      "method": "GET",
+      "path": "/vps/{serviceName}/images/available",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_image_get",
+      "description": "vps image get",
+      "method": "GET",
+      "path": "/vps/{serviceName}/images/available/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "id",
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_image_current",
+      "description": "vps image current",
+      "method": "GET",
+      "path": "/vps/{serviceName}/images/current",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_ips",
+      "description": "vps ips",
+      "method": "GET",
+      "path": "/vps/{serviceName}/ips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_datacenter_availability",
+      "description": "vps datacenter availability",
+      "method": "GET",
+      "path": "/vps/order/rule/datacenter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "os": {
+            "type": "string",
+            "description": "VPS OS selection in order api"
+          },
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          },
+          "planCode": {
+            "type": "string",
+            "description": "VPS plan code from order api"
+          }
+        },
+        "required": [
+          "ovhSubsidiary",
+          "planCode"
+        ]
+      },
+      "query_params": [
+        "os",
+        "ovhSubsidiary",
+        "planCode"
+      ]
+    },
+    {
+      "name": "vps_reboot",
+      "description": "vps reboot",
+      "method": "POST",
+      "path": "/vps/{serviceName}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_rebuild",
+      "description": "vps rebuild",
+      "method": "POST",
+      "path": "/vps/{serviceName}/rebuild",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "doNotSendPassword": {
+            "type": "boolean"
+          },
+          "imageId": {
+            "type": "string"
+          },
+          "installRTM": {
+            "type": "boolean"
+          },
+          "postInstallScript": {
+            "type": "string"
+          },
+          "publicSshKey": {
+            "type": "string"
+          },
+          "sshKey": {
+            "type": "string"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "imageId",
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_service_info",
+      "description": "vps service info",
+      "method": "GET",
+      "path": "/vps/{serviceName}/serviceInfos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_service_update",
+      "description": "vps service update",
+      "method": "PUT",
+      "path": "/vps/{serviceName}/serviceInfos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "renew": {
+            "type": "object",
+            "properties": {
+              "automatic": {
+                "type": "boolean"
+              },
+              "deleteAtExpiration": {
+                "type": "boolean"
+              },
+              "forced": {
+                "type": "boolean"
+              },
+              "manualPayment": {
+                "type": "boolean"
+              },
+              "period": {
+                "type": "integer"
+              }
+            }
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_snapshot_delete",
+      "description": "vps snapshot delete",
+      "method": "DELETE",
+      "path": "/vps/{serviceName}/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_snapshot_get",
+      "description": "vps snapshot get",
+      "method": "GET",
+      "path": "/vps/{serviceName}/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_snapshot_create",
+      "description": "vps snapshot create",
+      "method": "PUT",
+      "path": "/vps/{serviceName}/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_snapshot_restore",
+      "description": "vps snapshot restore",
+      "method": "POST",
+      "path": "/vps/{serviceName}/snapshot/revert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_start",
+      "description": "vps start",
+      "method": "POST",
+      "path": "/vps/{serviceName}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_stop",
+      "description": "vps stop",
+      "method": "POST",
+      "path": "/vps/{serviceName}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_tasks",
+      "description": "vps tasks",
+      "method": "GET",
+      "path": "/vps/{serviceName}/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "blocked",
+              "cancelled",
+              "doing",
+              "done",
+              "error",
+              "paused",
+              "todo",
+              "waitingAck"
+            ],
+            "description": "Filter the value of state property (=)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "addVeeamBackupJob",
+              "changeRootPassword",
+              "createSnapshot",
+              "deleteSnapshot",
+              "deliverVm",
+              "getConsoleUrl",
+              "internalTask",
+              "migrate",
+              "openConsoleAccess",
+              "provisioningAdditionalIp",
+              "reOpenVm",
+              "rebootVm",
+              "reinstallVm",
+              "removeVeeamBackup",
+              "rescheduleAutoBackup",
+              "restoreFullVeeamBackup",
+              "restoreVeeamBackup",
+              "restoreVm",
+              "revertSnapshot",
+              "setMonitoring",
+              "setNetboot",
+              "startVm",
+              "stopVm",
+              "upgradeVm"
+            ],
+            "description": "Filter the value of type property (=)"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      },
+      "query_params": [
+        "state",
+        "type"
+      ]
+    },
+    {
+      "name": "vps_task_get",
+      "description": "vps task get",
+      "method": "GET",
+      "path": "/vps/{serviceName}/tasks/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Id"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "id",
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "vps_terminate",
+      "description": "vps terminate",
+      "method": "POST",
+      "path": "/vps/{serviceName}/terminate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "Service name"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_list",
+      "description": "dedicated list",
+      "method": "GET",
+      "path": "/dedicated/server",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iamTags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {}
+            },
+            "description": "Filter resources on IAM tags"
+          }
+        }
+      },
+      "query_params": [
+        "iamTags"
+      ]
+    },
+    {
+      "name": "dedicated_availability",
+      "description": "dedicated availability",
+      "method": "GET",
+      "path": "/dedicated/server/datacenter/availabilities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "datacenters": {
+            "type": "string",
+            "description": "The names of datacenters separated by commas"
+          },
+          "excludeDatacenters": {
+            "type": "boolean",
+            "description": "If true, all datacenters are returned except those listed in datacenters parameter"
+          },
+          "gpu": {
+            "type": "string",
+            "description": "The name of the gpu hardware part"
+          },
+          "memory": {
+            "type": "string",
+            "description": "The name of the memory hardware part"
+          },
+          "planCode": {
+            "type": "string",
+            "description": "The plan code in which the hardware is involved"
+          },
+          "server": {
+            "type": "string",
+            "description": "The name of the base hardware"
+          },
+          "storage": {
+            "type": "string",
+            "description": "The name of the storage hardware part"
+          },
+          "systemStorage": {
+            "type": "string",
+            "description": "The name of the system storage hardware part"
+          }
+        }
+      },
+      "query_params": [
+        "datacenters",
+        "excludeDatacenters",
+        "gpu",
+        "memory",
+        "planCode",
+        "server",
+        "storage",
+        "systemStorage"
+      ]
+    },
+    {
+      "name": "dedicated_region_availability",
+      "description": "dedicated region availability",
+      "method": "GET",
+      "path": "/dedicated/server/region/availabilities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "excludeRegions": {
+            "type": "boolean",
+            "description": "If true, all regions are returned except those listed in regions parameter"
+          },
+          "gpu": {
+            "type": "string",
+            "description": "The name of the gpu hardware part"
+          },
+          "memory": {
+            "type": "string",
+            "description": "The name of the memory hardware part"
+          },
+          "planCode": {
+            "type": "string",
+            "description": "The plan code in which the hardware is involved"
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ap-south-1",
+                "ap-southeast-sgp",
+                "ap-southeast-syd",
+                "ca-east-1",
+                "ca-east-bhs",
+                "eu-central-waw",
+                "eu-west-eri",
+                "eu-west-gra",
+                "eu-west-lim",
+                "eu-west-par",
+                "eu-west-rbx",
+                "eu-west-sbg",
+                "us-east-vin",
+                "us-west-hil"
+              ]
+            },
+            "description": "The names of regions"
+          },
+          "server": {
+            "type": "string",
+            "description": "The name of the base hardware"
+          },
+          "storage": {
+            "type": "string",
+            "description": "The name of the storage hardware part"
+          },
+          "systemStorage": {
+            "type": "string",
+            "description": "The name of the system storage hardware part"
+          }
+        }
+      },
+      "query_params": [
+        "excludeRegions",
+        "gpu",
+        "memory",
+        "planCode",
+        "regions",
+        "server",
+        "storage",
+        "systemStorage"
+      ]
+    },
+    {
+      "name": "dedicated_get",
+      "description": "dedicated get",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_update",
+      "description": "dedicated update",
+      "method": "PUT",
+      "path": "/dedicated/server/{serviceName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bootId": {
+            "type": "integer"
+          },
+          "bootScript": {
+            "type": "string"
+          },
+          "efiBootloaderPath": {
+            "type": "string"
+          },
+          "monitoring": {
+            "type": "boolean"
+          },
+          "noIntervention": {
+            "type": "boolean"
+          },
+          "rescueMail": {
+            "type": "string"
+          },
+          "rescueSshKey": {
+            "type": "string"
+          },
+          "rootDevice": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "error",
+              "hacked",
+              "hackedBlocked",
+              "ok"
+            ]
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_termination_confirm",
+      "description": "dedicated termination confirm",
+      "method": "POST",
+      "path": "/dedicated/server/{serviceName}/confirmTermination",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_compatible_images",
+      "description": "dedicated compatible images",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}/install/compatibleTemplates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_ips",
+      "description": "dedicated ips",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}/ips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_reboot",
+      "description": "dedicated reboot",
+      "method": "POST",
+      "path": "/dedicated/server/{serviceName}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_reinstall",
+      "description": "dedicated reinstall",
+      "method": "POST",
+      "path": "/dedicated/server/{serviceName}/reinstall",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customizations": {
+            "type": "object",
+            "properties": {
+              "appToInstall": {
+                "type": "string",
+                "enum": [
+                  "coolify",
+                  "discourse",
+                  "dokploy",
+                  "drupal",
+                  "easypanel",
+                  "fastpanel",
+                  "game-panel",
+                  "hestiacp",
+                  "matomo",
+                  "n8n",
+                  "nextcloud",
+                  "openclaw",
+                  "prestashop",
+                  "wordpress"
+                ]
+              },
+              "configDriveMetadata": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "configDriveUserData": {
+                "type": "string"
+              },
+              "efiBootloaderPath": {
+                "type": "string"
+              },
+              "enableLacpBonding": {
+                "type": "boolean"
+              },
+              "hostname": {
+                "type": "string"
+              },
+              "httpHeaders": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "imageCheckSum": {
+                "type": "string"
+              },
+              "imageCheckSumType": {
+                "type": "string",
+                "enum": [
+                  "md5",
+                  "sha1",
+                  "sha256",
+                  "sha512"
+                ]
+              },
+              "imageType": {
+                "type": "string",
+                "enum": [
+                  "qcow2",
+                  "raw"
+                ]
+              },
+              "imageURL": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string",
+                "enum": [
+                  "cs-cz",
+                  "de-de",
+                  "en-us",
+                  "es-es",
+                  "fr-fr",
+                  "it-it",
+                  "nl-nl",
+                  "pl-pl",
+                  "pt-pt"
+                ]
+              },
+              "nutanixConfiguration": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "postInstallationScript": {
+                "type": "string"
+              },
+              "postInstallationScriptExtension": {
+                "type": "string",
+                "enum": [
+                  "cmd",
+                  "ps1"
+                ]
+              },
+              "sshKey": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "operatingSystem": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "storage": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "diskGroupId": {
+                  "type": "integer"
+                },
+                "erase": {
+                  "type": "boolean"
+                },
+                "hardwareRaid": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "arrays": {
+                        "type": "integer"
+                      },
+                      "disks": {
+                        "type": "integer"
+                      },
+                      "raidLevel": {
+                        "type": "string",
+                        "enum": [
+                          0,
+                          1,
+                          5,
+                          6,
+                          10,
+                          50,
+                          60
+                        ]
+                      },
+                      "spares": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                },
+                "partitioning": {
+                  "type": "object",
+                  "properties": {
+                    "disks": {
+                      "type": "integer"
+                    },
+                    "layout": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "extras": {
+                            "type": "object",
+                            "properties": {
+                              "lv": {
+                                "type": "object"
+                              },
+                              "zp": {
+                                "type": "object"
+                              }
+                            }
+                          },
+                          "fileSystem": {
+                            "type": "string",
+                            "enum": [
+                              "btrfs",
+                              "ext3",
+                              "ext4",
+                              "fat16",
+                              "none",
+                              "ntfs",
+                              "reiserfs",
+                              "swap",
+                              "ufs",
+                              "vmfs5",
+                              "vmfs6",
+                              "vmfsl",
+                              "xfs",
+                              "zfs"
+                            ]
+                          },
+                          "mountPoint": {
+                            "type": "string"
+                          },
+                          "raidLevel": {
+                            "type": "string",
+                            "enum": [
+                              0,
+                              1,
+                              5,
+                              6,
+                              7,
+                              10
+                            ]
+                          },
+                          "size": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "fileSystem",
+                          "mountPoint"
+                        ]
+                      }
+                    },
+                    "schemeName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "operatingSystem",
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_service_info",
+      "description": "dedicated service info",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}/serviceInfos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_service_update",
+      "description": "dedicated service update",
+      "method": "PUT",
+      "path": "/dedicated/server/{serviceName}/serviceInfos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "renew": {
+            "type": "object",
+            "properties": {
+              "automatic": {
+                "type": "boolean"
+              },
+              "deleteAtExpiration": {
+                "type": "boolean"
+              },
+              "forced": {
+                "type": "boolean"
+              },
+              "manualPayment": {
+                "type": "boolean"
+              },
+              "period": {
+                "type": "integer"
+              }
+            }
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_tasks",
+      "description": "dedicated tasks",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}/task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function": {
+            "type": "string",
+            "enum": [
+              "INFRA_002_VirtualNetworkInterface",
+              "INFRA_002_VirtualNetworkInterface_group",
+              "INFRA_002_VirtualNetworkInterface_ungroup",
+              "INFRA_ONE_NETWORK_ONEAPI_VirtualNetworkInterface_group",
+              "INFRA_ONE_NETWORK_ONEAPI_VirtualNetworkInterface_ungroup",
+              "INFRA_ONE_NETWORK_VirtualNetworkInterface_group",
+              "INFRA_ONE_NETWORK_VirtualNetworkInterface_ungroup",
+              "addVirtualMac",
+              "addWindowSplaFromExistingSerial",
+              "applyBackupFtpAcls",
+              "applyBackupFtpQuota",
+              "bypassAntiDDosGame",
+              "changePasswordBackupFTP",
+              "changeRipeOrg",
+              "checkAndReleaseIp",
+              "createBackupFTP",
+              "createOrUpdateRipeOrg",
+              "createPrivateNetwork",
+              "disableFirewall",
+              "enableFirewall",
+              "genericMoveFloatingIp",
+              "hardReboot",
+              "hardware_update",
+              "ipmi/configureSGX",
+              "migrateBackupFTP",
+              "moveFloatingIp",
+              "moveVirtualMac",
+              "reagregateBlock",
+              "rebootPower8To",
+              "reinstallServer",
+              "releaseIp",
+              "removeBackupFTP",
+              "removeVirtualMac",
+              "requestAccessIPMI",
+              "resetIPMI",
+              "resetIPMISession",
+              "testIPMIhttp",
+              "testIPMIpassword",
+              "testIPMIping",
+              "virtualMacAdd",
+              "virtualMacDelete"
+            ],
+            "description": "Filter the value of function property (=)"
+          },
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "cancelled",
+              "customerError",
+              "doing",
+              "done",
+              "init",
+              "ovhError",
+              "todo"
+            ],
+            "description": "Filter the value of status property (=)"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      },
+      "query_params": [
+        "function",
+        "status"
+      ]
+    },
+    {
+      "name": "dedicated_task_get",
+      "description": "dedicated task get",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}/task/{taskId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          },
+          "taskId": {
+            "type": "integer",
+            "description": "the id of the task"
+          }
+        },
+        "required": [
+          "serviceName",
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_terminate",
+      "description": "dedicated terminate",
+      "method": "POST",
+      "path": "/dedicated/server/{serviceName}/terminate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_images_list",
+      "description": "dedicated images list",
+      "method": "GET",
+      "path": "/dedicated/installationTemplate",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "dedicated_images_info",
+      "description": "dedicated images info",
+      "method": "GET",
+      "path": "/dedicated/installationTemplate/templateInfos",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "dedicated_image_get",
+      "description": "dedicated image get",
+      "method": "GET",
+      "path": "/dedicated/installationTemplate/{templateName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateName": {
+            "type": "string",
+            "description": "This template name"
+          }
+        },
+        "required": [
+          "templateName"
+        ]
+      }
+    },
+    {
+      "name": "resize_instance",
+      "description": "resize instance",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}/resize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flavorId": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "flavorId",
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "instance_snapshot_create",
+      "description": "instance snapshot create",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/instance/{instanceId}/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snapshotName": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string",
+            "description": "Instance ID"
+          }
+        },
+        "required": [
+          "snapshotName",
+          "instanceId"
+        ]
+      }
+    },
+    {
+      "name": "create_regional_instance",
+      "description": "create regional instance",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/instance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "autobackup": {
+            "type": "object",
+            "properties": {
+              "cron": {
+                "type": "string"
+              },
+              "distantImageName": {
+                "type": "string"
+              },
+              "distantRegionName": {
+                "type": "string"
+              },
+              "imageName": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "rotation": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cron",
+              "rotation"
+            ]
+          },
+          "availabilityZone": {
+            "type": "string"
+          },
+          "billingPeriod": {
+            "type": "string",
+            "enum": [
+              "hourly",
+              "monthly"
+            ]
+          },
+          "bootFrom": {
+            "type": "object",
+            "properties": {
+              "imageId": {
+                "type": "string"
+              },
+              "imageRegionName": {
+                "type": "string"
+              },
+              "volumeId": {
+                "type": "string"
+              }
+            }
+          },
+          "bulk": {
+            "type": "integer"
+          },
+          "flavor": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "group": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "type": "object",
+            "properties": {
+              "private": {
+                "type": "object",
+                "properties": {
+                  "floatingIp": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "floatingIpCreate": {
+                    "type": "object",
+                    "properties": {
+                      "description": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "gateway": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "gatewayCreate": {
+                    "type": "object",
+                    "properties": {
+                      "model": {
+                        "type": "string",
+                        "enum": [
+                          "l",
+                          "m",
+                          "s"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "ip": {
+                    "type": "string"
+                  },
+                  "network": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "subnetId": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "networkCreate": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "subnet": {
+                        "type": "object",
+                        "properties": {
+                          "cidr": {
+                            "type": "string"
+                          },
+                          "dnsNameServers": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "enableDhcp": {
+                            "type": "boolean"
+                          },
+                          "enableGatewayIP": {
+                            "type": "boolean"
+                          },
+                          "ipVersion": {
+                            "type": "integer"
+                          }
+                        }
+                      },
+                      "vlanId": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              },
+              "public": {
+                "type": "boolean"
+              }
+            }
+          },
+          "sshKey": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "sshKeyCreate": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "publicKey": {
+                "type": "string"
+              }
+            }
+          },
+          "userData": {
+            "type": "string"
+          },
+          "volume": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "classic",
+                  "classic-luks",
+                  "classic-multiattach",
+                  "high-speed",
+                  "high-speed-gen2",
+                  "high-speed-gen2-luks",
+                  "high-speed-luks"
+                ]
+              }
+            }
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          }
+        },
+        "required": [
+          "billingPeriod",
+          "bootFrom",
+          "flavor",
+          "network",
+          "regionName"
+        ]
+      }
+    },
+    {
+      "name": "get_regional_instance",
+      "description": "get regional instance",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/instance/{instanceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "description": "Return instance even if it is deleted"
+          },
+          "instanceId": {
+            "type": "string",
+            "description": "Instance ID"
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          },
+          "withBackups": {
+            "type": "boolean",
+            "description": "Add backup information in response"
+          },
+          "withImage": {
+            "type": "boolean",
+            "description": "Add image information in response"
+          },
+          "withNetworks": {
+            "type": "boolean",
+            "description": "Add network information in response"
+          },
+          "withVolumes": {
+            "type": "boolean",
+            "description": "Add volume information in response"
+          }
+        },
+        "required": [
+          "instanceId",
+          "regionName"
+        ]
+      },
+      "query_params": [
+        "deleted",
+        "withBackups",
+        "withImage",
+        "withNetworks",
+        "withVolumes"
+      ]
+    },
+    {
+      "name": "object_buckets_list",
+      "description": "object buckets list",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/storage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          }
+        },
+        "required": [
+          "regionName"
+        ]
+      }
+    },
+    {
+      "name": "object_bucket_create",
+      "description": "object bucket create",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/storage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "encryption": {
+            "type": "object",
+            "properties": {
+              "sseAlgorithm": {
+                "type": "string",
+                "enum": [
+                  "AES256",
+                  "plaintext"
+                ]
+              }
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "abortIncompleteMultipartUpload": {
+                      "type": "object",
+                      "properties": {
+                        "daysAfterInitiation": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "daysAfterInitiation"
+                      ]
+                    },
+                    "expiration": {
+                      "type": "object",
+                      "properties": {
+                        "date": {
+                          "type": "string"
+                        },
+                        "days": {
+                          "type": "integer"
+                        },
+                        "expiredObjectDeleteMarker": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "filter": {
+                      "type": "object",
+                      "properties": {
+                        "objectSizeGreaterThan": {
+                          "type": "integer"
+                        },
+                        "objectSizeLessThan": {
+                          "type": "integer"
+                        },
+                        "prefix": {
+                          "type": "string"
+                        },
+                        "tags": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "noncurrentVersionExpiration": {
+                      "type": "object",
+                      "properties": {
+                        "newerNoncurrentVersions": {
+                          "type": "integer"
+                        },
+                        "noncurrentDays": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "noncurrentVersionTransitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "newerNoncurrentVersions": {
+                            "type": "integer"
+                          },
+                          "noncurrentDays": {
+                            "type": "integer"
+                          },
+                          "storageClass": {
+                            "type": "string",
+                            "enum": [
+                              "DEEP_ARCHIVE",
+                              "GLACIER_IR",
+                              "HIGH_PERF",
+                              "STANDARD",
+                              "STANDARD_IA"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "enabled"
+                      ]
+                    },
+                    "transitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string"
+                          },
+                          "days": {
+                            "type": "integer"
+                          },
+                          "storageClass": {
+                            "type": "string",
+                            "enum": [
+                              "DEEP_ARCHIVE",
+                              "GLACIER_IR",
+                              "STANDARD",
+                              "STANDARD_IA"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "rules"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "objectLock": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "compliance",
+                      "governance"
+                    ]
+                  },
+                  "period": {
+                    "type": "string"
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "enabled"
+                ]
+              }
+            }
+          },
+          "ownerId": {
+            "type": "integer"
+          },
+          "replication": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "deleteMarkerReplication": {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "enabled"
+                      ]
+                    },
+                    "destination": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "string"
+                        },
+                        "storageClass": {
+                          "type": "string",
+                          "enum": [
+                            "DEEP_ARCHIVE",
+                            "GLACIER",
+                            "GLACIER_IR",
+                            "HIGH_PERF",
+                            "INTELLIGENT_TIERING",
+                            "ONEZONE_IA",
+                            "STANDARD",
+                            "STANDARD_IA"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "region"
+                      ]
+                    },
+                    "filter": {
+                      "type": "object",
+                      "properties": {
+                        "prefix": {
+                          "type": "string"
+                        },
+                        "tags": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "enabled"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "versioning": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "enabled",
+                  "suspended"
+                ]
+              }
+            }
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          }
+        },
+        "required": [
+          "name",
+          "regionName"
+        ]
+      }
+    },
+    {
+      "name": "object_bucket_delete",
+      "description": "object bucket delete",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/storage/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name"
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          }
+        },
+        "required": [
+          "name",
+          "regionName"
+        ]
+      }
+    },
+    {
+      "name": "object_bucket_get",
+      "description": "object bucket get",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/storage/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Limit the number of objects returned (1000 maximum, defaults to 1000)"
+          },
+          "marker": {
+            "type": "string",
+            "description": "Key to start with when listing objects"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name"
+          },
+          "noObjects": {
+            "type": "boolean",
+            "description": "Do not return container objects"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "List objects whose key begins with this prefix"
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          }
+        },
+        "required": [
+          "name",
+          "regionName"
+        ]
+      },
+      "query_params": [
+        "limit",
+        "marker",
+        "noObjects",
+        "prefix"
+      ]
+    },
+    {
+      "name": "object_bucket_update",
+      "description": "object bucket update",
+      "method": "PUT",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/storage/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "encryption": {
+            "type": "object",
+            "properties": {
+              "sseAlgorithm": {
+                "type": "string",
+                "enum": [
+                  "AES256",
+                  "plaintext"
+                ]
+              }
+            }
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "abortIncompleteMultipartUpload": {
+                      "type": "object",
+                      "properties": {
+                        "daysAfterInitiation": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "daysAfterInitiation"
+                      ]
+                    },
+                    "expiration": {
+                      "type": "object",
+                      "properties": {
+                        "date": {
+                          "type": "string"
+                        },
+                        "days": {
+                          "type": "integer"
+                        },
+                        "expiredObjectDeleteMarker": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "filter": {
+                      "type": "object",
+                      "properties": {
+                        "objectSizeGreaterThan": {
+                          "type": "integer"
+                        },
+                        "objectSizeLessThan": {
+                          "type": "integer"
+                        },
+                        "prefix": {
+                          "type": "string"
+                        },
+                        "tags": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "noncurrentVersionExpiration": {
+                      "type": "object",
+                      "properties": {
+                        "newerNoncurrentVersions": {
+                          "type": "integer"
+                        },
+                        "noncurrentDays": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "noncurrentVersionTransitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "newerNoncurrentVersions": {
+                            "type": "integer"
+                          },
+                          "noncurrentDays": {
+                            "type": "integer"
+                          },
+                          "storageClass": {
+                            "type": "string",
+                            "enum": [
+                              "DEEP_ARCHIVE",
+                              "GLACIER_IR",
+                              "HIGH_PERF",
+                              "STANDARD",
+                              "STANDARD_IA"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "enabled"
+                      ]
+                    },
+                    "transitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string"
+                          },
+                          "days": {
+                            "type": "integer"
+                          },
+                          "storageClass": {
+                            "type": "string",
+                            "enum": [
+                              "DEEP_ARCHIVE",
+                              "GLACIER_IR",
+                              "STANDARD",
+                              "STANDARD_IA"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "rules"
+            ]
+          },
+          "objectLock": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "compliance",
+                      "governance"
+                    ]
+                  },
+                  "period": {
+                    "type": "string"
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "enabled"
+                ]
+              }
+            }
+          },
+          "replication": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "deleteMarkerReplication": {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "enabled"
+                      ]
+                    },
+                    "destination": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "string"
+                        },
+                        "storageClass": {
+                          "type": "string",
+                          "enum": [
+                            "DEEP_ARCHIVE",
+                            "GLACIER",
+                            "GLACIER_IR",
+                            "HIGH_PERF",
+                            "INTELLIGENT_TIERING",
+                            "ONEZONE_IA",
+                            "STANDARD",
+                            "STANDARD_IA"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "region"
+                      ]
+                    },
+                    "filter": {
+                      "type": "object",
+                      "properties": {
+                        "prefix": {
+                          "type": "string"
+                        },
+                        "tags": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "enabled"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "tags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "versioning": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "enabled",
+                  "suspended"
+                ]
+              }
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Name"
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          }
+        },
+        "required": [
+          "name",
+          "regionName"
+        ]
+      }
+    },
+    {
+      "name": "object_bucket_policy_set",
+      "description": "object bucket policy set",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/region/{regionName}/storage/{name}/policy/{userId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "objectKey": {
+            "type": "string"
+          },
+          "roleName": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "deny",
+              "readOnly",
+              "readWrite"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Name"
+          },
+          "regionName": {
+            "type": "string",
+            "description": "Region name"
+          },
+          "userId": {
+            "type": "string",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "roleName",
+          "name",
+          "regionName",
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "create_ssh_key",
+      "description": "create ssh key",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/sshkey",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "publicKey"
+        ]
+      }
+    },
+    {
+      "name": "delete_ssh_key",
+      "description": "delete ssh key",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/sshkey/{keyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "description": "Key ID"
+          }
+        },
+        "required": [
+          "keyId"
+        ]
+      }
+    },
+    {
+      "name": "get_ssh_key",
+      "description": "get ssh key",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/sshkey/{keyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "description": "Key ID"
+          }
+        },
+        "required": [
+          "keyId"
+        ]
+      }
+    },
+    {
+      "name": "object_users_list",
+      "description": "object users list",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "object_user_create",
+      "description": "object user create",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "administrator",
+              "ai_training_operator",
+              "ai_training_read",
+              "authentication",
+              "backup_operator",
+              "compute_operator",
+              "image_operator",
+              "infrastructure_supervisor",
+              "key-manager_operator",
+              "key-manager_read",
+              "load-balancer_operator",
+              "network_operator",
+              "network_security_operator",
+              "objectstore_operator",
+              "quantum_operator",
+              "quantum_reader",
+              "share_operator",
+              "volume_operator"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "administrator",
+                "ai_training_operator",
+                "ai_training_read",
+                "authentication",
+                "backup_operator",
+                "compute_operator",
+                "image_operator",
+                "infrastructure_supervisor",
+                "key-manager_operator",
+                "key-manager_read",
+                "load-balancer_operator",
+                "network_operator",
+                "network_security_operator",
+                "objectstore_operator",
+                "quantum_operator",
+                "quantum_reader",
+                "share_operator",
+                "volume_operator"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "object_user_delete",
+      "description": "object user delete",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_user_get",
+      "description": "object user get",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_credentials_list",
+      "description": "object credentials list",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/s3Credentials",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_credentials_create",
+      "description": "object credentials create",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/s3Credentials",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_credentials_delete",
+      "description": "object credentials delete",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/s3Credentials/{access}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "string",
+            "description": "Access"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "access",
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_credentials_get",
+      "description": "object credentials get",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/s3Credentials/{access}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "string",
+            "description": "Access"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "access",
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_credentials_secret",
+      "description": "object credentials secret",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/s3Credentials/{access}/secret",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "string",
+            "description": "Access"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "access",
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "volume_snapshots_list",
+      "description": "volume snapshots list",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/volume/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": {
+            "type": "string",
+            "description": "Snapshots region"
+          }
+        }
+      },
+      "query_params": [
+        "region"
+      ]
+    },
+    {
+      "name": "volume_snapshot_delete",
+      "description": "volume snapshot delete",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/volume/snapshot/{snapshotId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "string",
+            "description": "Snapshot ID"
+          }
+        },
+        "required": [
+          "snapshotId"
+        ]
+      }
+    },
+    {
+      "name": "volume_snapshot_get",
+      "description": "volume snapshot get",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/volume/snapshot/{snapshotId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "snapshotId": {
+            "type": "string",
+            "description": "Snapshot ID"
+          }
+        },
+        "required": [
+          "snapshotId"
+        ]
+      }
+    },
+    {
+      "name": "dedicated_hardware",
+      "description": "dedicated hardware",
+      "method": "GET",
+      "path": "/dedicated/server/{serviceName}/specifications/hardware",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serviceName": {
+            "type": "string",
+            "description": "The internal name of your dedicated server"
+          }
+        },
+        "required": [
+          "serviceName"
+        ]
+      }
+    },
+    {
+      "name": "get_region_operation",
+      "description": "get region operation",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/operation/{operationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "description": "Operation ID"
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      }
+    },
+    {
+      "name": "instance_snapshot_delete",
+      "description": "instance snapshot delete",
+      "method": "DELETE",
+      "path": "/cloud/project/{{credential.service_name}}/snapshot/{imageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imageId": {
+            "type": "string",
+            "description": "Image ID"
+          }
+        },
+        "required": [
+          "imageId"
+        ]
+      }
+    },
+    {
+      "name": "instance_snapshot_get",
+      "description": "instance snapshot get",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/snapshot/{imageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "imageId": {
+            "type": "string",
+            "description": "Image ID"
+          }
+        },
+        "required": [
+          "imageId"
+        ]
+      }
+    },
+    {
+      "name": "object_user_policy_get",
+      "description": "object user policy get",
+      "method": "GET",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/policy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "object_user_policy_set",
+      "description": "object user policy set",
+      "method": "POST",
+      "path": "/cloud/project/{{credential.service_name}}/user/{userId}/policy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "User ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "vps_catalog_download",
+      "description": "Download the full vps product catalog as a binary envelope containing UTF-8 JSON. Use for catalogs exceeding the normal JSON response limit; consumers must enforce a decoded-size bound.",
+      "method": "GET",
+      "path": "/order/catalog/public/vps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ],
+      "response_type": "binary"
+    },
+    {
+      "name": "dedicated_catalog_download",
+      "description": "Download the full dedicated product catalog as a binary envelope containing UTF-8 JSON. Use for catalogs exceeding the normal JSON response limit; consumers must enforce a decoded-size bound.",
+      "method": "GET",
+      "path": "/order/catalog/public/baremetalServers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ],
+      "response_type": "binary"
+    },
+    {
+      "name": "eco_catalog_download",
+      "description": "Download the full eco product catalog as a binary envelope containing UTF-8 JSON. Use for catalogs exceeding the normal JSON response limit; consumers must enforce a decoded-size bound.",
+      "method": "GET",
+      "path": "/order/catalog/public/eco",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ovhSubsidiary": {
+            "type": "string",
+            "description": "Billing subsidiary returned by get_account on the selected EU, CA or US API endpoint. Supported values depend on that endpoint."
+          }
+        },
+        "required": [
+          "ovhSubsidiary"
+        ]
+      },
+      "query_params": [
+        "ovhSubsidiary"
+      ],
+      "response_type": "binary"
     }
   ]
 }

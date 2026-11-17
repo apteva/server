@@ -1,0 +1,34 @@
+{
+  "slug": "ko-fi",
+  "name": "Ko-fi",
+  "description": "Ko-fi creator-commerce webhook integration for payment, donation, shop order, membership, and commission notifications. Ko-fi does not expose a full public catalog/product API for agents to create products or upload audio files.",
+  "logo": "https://www.google.com/s2/favicons?domain=ko-fi.com&sz=128",
+  "categories": ["payments", "commerce", "creator-economy", "donations", "memberships", "webhooks"],
+  "base_url": "https://ko-fi.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      {
+        "name": "verificationToken",
+        "label": "Verification Token",
+        "required": false,
+        "description": "Optional Ko-fi verification token used to match incoming webhook payloads."
+      }
+    ]
+  },
+  "tools": [],
+  "webhooks": {
+    "signature_header": "",
+    "registration": {
+      "manual_setup": "Copy the Apteva webhook URL into Ko-fi's API/Webhooks settings. Ko-fi webhook setup is manual; this integration stores the optional verification token for matching incoming payment payloads."
+    },
+    "events": [
+      { "name": "payment", "description": "A Ko-fi payment notification such as donation, membership, shop order, or commission, depending on enabled Ko-fi features." },
+      { "name": "donation", "description": "A donation-style Ko-fi payment." },
+      { "name": "membership", "description": "A Ko-fi membership payment." },
+      { "name": "shop_order", "description": "A Ko-fi shop order payment." },
+      { "name": "commission", "description": "A Ko-fi commission payment." }
+    ]
+  }
+}

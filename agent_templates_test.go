@@ -11,7 +11,7 @@ import (
 	sdk "github.com/apteva/app-sdk"
 )
 
-func TestBuiltinAgentTemplatesExposeHighlightsAndAreReadOnly(t *testing.T) {
+func TestBuiltinAgentTemplatesExposeAppsAndAreReadOnly(t *testing.T) {
 	s := newTestServer(t)
 	ensureTestAdmin(t, s)
 	if _, err := s.store.db.Exec(`INSERT INTO users(id,email,password_hash,role) VALUES(2,'templates@test.local','hash','user')`); err != nil {
@@ -22,18 +22,18 @@ func TestBuiltinAgentTemplatesExposeHighlightsAndAreReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var github *AgentTemplate
+	var starter *AgentTemplate
 	for i := range list {
-		if list[i].ID == "github-helper" {
-			github = &list[i]
+		if list[i].ID == "preset:personal-assistant:assistant" {
+			starter = &list[i]
 			break
 		}
 	}
-	if github == nil || len(github.Highlights) < 2 {
-		t.Fatalf("github template is missing capability highlights: %+v", github)
+	if starter == nil || len(starter.RecommendedApps) < 2 {
+		t.Fatalf("starter template is missing app capabilities: %+v", starter)
 	}
 
-	req := authedRequest(t, http.MethodPut, "/agent-templates/github-helper", "", map[string]any{
+	req := authedRequest(t, http.MethodPut, "/agent-templates/preset:personal-assistant:assistant", "", map[string]any{
 		"name": "Changed", "directive": "Changed globally.", "mode": "learn",
 	})
 	req.Header.Set("X-User-ID", "2")

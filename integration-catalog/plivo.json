@@ -1,0 +1,517 @@
+{
+  "slug": "plivo",
+  "name": "Plivo",
+  "description": "Plivo Voice API for inbound and outbound AI calls, phone-number inventory, Voice Applications, signed call control, bidirectional audio streaming, and cloud recordings.",
+  "logo": "https://www.google.com/s2/favicons?domain=plivo.com&sz=128",
+  "categories": [
+    "voice",
+    "calls",
+    "telephony",
+    "phone",
+    "communications",
+    "numbers",
+    "ai"
+  ],
+  "base_url": "https://api.plivo.com/v1/Account/{{auth_id}}",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "username",
+        "label": "Auth ID",
+        "description": "Plivo Auth ID. Also used as the HTTP Basic username.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Auth Token",
+        "description": "Plivo Auth Token. Also used as the HTTP Basic password.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "auth_id",
+        "label": "Auth ID",
+        "description": "Same Plivo Auth ID, used in REST paths.",
+        "required": true
+      },
+      {
+        "name": "phone_number",
+        "label": "Default From Number",
+        "description": "Default Plivo phone number to call from, in E.164 format."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_calls",
+    "input": {
+      "limit": 1
+    }
+  },
+  "tools": [
+    {
+      "name": "search_phone_numbers",
+      "description": "Search Plivo phone-number inventory by country, type, capability, region, city, or number pattern.",
+      "method": "GET",
+      "path": "/PhoneNumber/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_iso": { "type": "string", "description": "ISO alpha-2 country code." },
+          "type": { "type": "string", "enum": ["local", "mobile", "national", "tollfree"] },
+          "services": { "type": "string", "description": "Required capabilities, e.g. voice or voice,sms." },
+          "pattern": { "type": "string", "description": "Optional number pattern." },
+          "region": { "type": "string" },
+          "city": { "type": "string" },
+          "limit": { "type": "integer", "default": 20 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["country_iso"]
+      }
+    },
+    {
+      "name": "get_number_pricing",
+      "description": "Retrieve Plivo account pricing for number rental, setup, and inbound voice in one country.",
+      "method": "GET",
+      "path": "/Pricing/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country_iso": { "type": "string", "description": "ISO alpha-2 country code." }
+        },
+        "required": ["country_iso"]
+      }
+    },
+    {
+      "name": "buy_phone_number",
+      "description": "Rent an available Plivo phone number. This creates a recurring charge.",
+      "method": "POST",
+      "path": "/PhoneNumber/{number}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number": { "type": "string", "description": "Available phone number from search results." },
+          "app_id": { "type": "string", "description": "Optional Plivo application id to assign." }
+        },
+        "required": ["number"]
+      }
+    },
+    {
+      "name": "list_owned_phone_numbers",
+      "description": "List phone numbers rented by this Plivo account, including their assigned Voice applications.",
+      "method": "GET",
+      "path": "/Number/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number_startswith": { "type": "string" },
+          "subaccount": { "type": "string" },
+          "services": { "type": "string" },
+          "type": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_owned_phone_number",
+      "description": "Retrieve one phone number rented by this Plivo account.",
+      "method": "GET",
+      "path": "/Number/{number}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "number": { "type": "string" } },
+        "required": ["number"]
+      }
+    },
+    {
+      "name": "update_owned_phone_number",
+      "description": "Assign a Plivo Application or alias to a rented phone number.",
+      "method": "POST",
+      "path": "/Number/{number}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "number": { "type": "string" },
+          "app_id": { "type": "string" },
+          "alias": { "type": "string" },
+          "subaccount": { "type": "string" }
+        },
+        "required": ["number"]
+      }
+    },
+    {
+      "name": "create_application",
+      "description": "Create a Plivo Voice Application for inbound call control.",
+      "method": "POST",
+      "path": "/Application/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "answer_url": { "type": "string" },
+          "answer_method": { "type": "string", "enum": ["GET", "POST"] },
+          "hangup_url": { "type": "string" },
+          "hangup_method": { "type": "string", "enum": ["GET", "POST"] },
+          "fallback_answer_url": { "type": "string" },
+          "fallback_method": { "type": "string", "enum": ["GET", "POST"] }
+        },
+        "required": ["app_name", "answer_url"]
+      }
+    },
+    {
+      "name": "get_application",
+      "description": "Retrieve a Plivo Voice Application.",
+      "method": "GET",
+      "path": "/Application/{app_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "delete_application",
+      "description": "Delete a Plivo Voice Application.",
+      "method": "DELETE",
+      "path": "/Application/{app_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "make_call",
+      "description": "Place an outbound Plivo call. For AI voice agents, answer_url should return Plivo XML with a bidirectional <Stream> element pointing to the Telephony WebSocket.",
+      "method": "POST",
+      "path": "/Call/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Plivo number to call from, in E.164 format."
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination phone number in E.164 format."
+          },
+          "answer_url": {
+            "type": "string",
+            "description": "HTTPS URL returning Plivo XML call-control instructions."
+          },
+          "answer_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "hangup_url": {
+            "type": "string"
+          },
+          "hangup_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "ring_url": {
+            "type": "string",
+            "description": "HTTPS callback invoked when the destination starts ringing; includes the live CallUUID."
+          },
+          "ring_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "time_limit": {
+            "type": "integer"
+          },
+          "ring_timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "answer_url"
+        ]
+      },
+      "mock_response": {
+        "api_id": "mock-api-id",
+        "message": "call fired",
+        "request_uuid": "mock-request-uuid"
+      }
+    },
+    {
+      "name": "update_call",
+      "description": "Redirect or transfer an active Plivo call by making it fetch new XML.",
+      "method": "POST",
+      "path": "/Call/{call_uuid}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          },
+          "legs": {
+            "type": "string",
+            "enum": [
+              "aleg",
+              "bleg",
+              "both"
+            ],
+            "default": "aleg"
+          },
+          "aleg_url": {
+            "type": "string"
+          },
+          "aleg_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          },
+          "bleg_url": {
+            "type": "string"
+          },
+          "bleg_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "hangup_call",
+      "description": "Hang up an active Plivo call.",
+      "method": "DELETE",
+      "path": "/Call/{call_uuid}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_uuid"
+        ]
+      }
+    },
+    {
+      "name": "start_stream",
+      "description": "Start an audio stream on an active Plivo call using the Audio Streams API.",
+      "method": "POST",
+      "path": "/Call/{call_uuid}/Stream/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          },
+          "service_url": {
+            "type": "string",
+            "description": "WebSocket URL that receives call audio."
+          },
+          "bidirectional": {
+            "type": "boolean",
+            "default": true
+          },
+          "audio_track": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "default": "inbound"
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Audio content type, for example audio/x-mulaw;rate=8000."
+          },
+          "status_callback_url": {
+            "type": "string"
+          },
+          "status_callback_method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST"
+          },
+          "stream_timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "default": 86400
+          },
+          "extra_headers": {
+            "type": "string",
+            "description": "Comma-separated custom headers, for example key1=value1,key2=value2."
+          },
+          "noise_cancellation": {
+            "type": "string",
+            "enum": [
+              "true",
+              "false"
+            ],
+            "default": "false"
+          },
+          "noise_cancellation_level": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 100,
+            "default": 85
+          }
+        },
+        "required": [
+          "call_uuid",
+          "service_url"
+        ]
+      }
+    },
+    {
+      "name": "stop_stream",
+      "description": "Stop one Plivo audio stream.",
+      "method": "DELETE",
+      "path": "/Call/{call_uuid}/Stream/{stream_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": {
+            "type": "string"
+          },
+          "stream_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_uuid",
+          "stream_id"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List Plivo calls.",
+      "method": "GET",
+      "path": "/Call/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_number": {
+            "type": "string"
+          },
+          "to_number": {
+            "type": "string"
+          },
+          "call_direction": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List Plivo call recordings, optionally filtered by call UUID.",
+      "method": "GET",
+      "path": "/Recording/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_uuid": { "type": "string" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_recording",
+      "description": "Retrieve a Plivo call recording and its media URL.",
+      "method": "GET",
+      "path": "/Recording/{recording_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "recording_id": { "type": "string" } },
+        "required": ["recording_id"]
+      }
+    },
+    {
+      "name": "delete_recording",
+      "description": "Delete a Plivo call recording.",
+      "method": "DELETE",
+      "path": "/Recording/{recording_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "recording_id": { "type": "string" } },
+        "required": ["recording_id"]
+      }
+    },
+    { "name": "list_applications", "description": "List Plivo voice applications.", "method": "GET", "path": "/Application/", "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "update_application", "description": "Update an application's voice and messaging webhook configuration.", "method": "POST", "path": "/Application/{app_id}/", "input_schema": { "type": "object", "properties": { "app_id": { "type": "string" }, "app_name": { "type": "string" }, "answer_url": { "type": "string" }, "answer_method": { "type": "string", "enum": ["GET", "POST"] }, "hangup_url": { "type": "string" }, "hangup_method": { "type": "string", "enum": ["GET", "POST"] }, "fallback_answer_url": { "type": "string" }, "message_url": { "type": "string" }, "default_number_app": { "type": "boolean" }, "default_endpoint_app": { "type": "boolean" } }, "required": ["app_id"] } },
+    { "name": "get_call", "description": "Get one live or completed Plivo call by call UUID.", "method": "GET", "path": "/Call/{call_uuid}/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" } }, "required": ["call_uuid"] } },
+    { "name": "start_call_recording", "description": "Start recording a live call.", "method": "POST", "path": "/Call/{call_uuid}/Record/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" }, "time_limit": { "type": "integer" }, "file_format": { "type": "string", "enum": ["mp3", "wav"] }, "transcription_type": { "type": "string", "enum": ["auto"] }, "transcription_url": { "type": "string" }, "callback_url": { "type": "string" }, "callback_method": { "type": "string", "enum": ["GET", "POST"] } }, "required": ["call_uuid"] } },
+    { "name": "stop_call_recording", "description": "Stop recording a live call.", "method": "DELETE", "path": "/Call/{call_uuid}/Record/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" } }, "required": ["call_uuid"] } },
+    { "name": "play_audio_on_call", "description": "Play one or more audio URLs into a live call.", "method": "POST", "path": "/Call/{call_uuid}/Play/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" }, "urls": { "type": "array", "items": { "type": "string" } }, "length": { "type": "integer" }, "legs": { "type": "string", "enum": ["aleg", "bleg", "both"] }, "loop": { "type": "boolean" }, "mix": { "type": "boolean" } }, "required": ["call_uuid", "urls"] } },
+    { "name": "stop_audio_on_call", "description": "Stop audio playing on a live call.", "method": "DELETE", "path": "/Call/{call_uuid}/Play/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" } }, "required": ["call_uuid"] } },
+    { "name": "speak_on_call", "description": "Speak text into a live call.", "method": "POST", "path": "/Call/{call_uuid}/Speak/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" }, "text": { "type": "string" }, "voice": { "type": "string" }, "language": { "type": "string" }, "legs": { "type": "string", "enum": ["aleg", "bleg", "both"] }, "loop": { "type": "boolean" }, "mix": { "type": "boolean" } }, "required": ["call_uuid", "text"] } },
+    { "name": "stop_speaking_on_call", "description": "Stop text-to-speech playing on a live call.", "method": "DELETE", "path": "/Call/{call_uuid}/Speak/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" } }, "required": ["call_uuid"] } },
+    { "name": "send_call_dtmf", "description": "Send DTMF digits into a live call.", "method": "POST", "path": "/Call/{call_uuid}/DTMF/", "input_schema": { "type": "object", "properties": { "call_uuid": { "type": "string" }, "digits": { "type": "string" }, "leg": { "type": "string", "enum": ["aleg", "bleg"] } }, "required": ["call_uuid", "digits"] } },
+    { "name": "list_conferences", "description": "List active Plivo conferences.", "method": "GET", "path": "/Conference/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_conference", "description": "Get an active conference and its members.", "method": "GET", "path": "/Conference/{conference_name}/", "input_schema": { "type": "object", "properties": { "conference_name": { "type": "string" } }, "required": ["conference_name"] } },
+    { "name": "hangup_all_conferences", "description": "Hang up every active conference.", "method": "DELETE", "path": "/Conference/", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "hangup_conference", "description": "Hang up one active conference.", "method": "DELETE", "path": "/Conference/{conference_name}/", "input_schema": { "type": "object", "properties": { "conference_name": { "type": "string" } }, "required": ["conference_name"] } },
+    { "name": "update_conference_member", "description": "Mute, unmute, deaf, undeaf, or kick conference members.", "method": "POST", "path": "/Conference/{conference_name}/Member/{member_id}/", "input_schema": { "type": "object", "properties": { "conference_name": { "type": "string" }, "member_id": { "type": "string", "description": "Member ID, comma-separated IDs, or all." }, "action": { "type": "string", "enum": ["mute", "unmute", "deaf", "undeaf", "kick"] } }, "required": ["conference_name", "member_id", "action"] } },
+    { "name": "start_conference_recording", "description": "Start recording an active conference.", "method": "POST", "path": "/Conference/{conference_name}/Record/", "input_schema": { "type": "object", "properties": { "conference_name": { "type": "string" }, "file_format": { "type": "string", "enum": ["mp3", "wav"] }, "transcription_type": { "type": "string", "enum": ["auto"] }, "transcription_url": { "type": "string" }, "callback_url": { "type": "string" }, "callback_method": { "type": "string", "enum": ["GET", "POST"] } }, "required": ["conference_name"] } },
+    { "name": "stop_conference_recording", "description": "Stop recording an active conference.", "method": "DELETE", "path": "/Conference/{conference_name}/Record/", "input_schema": { "type": "object", "properties": { "conference_name": { "type": "string" } }, "required": ["conference_name"] } },
+    { "name": "list_endpoints", "description": "List SIP endpoints used by Voice SDKs and SIP devices.", "method": "GET", "path": "/Endpoint/", "input_schema": { "type": "object", "properties": { "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "create_endpoint", "description": "Create a SIP endpoint.", "method": "POST", "path": "/Endpoint/", "input_schema": { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "alias": { "type": "string" }, "app_id": { "type": "string" } }, "required": ["username", "password", "alias"] } },
+    { "name": "get_endpoint", "description": "Get one SIP endpoint.", "method": "GET", "path": "/Endpoint/{endpoint_id}/", "input_schema": { "type": "object", "properties": { "endpoint_id": { "type": "string" } }, "required": ["endpoint_id"] } },
+    { "name": "update_endpoint", "description": "Update a SIP endpoint.", "method": "POST", "path": "/Endpoint/{endpoint_id}/", "input_schema": { "type": "object", "properties": { "endpoint_id": { "type": "string" }, "password": { "type": "string" }, "alias": { "type": "string" }, "app_id": { "type": "string" } }, "required": ["endpoint_id"] } },
+    { "name": "delete_endpoint", "description": "Delete a SIP endpoint.", "method": "DELETE", "path": "/Endpoint/{endpoint_id}/", "input_schema": { "type": "object", "properties": { "endpoint_id": { "type": "string" } }, "required": ["endpoint_id"] } },
+    { "name": "list_multiparty_calls", "description": "List role-based multiparty calls.", "method": "GET", "path": "/MultiPartyCall/", "input_schema": { "type": "object", "properties": { "friendly_name": { "type": "string" }, "status": { "type": "string", "enum": ["initialized", "active", "ended"] }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "get_multiparty_call", "description": "Get an MPC using a selector such as name_sales or uuid_<uuid>.", "method": "GET", "path": "/MultiPartyCall/{mpc_selector}/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" } }, "required": ["mpc_selector"] } },
+    { "name": "activate_multiparty_call", "description": "Activate an initialized MPC.", "method": "POST", "path": "/MultiPartyCall/{mpc_selector}/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "status": { "type": "string", "enum": ["active"] } }, "required": ["mpc_selector", "status"] } },
+    { "name": "end_multiparty_call", "description": "End an MPC.", "method": "DELETE", "path": "/MultiPartyCall/{mpc_selector}/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" } }, "required": ["mpc_selector"] } },
+    { "name": "list_multiparty_participants", "description": "List MPC participants.", "method": "GET", "path": "/MultiPartyCall/{mpc_selector}/Participant/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" } }, "required": ["mpc_selector"] } },
+    { "name": "add_multiparty_participant", "description": "Add an agent, customer, supervisor, or AI-agent participant; creates the MPC when needed.", "method": "POST", "path": "/MultiPartyCall/{mpc_selector}/Participant/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "role": { "type": "string", "enum": ["agent", "customer", "supervisor", "ai-agent"] }, "from": { "type": "string" }, "to": { "type": "string" }, "call_uuid": { "type": "string" }, "coach_mode": { "type": "boolean" }, "call_status_callback_url": { "type": "string" }, "transcript": { "type": "boolean" }, "transcription_url": { "type": "string" } }, "required": ["mpc_selector", "role", "from", "to"] } },
+    { "name": "get_multiparty_participant", "description": "Get one MPC participant.", "method": "GET", "path": "/MultiPartyCall/{mpc_selector}/Participant/{member_id}/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "member_id": { "type": "string" } }, "required": ["mpc_selector", "member_id"] } },
+    { "name": "update_multiparty_participant", "description": "Mute, hold, or change supervisor coach mode for an MPC participant.", "method": "POST", "path": "/MultiPartyCall/{mpc_selector}/Participant/{member_id}/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "member_id": { "type": "string" }, "mute": { "type": "boolean" }, "hold": { "type": "boolean" }, "coach_mode": { "type": "boolean" }, "disable_state_change_sound": { "type": "boolean" } }, "required": ["mpc_selector", "member_id"] } },
+    { "name": "remove_multiparty_participant", "description": "Remove an MPC participant.", "method": "DELETE", "path": "/MultiPartyCall/{mpc_selector}/Participant/{member_id}/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "member_id": { "type": "string" } }, "required": ["mpc_selector", "member_id"] } },
+    { "name": "start_multiparty_recording", "description": "Start recording an MPC.", "method": "POST", "path": "/MultiPartyCall/{mpc_selector}/Record/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "file_format": { "type": "string", "enum": ["mp3", "wav"] }, "recording_callback_url": { "type": "string" }, "recording_callback_method": { "type": "string", "enum": ["GET", "POST"] } }, "required": ["mpc_selector"] } },
+    { "name": "stop_multiparty_recording", "description": "Stop recording an MPC.", "method": "DELETE", "path": "/MultiPartyCall/{mpc_selector}/Record/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" } }, "required": ["mpc_selector"] } },
+    { "name": "pause_multiparty_recording", "description": "Pause an MPC recording.", "method": "POST", "path": "/MultiPartyCall/{mpc_selector}/Record/Pause/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" }, "trim_silence": { "type": "boolean" } }, "required": ["mpc_selector"] } },
+    { "name": "resume_multiparty_recording", "description": "Resume an MPC recording.", "method": "POST", "path": "/MultiPartyCall/{mpc_selector}/Record/Resume/", "input_schema": { "type": "object", "properties": { "mpc_selector": { "type": "string" } }, "required": ["mpc_selector"] } }
+  ]
+}

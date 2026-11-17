@@ -1,0 +1,403 @@
+{
+  "slug": "tavus",
+  "name": "Tavus",
+  "description": "Tavus AI video — generate lifelike talking-head videos from a trained replica + script (or audio), train Phoenix replicas from a short video or headshot, manage personas, and run real-time Conversational Video Interface (CVI) sessions.",
+  "logo": "https://www.google.com/s2/favicons?domain=tavus.io&sz=128",
+  "categories": [
+    "ai",
+    "video",
+    "avatars",
+    "generation",
+    "conversational"
+  ],
+  "base_url": "https://tavusapi.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Tavus API Key",
+        "description": "Create one at https://platform.tavus.io/api-keys"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_video",
+      "description": "Generate a talking-head video from a replica + script (or audio_url). Async — returns {video_id, status:'queued', hosted_url}. Poll get_video or pass a callback_url. status flows queued → generating → ready.",
+      "method": "POST",
+      "path": "/v2/videos",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "replica_id": {
+            "type": "string",
+            "description": "Replica to speak the video. From list_replicas."
+          },
+          "script": {
+            "type": "string",
+            "description": "Text the replica speaks. Provide this OR audio_url."
+          },
+          "audio_url": {
+            "type": "string",
+            "description": "Direct URL to an audio file the replica lip-syncs to. Alternative to script."
+          },
+          "video_name": {
+            "type": "string",
+            "description": "Display name for the generated video."
+          },
+          "background_url": {
+            "type": "string",
+            "description": "A website URL to record + use as the background."
+          },
+          "background_source_url": {
+            "type": "string",
+            "description": "Direct link to a background video file (e.g. S3)."
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook called when the video completes/fails."
+          },
+          "fast": {
+            "type": "boolean",
+            "description": "Faster generation, disables some features."
+          },
+          "transparent_background": {
+            "type": "boolean",
+            "description": "Produce a .webm with transparency. Requires fast:true."
+          },
+          "watermark_image_url": {
+            "type": "string",
+            "description": "Image URL to overlay as a watermark."
+          },
+          "properties": {
+            "type": "object",
+            "description": "Background scroll + intro options: background_scroll, background_scroll_type, background_scroll_depth, background_scroll_return, start_with_wave."
+          }
+        },
+        "required": [
+          "replica_id"
+        ]
+      }
+    },
+    {
+      "name": "get_video",
+      "description": "Fetch a video's status + URLs. status: queued|generating|ready|deleted|error.",
+      "method": "GET",
+      "path": "/v2/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": { "type": "string" }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_videos",
+      "description": "List generated videos. Args: limit?, page?.",
+      "method": "GET",
+      "path": "/v2/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "delete_video",
+      "description": "Permanently delete a generated video.",
+      "method": "DELETE",
+      "path": "/v2/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": { "type": "string" }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "create_replica",
+      "description": "Train a Phoenix replica from a short training video (train_video_url) or a headshot (train_image_url + voice_name). Async — returns {replica_id, status:'started'}. Poll get_replica until status=completed.",
+      "method": "POST",
+      "path": "/v2/replicas",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "replica_name": {
+            "type": "string",
+            "description": "Display name for the replica."
+          },
+          "train_video_url": {
+            "type": "string",
+            "description": "Presigned S3 or publicly fetchable training video. Provide this OR train_image_url."
+          },
+          "train_image_url": {
+            "type": "string",
+            "description": "Public headshot image URL. Requires voice_name. Alternative to train_video_url."
+          },
+          "voice_name": {
+            "type": "string",
+            "description": "Voice slug (case-insensitive, e.g. 'anna'). Required when using train_image_url."
+          },
+          "consent_video_url": {
+            "type": "string",
+            "description": "Separate video containing the consent statement."
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook called on training completion/error."
+          },
+          "auto_fix_training_image": {
+            "type": "boolean",
+            "description": "Auto-correct the training image to meet requirements."
+          },
+          "model_name": {
+            "type": "string",
+            "description": "Replica model. Default phoenix-4; phoenix-3 for the older model.",
+            "default": "phoenix-4"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Replica options, e.g. { background_green_screen: true }."
+          }
+        },
+        "required": [
+          "replica_name"
+        ]
+      }
+    },
+    {
+      "name": "get_replica",
+      "description": "Fetch a replica's training status + details. status: started|completed|error.",
+      "method": "GET",
+      "path": "/v2/replicas/{replica_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "replica_id": { "type": "string" }
+        },
+        "required": [
+          "replica_id"
+        ]
+      }
+    },
+    {
+      "name": "list_replicas",
+      "description": "List replicas. Args: limit?, page?, replica_type? ('user'|'system'), verbose?.",
+      "method": "GET",
+      "path": "/v2/replicas",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" },
+          "replica_type": { "type": "string", "enum": ["user", "system"] },
+          "verbose": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "delete_replica",
+      "description": "Delete a replica.",
+      "method": "DELETE",
+      "path": "/v2/replicas/{replica_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "replica_id": { "type": "string" }
+        },
+        "required": [
+          "replica_id"
+        ]
+      }
+    },
+    {
+      "name": "create_persona",
+      "description": "Create a persona — defines the agent's behavior, tone, system prompt, and which layers (LLM, TTS, perception) the CVI uses. Returns {persona_id}.",
+      "method": "POST",
+      "path": "/v2/personas",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_name": { "type": "string" },
+          "system_prompt": {
+            "type": "string",
+            "description": "The persona's behavioral instructions."
+          },
+          "context": {
+            "type": "string",
+            "description": "Background knowledge the persona should have."
+          },
+          "default_replica_id": {
+            "type": "string",
+            "description": "Replica this persona uses by default in conversations."
+          },
+          "layers": {
+            "type": "object",
+            "description": "CVI layer config (llm, tts, perception, stt). See Tavus docs for shape."
+          }
+        },
+        "required": [
+          "persona_name"
+        ]
+      }
+    },
+    {
+      "name": "get_persona",
+      "description": "Fetch a persona by id.",
+      "method": "GET",
+      "path": "/v2/personas/{persona_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": { "type": "string" }
+        },
+        "required": [
+          "persona_id"
+        ]
+      }
+    },
+    {
+      "name": "list_personas",
+      "description": "List personas. Args: limit?, page?.",
+      "method": "GET",
+      "path": "/v2/personas",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "delete_persona",
+      "description": "Delete a persona.",
+      "method": "DELETE",
+      "path": "/v2/personas/{persona_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "persona_id": { "type": "string" }
+        },
+        "required": [
+          "persona_id"
+        ]
+      }
+    },
+    {
+      "name": "create_conversation",
+      "description": "Start a real-time Conversational Video Interface (CVI) session with a replica + persona. Returns {conversation_id, conversation_url (Daily room), status}. Open conversation_url to join the live video call.",
+      "method": "POST",
+      "path": "/v2/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "replica_id": {
+            "type": "string",
+            "description": "Replica that joins the call."
+          },
+          "persona_id": {
+            "type": "string",
+            "description": "Persona driving behavior. If it lacks a replica, replica_id is required."
+          },
+          "conversation_name": { "type": "string" },
+          "conversational_context": {
+            "type": "string",
+            "description": "Extra context injected for this specific conversation."
+          },
+          "custom_greeting": {
+            "type": "string",
+            "description": "What the replica says first."
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook for conversation state updates."
+          },
+          "properties": {
+            "type": "object",
+            "description": "Session options: max_call_duration, participant_left_timeout, enable_recording, enable_transcription, language, etc."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Fetch a conversation's status + details.",
+      "method": "GET",
+      "path": "/v2/conversations/{conversation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string" }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List conversations. Args: limit?, page?, status?.",
+      "method": "GET",
+      "path": "/v2/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "page": { "type": "integer" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "end_conversation",
+      "description": "End an active conversation (hangs up the live call).",
+      "method": "POST",
+      "path": "/v2/conversations/{conversation_id}/end",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string" }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_conversation",
+      "description": "Delete a conversation record.",
+      "method": "DELETE",
+      "path": "/v2/conversations/{conversation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": { "type": "string" }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_replicas"
+  }
+}

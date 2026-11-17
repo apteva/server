@@ -1,0 +1,121 @@
+{
+  "slug": "digitalocean-spaces",
+  "name": "DigitalOcean Spaces",
+  "description": "DigitalOcean Spaces — S3-compatible object storage with built-in CDN. $5/month base subscription includes 250GB storage + 1TB outbound transfer per Space; overage at $0.02/GB storage and $0.01/GB egress. Bucket-scoped REST with AWS SigV4 against {region}.digitaloceanspaces.com (note: no s3. prefix). Regions: nyc3, ams3, sgp1, fra1, sfo3, syd1. Generate Spaces access keys at cloud.digitalocean.com → API → Spaces Keys.",
+  "logo": "https://www.google.com/s2/favicons?domain=digitalocean.com&sz=128",
+  "categories": [
+    "storage",
+    "digitalocean",
+    "cloud",
+    "infrastructure",
+    "s3-compatible",
+    "cdn"
+  ],
+  "base_url": "https://{{region}}.digitaloceanspaces.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "Spaces datacenter — nyc3, ams3, sgp1, fra1, sfo3, or syd1. Each Space lives in exactly one region; check the Space's overview page to confirm.",
+        "required": true,
+        "type": "text",
+        "default": "nyc3"
+      },
+      {
+        "name": "access_key_id",
+        "label": "Spaces Access Key",
+        "description": "From cloud.digitalocean.com → API → Spaces Keys → Generate New Key. Spaces keys are account-wide; DO does not support per-Space scoping yet.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Spaces Secret Key",
+        "description": "Shown once at key creation. Regenerate the key if lost.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a Space (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string", "description": "Space name (DO calls buckets 'Spaces')." },
+          "prefix": { "type": "string", "description": "Filter to keys starting with this prefix." },
+          "continuation-token": { "type": "string", "description": "Pagination cursor from a prior IsTruncated response." },
+          "max-keys": { "type": "integer", "description": "Page size (max 1000)." },
+          "list-type": { "type": "integer", "default": 2 }
+        },
+        "required": ["bucket"]
+      },
+      "query_params": ["prefix", "continuation-token", "max-keys", "list-type"]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass content as 'body'; runner sends verbatim with SigV4 integrity hash. Spaces caps single PUT at 5GB; use multipart for larger.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string", "description": "Object key (path inside the Space)." },
+          "body": { "type": "string", "description": "Object content. Bytes welcome — the runner sends them verbatim." }
+        },
+        "required": ["bucket", "key", "body"]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200MB). For public objects, prefer the CDN edge URL ({space}.{region}.cdn.digitaloceanspaces.com) over signed reads.",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string" }
+        },
+        "required": ["bucket", "key"]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string" }
+        },
+        "required": ["bucket", "key"]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all Spaces the access key can see. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

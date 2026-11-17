@@ -272,6 +272,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			ID:                    req.ID,
 			ProjectID:             projectID,
 			GatewayURL:            "http://127.0.0.1:" + s.port,
+			CreatorUserID:         userID,
 			RuntimeOwnerInstallID: installID,
 			RuntimeExpiresAt:      time.Now().Add(ttl).UTC(),
 			SourceInstallIDs:      sourceIDs,
@@ -405,18 +406,47 @@ func (s *Server) handleRuntimeApps(w http.ResponseWriter, r *http.Request, runti
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxRuntimeRequestBytes)
+		decoder := json.NewDecoder(r.Body)
+		decoder.UseNumber()
 		var req struct {
 			Tool       string         `json:"tool"`
 			Input      map[string]any `json:"input"`
 			AgentAlias string         `json:"agent_alias"`
 		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Tool) == "" {
+		if decoder.Decode(&req) != nil || strings.TrimSpace(req.Tool) == "" || decoder.Decode(new(any)) != io.EOF {
 			http.Error(w, "tool required", http.StatusBadRequest)
 			return
 		}
+		req.Tool = strings.TrimSpace(req.Tool)
 		inst, ok := runtime.Install(appName)
-		if !ok {
+		if !ok || inst.ProjectID != runtime.ID {
 			http.Error(w, "runtime app is not install-backed", http.StatusBadRequest)
+			return
+		}
+		var agentID string
+		if alias := strings.TrimSpace(req.AgentAlias); alias != "" {
+			agent := runtime.AgentByAlias(alias)
+			if agent == nil {
+				http.Error(w, "runtime agent alias not found", http.StatusBadRequest)
+				return
+			}
+			agentID = strconv.FormatInt(agent.AgentID, 10)
+		}
+		for _, key := range []string{"project_id", "_project_id"} {
+			if scope, present := req.Input[key]; present && scope != inst.ProjectID {
+				http.Error(w, "runtime project override is not allowed", http.StatusBadRequest)
+				return
+			}
+		}
+		operatorPath := ""
+		if agentID == "" {
+			operatorPath = runtimeOperatorPaths[appName][req.Tool]
+		}
+		if operatorPath != "" && !s.requireRuntimePermission(w, runtime.OwnerInstallID(), sdk.PermRuntimesManage) {
+			return
+		}
+		if err := resolveRuntimeInstallRefs(req.Input, runtime); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		token, err := s.appInstallToken(inst.InstallID)
@@ -424,16 +454,14 @@ func (s *Server) handleRuntimeApps(w http.ResponseWriter, r *http.Request, runti
 			http.Error(w, "runtime app credential unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		var agentID string
-		if strings.TrimSpace(req.AgentAlias) != "" {
-			agent := runtime.AgentByAlias(req.AgentAlias)
-			if agent == nil {
-				http.Error(w, "runtime agent alias not found", http.StatusBadRequest)
-				return
-			}
-			agentID = strconv.FormatInt(agent.AgentID, 10)
+		var result json.RawMessage
+		if operatorPath != "" {
+			delete(req.Input, "project_id")
+			delete(req.Input, "_project_id")
+			result, err = callRuntimeOperatorOperation(r.Context(), inst, token, operatorPath, req.Input)
+		} else {
+			result, err = callAppMCPToolScoped(r.Context(), inst.SidecarURL+"/mcp", token, inst.ProjectID, agentID, 0, "", req.Tool, req.Input)
 		}
-		result, err := callAppMCPToolAsAgent(inst.SidecarURL+"/mcp", token, agentID, req.Tool, req.Input)
 		if err != nil {
 			http.Error(w, "call runtime app: "+err.Error(), http.StatusBadRequest)
 			return
@@ -693,13 +721,10 @@ func (s *Server) handleRuntimeAgents(w http.ResponseWriter, r *http.Request, run
 		if raw := r.URL.Query().Get("since"); raw != "" {
 			since, _ = time.Parse(time.RFC3339Nano, raw)
 		}
-		events, err := s.store.QueryTelemetry(agent.AgentID, "", since, limit)
+		events, err := s.queryPublicTelemetry(r.Context(), agent.AgentID, "", since, limit, "")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		if events == nil {
-			events = []TelemetryEvent{}
 		}
 		writeJSON(w, events)
 	case "realtime":
@@ -759,10 +784,10 @@ func (s *Server) handleRuntimeRealtime(w http.ResponseWriter, r *http.Request, r
 			Port: agent.Port, CoreAPIKey: agent.APIKey,
 		}, sdk.RealtimeSpawnRequest{
 			AgentID: agent.AgentID, ThreadID: req.ThreadID, Directive: req.Directive,
-			Voice: req.Voice, Provider: req.Provider, CapabilityMode: mode, Tools: tools, MCP: mcpNames,
+			Voice: req.Voice, Provider: req.Provider, Model: req.Model, RealtimeExecution: req.RealtimeExecution, CapabilityMode: mode, Tools: tools, MCP: mcpNames,
 			CallContext:   req.CallContext,
-			TurnDetection: req.TurnDetection,
-			Ephemeral:     req.Ephemeral, InitialMessage: req.InitialMessage,
+			TurnDetection: req.TurnDetection, RealtimeMedia: req.RealtimeMedia,
+			Ephemeral: req.Ephemeral, InitialMessage: req.InitialMessage,
 			BridgeDisconnectTTLSeconds: req.BridgeDisconnectTTLSeconds,
 		})
 		if err != nil {
@@ -831,7 +856,7 @@ func (s *Server) handleSpawnRuntimeAgent(w http.ResponseWriter, r *http.Request,
 	userID := getUserID(r)
 	var source *Agent
 	if req.SourceAgentID > 0 {
-		got, err := s.store.GetAgentByID(req.SourceAgentID)
+		got, err := s.store.GetAgentByIDContext(r.Context(), req.SourceAgentID)
 		if err != nil || got == nil || got.ProjectID != runtime.ProjectID || (got.Kind != "" && got.Kind != "user") {
 			http.Error(w, "source agent not found", http.StatusNotFound)
 			return
@@ -851,7 +876,7 @@ func (s *Server) handleSpawnRuntimeAgent(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "source_agent_id or draft required", http.StatusBadRequest)
 		return
 	}
-	wa, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: userID, Source: source, DirectiveOverride: req.Directive, Alias: req.Alias, StartPaused: req.StartPaused, Provider: req.Provider, Model: req.Model})
+	wa, err := s.SpawnAgentInEnvironment(runtime, EnvironmentAgentSpec{UserID: userID, Source: source, DirectiveOverride: req.Directive, Alias: req.Alias, StartPaused: req.StartPaused, StartPausedScope: req.StartPausedScope, StartPausedThreadID: req.StartPausedThreadID, Provider: req.Provider, Model: req.Model})
 	if err != nil {
 		http.Error(w, "spawn runtime agent: "+err.Error(), http.StatusBadGateway)
 		return
@@ -1114,7 +1139,7 @@ func (s *Server) handleRuntimeCatalog(w http.ResponseWriter, r *http.Request, pa
 		http.Error(w, "invalid agent id", http.StatusBadRequest)
 		return
 	}
-	agent, err := s.store.GetAgentByID(agentID)
+	agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
 	if err != nil || agent == nil || (agent.Kind != "" && agent.Kind != "user") {
 		http.Error(w, "agent not found", http.StatusNotFound)
 		return
@@ -1304,11 +1329,21 @@ func (s *Server) runtimeCatalogApps(projectID string) []sdk.RuntimeCatalogApp {
 }
 
 func (s *Server) runtimeCatalogIntegrations() []sdk.RuntimeCatalogIntegration {
-	out := []sdk.RuntimeCatalogIntegration{}
+	// Built-in capabilities share the public identity catalog consumed by app
+	// tool renderers. This is metadata only; attachment and execution still use
+	// the existing MCP authorization path.
+	out := []sdk.RuntimeCatalogIntegration{{
+		Slug: platformMCPName, Name: platformMCPDisplayName,
+		Description: platformMCPDescription, Logo: platformMCPIconURL,
+		Kind: platformMCPSource,
+	}}
 	if s.catalog == nil {
 		return out
 	}
 	for _, app := range s.catalog.List() {
+		if app.Slug == platformMCPName {
+			continue // The server owns the built-in capability's identity.
+		}
 		logo := ""
 		if app.Logo != nil {
 			logo = *app.Logo
@@ -1338,18 +1373,30 @@ func (s *Server) runtimeAgentCapabilities(agentID int64) ([]sdk.RuntimeAgentCapa
 	if s.installedApps == nil {
 		return []sdk.RuntimeAgentCapability{}, nil
 	}
-	rows, err := s.store.db.Query(`SELECT i.id, a.name FROM app_agent_bindings b JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id WHERE b.agent_id=? AND b.enabled=1 ORDER BY a.name`, agentID)
+	rows, err := s.store.dbQuery(`SELECT i.id, a.name FROM app_agent_bindings b JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id WHERE b.agent_id=? AND b.enabled=1 ORDER BY a.name`, agentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []sdk.RuntimeAgentCapability{}
-	for rows.Next() {
-		var installID int64
-		var appName string
-		if rows.Scan(&installID, &appName) != nil {
-			continue
+	type databaseRecord struct {
+		installID int64
+		appName   string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.installID, &record.appName); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		installID := record.installID
+		appName := record.appName
+
 		entry := s.installedApps.Get(installID)
 		if entry == nil || entry.SidecarURL == "" {
 			continue
@@ -1368,6 +1415,7 @@ func (s *Server) runtimeAgentCapabilities(agentID int64) ([]sdk.RuntimeAgentCapa
 		}
 		out = append(out, sdk.RuntimeAgentCapability{AppName: appName, InstallID: installID, Tools: converted})
 	}
+
 	return out, rows.Err()
 }
 
@@ -1392,14 +1440,16 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 	if directiveETag(agent.Directive) != req.ExpectedETag {
 		return nil, fmt.Errorf("agent directive changed; refresh and retry")
 	}
-	req.Directive = withAgentBehavior(req.Directive, agent.Mode, agent.Proactivity)
+	req.Directive = withoutAgentControls(req.Directive)
 	var cfg map[string]any
 	if json.Unmarshal([]byte(agent.Config), &cfg) != nil {
 		cfg = map[string]any{}
 	}
+	// This metadata blob is public server state, so it keeps only the authored
+	// directive. reconcileAgentBehavior compiles controls into Core's config.
 	cfg["directive"] = req.Directive
 	configJSON, _ := json.Marshal(cfg)
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -1434,7 +1484,9 @@ func (s *Server) updateAgentDirectiveFromApp(agent *Agent, installID, userID int
 func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, installID int64, requested string, need ProjectRole) (int64, string, bool) {
 	var userID int64
 	var installProject string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by,0), COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&userID, &installProject); err != nil || userID == 0 {
+	var installSource string
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(i.installed_by,0), COALESCE(i.project_id,''), COALESCE(NULLIF(i.source,''),a.source)
+		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&userID, &installProject, &installSource); err != nil || userID == 0 {
 		http.Error(w, "install not found", http.StatusUnauthorized)
 		return 0, "", false
 	}
@@ -1455,7 +1507,8 @@ func (s *Server) runtimeCallerProject(w http.ResponseWriter, r *http.Request, in
 	}
 	// Use the authenticated browser user when present, otherwise the install
 	// owner. Neither identity can be selected through a numeric request header.
-	if s.store.GetPlatformRole(userID) != PlatformAdmin {
+	environmentScope := installSource == "environment" && s.environments != nil && s.environments.CreatorOwnsScope(projectID, userID)
+	if s.store.GetPlatformRole(userID) != PlatformAdmin && !environmentScope {
 		role, err := s.store.GetProjectRole(projectID, userID)
 		if err != nil || role.Rank() < need.Rank() {
 			http.Error(w, "insufficient role on project", http.StatusForbidden)
@@ -1608,5 +1661,6 @@ func (s *Server) handleRuntimeMCPGateway(w http.ResponseWriter, r *http.Request)
 		}
 		req.Header.Set("Authorization", "Bearer "+appToken)
 	}
-	proxy.ServeHTTP(w, r)
+	configureAppClientIP(proxy, r, appToken)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "runtime_app", App: entry.AppName, InstallID: entry.InstallID})
 }

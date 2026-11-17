@@ -16,7 +16,7 @@ type oauth1RequestCredentials struct {
 }
 
 func (s *Store) updateOAuthStateVerifier(state, verifier string) error {
-	result, err := s.db.Exec(`UPDATE oauth_states SET pkce_verifier=? WHERE state=?`, verifier, state)
+	result, err := s.dbExec(`UPDATE oauth_states SET pkce_verifier=? WHERE state=?`, verifier, state)
 	if err != nil {
 		return err
 	}
@@ -27,13 +27,12 @@ func (s *Store) updateOAuthStateVerifier(state, verifier string) error {
 	return nil
 }
 
-func (s *Server) startLocalOAuth1(userID int64, app *AppTemplate, connName, projectID,
-	explicitClientID, explicitClientSecret string, supplementalCredentials map[string]string,
+func (s *Server) startLocalOAuth1Resolved(userID int64, app *AppTemplate, connName, projectID,
+	clientID, clientSecret string, supplementalCredentials map[string]string,
 	ownerAppInstallID int64, returnURL string, autoMCP *bool) (*Connection, string, error) {
 	if app.Auth.OAuth1 == nil {
 		return nil, "", fmt.Errorf("app %s has no oauth1 config", app.Slug)
 	}
-	clientID, clientSecret := s.resolveOAuthClient(userID, projectID, app.Slug, explicitClientID, explicitClientSecret)
 	if app.Auth.OAuth1.ClientIDRequired && (clientID == "" || clientSecret == "") {
 		return nil, "", fmt.Errorf("missing OAuth consumer key or secret for %s — set them in the connect form, on a prior connection, or via OAUTH_%s_CLIENT_ID and OAUTH_%s_CLIENT_SECRET",
 			app.Slug, oauthEnvSlug(app.Slug), oauthEnvSlug(app.Slug))
@@ -82,7 +81,7 @@ func (s *Server) startOAuth1Authorization(userID int64, app *AppTemplate, conn *
 	callback += sep + "state=" + url.QueryEscape(state)
 	requestToken, requestSecret, err := requestOAuth1Token(app.Auth.OAuth1.RequestTokenURL, clientID, clientSecret, callback)
 	if err != nil {
-		s.store.db.Exec(`DELETE FROM oauth_states WHERE state=?`, state)
+		s.store.dbExec(`DELETE FROM oauth_states WHERE state=?`, state)
 		if purpose != oauthStatePurposeReauth {
 			_ = s.store.UpdateConnectionStatus(conn.ID, "failed")
 		}

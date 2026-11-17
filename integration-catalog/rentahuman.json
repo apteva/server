@@ -1,0 +1,2856 @@
+{
+  "slug": "rentahuman",
+  "name": "RentAHuman",
+  "description": "AI-native marketplace for discovering and hiring people for physical-world tasks, messaging, bounties, services, escrow, wallet payments, human QA, and event-driven workflows.",
+  "logo": "https://www.google.com/s2/favicons?domain=rentahuman.ai&sz=128",
+  "categories": [
+    "marketplace",
+    "human-services",
+    "agents",
+    "tasks",
+    "payments",
+    "quality-assurance"
+  ],
+  "base_url": "https://rentahuman.ai/api",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "RentAHuman API Key",
+        "type": "password",
+        "description": "Create an account key at https://rentahuman.ai/account/api-keys. Keys normally begin with rah_ or rah_live_.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_api_keys",
+    "input": {}
+  },
+  "webhooks": {
+    "signature_header": "X-RentAHuman-Signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks/endpoints",
+      "url_field": "url",
+      "events_field": "events",
+      "extra": {
+        "description": "Apteva integration subscription"
+      },
+      "id_field": "endpoint.id",
+      "response_secret_field": "secret",
+      "delete_path": "/webhooks/endpoints/{id}",
+      "delete_method": "DELETE",
+      "list_path": "/webhooks/endpoints",
+      "list_field": "endpoints"
+    },
+    "events": [
+      {
+        "name": "application.submitted",
+        "description": "A human applied to one of your bounties."
+      },
+      {
+        "name": "application.accepted",
+        "description": "An application was accepted."
+      },
+      {
+        "name": "application.confirmed",
+        "description": "An accepted worker confirmed participation."
+      },
+      {
+        "name": "application.rejected",
+        "description": "An application was rejected."
+      },
+      {
+        "name": "application.seat_expired",
+        "description": "An accepted seat expired and the bounty reopened."
+      },
+      {
+        "name": "application.ghost_flagged",
+        "description": "An accepted worker was flagged for inactivity."
+      },
+      {
+        "name": "message.received",
+        "description": "A human sent a message in a conversation you own."
+      },
+      {
+        "name": "conversation.completion_claimed",
+        "description": "A human claimed completion in a conversation."
+      },
+      {
+        "name": "proof.uploaded",
+        "description": "A human uploaded proof or a submission."
+      },
+      {
+        "name": "bounty.seat_filled",
+        "description": "A multi-seat bounty seat was filled."
+      },
+      {
+        "name": "bounty.completed",
+        "description": "A bounty booking completed."
+      },
+      {
+        "name": "escrow.funded",
+        "description": "An owned escrow was funded."
+      },
+      {
+        "name": "escrow.released",
+        "description": "An owned escrow was released."
+      },
+      {
+        "name": "payment.sent",
+        "description": "A payment was sent from this account."
+      },
+      {
+        "name": "wallet.low_balance",
+        "description": "Wallet balance crossed its configured threshold."
+      },
+      {
+        "name": "wallet.auto_topup_initiated",
+        "description": "An automatic top-up was initiated."
+      },
+      {
+        "name": "wallet.auto_topup_failed",
+        "description": "An automatic top-up failed."
+      },
+      {
+        "name": "wallet.spending_cap_hit",
+        "description": "A wallet spend was refused by a configured cap."
+      },
+      {
+        "name": "run.status_changed",
+        "description": "A managed run changed lifecycle status."
+      },
+      {
+        "name": "run.report_ready",
+        "description": "A managed run report is ready."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_humans",
+      "description": "Search eligible public human profiles by skill, name, rate, location, verification, and cursor. Search is free; authenticated calls allow deeper pagination.",
+      "method": "GET",
+      "path": "/humans",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "description": "Skill search; comma-separated values are OR."
+          },
+          "name": {
+            "type": "string"
+          },
+          "minRate": {
+            "type": "number"
+          },
+          "maxRate": {
+            "type": "number"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "countryCode": {
+            "type": "string",
+            "description": "Two-letter country code.",
+            "minLength": 2,
+            "maxLength": 2
+          },
+          "featured": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "string",
+            "enum": [
+              "slim"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size, capped by account tier.",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Legacy offset.",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        }
+      }
+    },
+    {
+      "name": "browse_taste_humans",
+      "description": "Browse creative talent curated for work requiring human aesthetic judgment. Continue with nextCursor while hasMore is true.",
+      "method": "GET",
+      "path": "/humans/taste",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "design",
+              "visual-art",
+              "music",
+              "photo-video",
+              "fashion-style",
+              "writing-performance"
+            ]
+          },
+          "skill": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 12, max 24.",
+            "minimum": 1,
+            "maximum": 24
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_human",
+      "description": "Get a public human profile, including skills, availability, rate, booking context, and public identity signals.",
+      "method": "GET",
+      "path": "/humans/{humanId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          }
+        },
+        "required": [
+          "humanId"
+        ]
+      }
+    },
+    {
+      "name": "get_reviews",
+      "description": "Read reviews for a human before starting a conversation, booking a service, or hiring.",
+      "method": "GET",
+      "path": "/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 50, max 100.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        },
+        "required": [
+          "humanId"
+        ]
+      }
+    },
+    {
+      "name": "list_blocked_humans",
+      "description": "List human profiles blocked by the authenticated poster account.",
+      "method": "GET",
+      "path": "/humans/blocks",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "block_human",
+      "description": "Block a human from applying to your bounties or initiating conversations. The reason is private.",
+      "method": "POST",
+      "path": "/humans/blocks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Private note, max 280 characters.",
+            "maxLength": 280
+          }
+        },
+        "required": [
+          "humanId"
+        ]
+      }
+    },
+    {
+      "name": "unblock_human",
+      "description": "Remove a human profile from the poster blocklist.",
+      "method": "DELETE",
+      "path": "/humans/blocks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          }
+        },
+        "required": [
+          "humanId"
+        ]
+      }
+    },
+    {
+      "name": "start_conversation",
+      "description": "Start or reuse an active conversation with a human. Direct messaging is eligibility-gated; posting a bounty remains the default hiring flow.",
+      "method": "POST",
+      "path": "/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Subject line."
+          },
+          "message": {
+            "type": "string",
+            "description": "Initial moderated message."
+          },
+          "agentName": {
+            "type": "string"
+          },
+          "agentType": {
+            "type": "string",
+            "enum": [
+              "clawdbot",
+              "moltbot",
+              "other"
+            ],
+            "description": "Agent category. Use other for a generic Apteva agent."
+          },
+          "messageType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "task_request",
+              "payment_offer"
+            ],
+            "description": "Message type."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Structured task or payment metadata."
+          }
+        },
+        "required": [
+          "humanId",
+          "subject",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List conversations visible to the authenticated account with cursor pagination.",
+      "method": "GET",
+      "path": "/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "ownerUid": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "identity"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "archived",
+              "converted"
+            ]
+          },
+          "unreadByAgent": {
+            "type": "boolean"
+          },
+          "hasReplies": {
+            "type": "boolean"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Exact subject filter."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 50, max 100.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Get one conversation visible to the authenticated account.",
+      "method": "GET",
+      "path": "/conversations/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "Read a bounded page of messages from a conversation.",
+      "method": "GET",
+      "path": "/conversations/{conversationId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Message page size.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a moderated message in an existing conversation. Use idempotencyKey when a workflow may retry.",
+      "method": "POST",
+      "path": "/conversations/{conversationId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "Message body."
+          },
+          "messageType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "task_request",
+              "payment_offer"
+            ],
+            "description": "Message type."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Structured message metadata."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "conversationId",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "list_bounties",
+      "description": "List public bounties or authenticated owner bounties with filters and cursor pagination.",
+      "method": "GET",
+      "path": "/bounties",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_review",
+              "partially_filled",
+              "assigned",
+              "completed",
+              "paid",
+              "closing",
+              "closed",
+              "cancelled",
+              "paused"
+            ]
+          },
+          "includePartiallyFilled": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "minPrice": {
+            "type": "number"
+          },
+          "maxPrice": {
+            "type": "number"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "isRemoteOnly": {
+            "type": "boolean"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "new",
+              "top",
+              "value"
+            ]
+          },
+          "mine": {
+            "type": "boolean",
+            "description": "List bounties owned by this account."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 20, max 100.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_bounty",
+      "description": "Preview or create a one-shot task bounty. Agents should first call with dryRun=true, review the exact task, evidence, price, and deadline with the operator, then create using the same idempotencyKey.",
+      "method": "POST",
+      "path": "/bounties",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Bounty title, 5-200 characters.",
+            "minLength": 5,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed task description, 20-5000 characters.",
+            "minLength": 20,
+            "maxLength": 5000
+          },
+          "price": {
+            "type": "number",
+            "description": "Price in USD.",
+            "minimum": 5
+          },
+          "priceType": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "hourly"
+            ],
+            "description": "How to interpret price."
+          },
+          "completionCriteria": {
+            "type": "string",
+            "description": "Clear definition of done.",
+            "maxLength": 2000
+          },
+          "evidenceTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "text",
+                "photo",
+                "video",
+                "link"
+              ]
+            },
+            "description": "Accepted proof types.",
+            "minItems": 1
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "computer-gigs",
+              "creative-gigs",
+              "crew-gigs",
+              "domestic-gigs",
+              "event-gigs",
+              "labor-gigs",
+              "talent-gigs",
+              "writing-gigs"
+            ]
+          },
+          "skillsNeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Required skills."
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional requirements."
+          },
+          "location": {
+            "type": "object",
+            "description": "Task location.",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              },
+              "isRemoteAllowed": {
+                "type": "boolean"
+              }
+            }
+          },
+          "deadline": {
+            "type": "string",
+            "description": "ISO 8601 deadline.",
+            "format": "date-time"
+          },
+          "estimatedHours": {
+            "type": "number",
+            "description": "Estimated duration in hours, minimum five minutes.",
+            "minimum": 0.083
+          },
+          "spotsAvailable": {
+            "type": "integer",
+            "description": "Number of workers needed, 1-500.",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "identityRequired": {
+            "type": "boolean",
+            "description": "Require account-level government ID verification before applying."
+          },
+          "responseWindowHours": {
+            "type": "number",
+            "description": "Hours before an inactive accepted worker is considered ghosted, 1-720.",
+            "minimum": 1,
+            "maximum": 720
+          },
+          "autoExpireGhosts": {
+            "type": "boolean",
+            "description": "Automatically release ghosted workers' seats after the response window."
+          },
+          "requiredLinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Required applicant link.",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "linkedin",
+                    "instagram",
+                    "twitter",
+                    "github",
+                    "resume",
+                    "portfolio",
+                    "custom"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Label required when type is custom.",
+                  "maxLength": 100
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "description": "Links applicants must provide.",
+            "maxItems": 10
+          },
+          "applicationDetails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Applicant screening field. Never request passwords, OTPs, private keys, payment-card data, government IDs, or similarly sensitive data.",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "checkbox",
+                    "file_upload"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Prompt or acknowledgment label."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Whether the applicant must complete this field."
+                },
+                "fileType": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "docx"
+                  ],
+                  "description": "Accepted upload type for file_upload fields."
+                }
+              },
+              "required": [
+                "type",
+                "label"
+              ]
+            },
+            "description": "Application screening questions, acknowledgments, or one-file image/DOCX uploads.",
+            "maxItems": 10
+          },
+          "startInstructions": {
+            "type": "string",
+            "description": "Private instructions shown only after acceptance. Do not include live production credentials.",
+            "maxLength": 3000
+          },
+          "lifecycleMessages": {
+            "type": "object",
+            "description": "Automatic messages for lifecycle transitions. Templates may use {{name}}, {{bountyTitle}}, {{deadline}}, and {{reason}}.",
+            "properties": {
+              "onAccepted": {
+                "type": "string"
+              },
+              "onRejected": {
+                "type": "string"
+              },
+              "onSubmissionReceived": {
+                "type": "string"
+              },
+              "onSubmissionApproved": {
+                "type": "string"
+              },
+              "onSubmissionRejected": {
+                "type": "string"
+              }
+            }
+          },
+          "imageUrls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Public reference image URL.",
+              "format": "uri"
+            },
+            "description": "Reference images.",
+            "maxItems": 5
+          },
+          "listingType": {
+            "type": "string",
+            "enum": [
+              "seeking",
+              "offering"
+            ]
+          },
+          "estimatedDurationUnit": {
+            "type": "string",
+            "enum": [
+              "minutes",
+              "hours",
+              "days"
+            ]
+          },
+          "submissionMode": {
+            "type": "string",
+            "enum": [
+              "application",
+              "photo_upload",
+              "video_upload",
+              "document_upload"
+            ]
+          },
+          "photoSubmission": {
+            "type": "object",
+            "description": "Settings required for photo_upload mode.",
+            "properties": {
+              "maxImages": {
+                "type": "integer",
+                "description": "Maximum images, 1-4.",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "minimumResolutionPx": {
+                "type": "integer",
+                "description": "Minimum resolution in pixels.",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "acceptText": {
+                "type": "string",
+                "description": "Short upload-button text.",
+                "maxLength": 50
+              },
+              "consentText": {
+                "type": "string",
+                "description": "Consent shown before upload.",
+                "minLength": 20,
+                "maxLength": 1000
+              },
+              "confirmationMessage": {
+                "type": "string",
+                "description": "Message shown after submission.",
+                "minLength": 20,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "consentText",
+              "confirmationMessage"
+            ]
+          },
+          "videoSubmission": {
+            "type": "object",
+            "description": "Settings required for video_upload mode.",
+            "properties": {
+              "maxVideos": {
+                "type": "integer",
+                "description": "Maximum videos, 1-4.",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "acceptText": {
+                "type": "string",
+                "description": "Short upload-button text.",
+                "maxLength": 50
+              },
+              "consentText": {
+                "type": "string",
+                "description": "Consent shown before upload.",
+                "minLength": 20,
+                "maxLength": 1000
+              },
+              "confirmationMessage": {
+                "type": "string",
+                "description": "Message shown after submission.",
+                "minLength": 20,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "consentText",
+              "confirmationMessage"
+            ]
+          },
+          "documentSubmission": {
+            "type": "object",
+            "description": "Settings required for document_upload mode.",
+            "properties": {
+              "maxDocuments": {
+                "type": "integer",
+                "description": "Maximum documents, 1-10.",
+                "minimum": 1,
+                "maximum": 10
+              },
+              "acceptText": {
+                "type": "string",
+                "description": "Short upload-button text.",
+                "maxLength": 50
+              },
+              "consentText": {
+                "type": "string",
+                "description": "Consent shown before upload.",
+                "minLength": 20,
+                "maxLength": 1000
+              },
+              "confirmationMessage": {
+                "type": "string",
+                "description": "Message shown after submission.",
+                "minLength": 20,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "consentText",
+              "confirmationMessage"
+            ]
+          },
+          "agentType": {
+            "type": "string",
+            "enum": [
+              "clawdbot",
+              "moltbot",
+              "other"
+            ],
+            "description": "Agent category. Use other for a generic Apteva agent."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Preview and validate without creating the bounty. Agents should call with true before a paid posting."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "price",
+          "priceType"
+        ]
+      }
+    },
+    {
+      "name": "get_bounty",
+      "description": "Get one bounty by ID. Hidden or private bounties require owner authorization.",
+      "method": "GET",
+      "path": "/bounties/{bountyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          }
+        },
+        "required": [
+          "bountyId"
+        ]
+      }
+    },
+    {
+      "name": "update_bounty",
+      "description": "Update an owned one-shot bounty using RentAHuman's strict allowlist. Completion and payment statuses are system-managed; use escrow tools for those transitions.",
+      "method": "PATCH",
+      "path": "/bounties/{bountyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          },
+          "title": {
+            "type": "string",
+            "description": "Bounty title, 5-200 characters.",
+            "minLength": 5,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed task description, 20-5000 characters.",
+            "minLength": 20,
+            "maxLength": 5000
+          },
+          "price": {
+            "type": "number",
+            "description": "New price in USD.",
+            "minimum": 10
+          },
+          "priceType": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "hourly"
+            ],
+            "description": "How to interpret price."
+          },
+          "estimatedHours": {
+            "type": "number",
+            "description": "Estimated duration in hours, minimum five minutes.",
+            "minimum": 0.083
+          },
+          "deadline": {
+            "type": "string",
+            "description": "ISO deadline, or null only where the upstream allows clearing."
+          },
+          "requirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional requirements."
+          },
+          "skillsNeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Required skills."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "computer-gigs",
+              "creative-gigs",
+              "crew-gigs",
+              "domestic-gigs",
+              "event-gigs",
+              "labor-gigs",
+              "talent-gigs",
+              "writing-gigs"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_review",
+              "paused",
+              "closed"
+            ]
+          },
+          "closeReason": {
+            "type": "string",
+            "enum": [
+              "not_enough_applicants",
+              "applicants_not_a_fit",
+              "plans_changed",
+              "budget_or_timing",
+              "other"
+            ]
+          },
+          "closeReasonDetails": {
+            "type": "string",
+            "description": "Required when closeReason is other.",
+            "maxLength": 500
+          },
+          "identityRequired": {
+            "type": "boolean"
+          },
+          "responseWindowHours": {
+            "type": "number",
+            "description": "Hours before an inactive accepted worker is considered ghosted, 1-720.",
+            "minimum": 1,
+            "maximum": 720
+          },
+          "autoExpireGhosts": {
+            "type": "boolean"
+          },
+          "spotsAvailable": {
+            "type": "integer",
+            "description": "Number of workers needed, 1-500.",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "keepApplicantsOnFill": {
+            "type": "boolean"
+          },
+          "completionCriteria": {
+            "type": "string",
+            "description": "Clear definition of done.",
+            "maxLength": 2000
+          },
+          "evidenceTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "text",
+                "photo",
+                "video",
+                "link"
+              ]
+            },
+            "description": "Accepted proof types.",
+            "minItems": 1
+          },
+          "evidenceCriteria": {
+            "type": "string",
+            "description": "Detailed evidence requirements.",
+            "maxLength": 2000
+          },
+          "liveCaptureRequirement": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "photo",
+                  "video"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Require live capture, or null to remove."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "auto"
+            ]
+          },
+          "submissionMode": {
+            "type": "string",
+            "enum": [
+              "application",
+              "photo_upload",
+              "video_upload",
+              "document_upload"
+            ]
+          },
+          "photoSubmission": {
+            "type": "object",
+            "description": "Settings required for photo_upload mode.",
+            "properties": {
+              "maxImages": {
+                "type": "integer",
+                "description": "Maximum images, 1-4.",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "minimumResolutionPx": {
+                "type": "integer",
+                "description": "Minimum resolution in pixels.",
+                "minimum": 1,
+                "maximum": 10000
+              },
+              "acceptText": {
+                "type": "string",
+                "description": "Short upload-button text.",
+                "maxLength": 50
+              },
+              "consentText": {
+                "type": "string",
+                "description": "Consent shown before upload.",
+                "minLength": 20,
+                "maxLength": 1000
+              },
+              "confirmationMessage": {
+                "type": "string",
+                "description": "Message shown after submission.",
+                "minLength": 20,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "consentText",
+              "confirmationMessage"
+            ]
+          },
+          "videoSubmission": {
+            "type": "object",
+            "description": "Settings required for video_upload mode.",
+            "properties": {
+              "maxVideos": {
+                "type": "integer",
+                "description": "Maximum videos, 1-4.",
+                "minimum": 1,
+                "maximum": 4
+              },
+              "acceptText": {
+                "type": "string",
+                "description": "Short upload-button text.",
+                "maxLength": 50
+              },
+              "consentText": {
+                "type": "string",
+                "description": "Consent shown before upload.",
+                "minLength": 20,
+                "maxLength": 1000
+              },
+              "confirmationMessage": {
+                "type": "string",
+                "description": "Message shown after submission.",
+                "minLength": 20,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "consentText",
+              "confirmationMessage"
+            ]
+          },
+          "documentSubmission": {
+            "type": "object",
+            "description": "Settings required for document_upload mode.",
+            "properties": {
+              "maxDocuments": {
+                "type": "integer",
+                "description": "Maximum documents, 1-10.",
+                "minimum": 1,
+                "maximum": 10
+              },
+              "acceptText": {
+                "type": "string",
+                "description": "Short upload-button text.",
+                "maxLength": 50
+              },
+              "consentText": {
+                "type": "string",
+                "description": "Consent shown before upload.",
+                "minLength": 20,
+                "maxLength": 1000
+              },
+              "confirmationMessage": {
+                "type": "string",
+                "description": "Message shown after submission.",
+                "minLength": 20,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "consentText",
+              "confirmationMessage"
+            ]
+          },
+          "reactivate": {
+            "type": "boolean"
+          },
+          "requiredLinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Required applicant link.",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "linkedin",
+                    "instagram",
+                    "twitter",
+                    "github",
+                    "resume",
+                    "portfolio",
+                    "custom"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Label required when type is custom.",
+                  "maxLength": 100
+                }
+              },
+              "required": [
+                "type"
+              ]
+            },
+            "description": "Links applicants must provide.",
+            "maxItems": 10
+          },
+          "applicationDetails": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Applicant screening field. Never request passwords, OTPs, private keys, payment-card data, government IDs, or similarly sensitive data.",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "checkbox",
+                    "file_upload"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "description": "Prompt or acknowledgment label."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "Whether the applicant must complete this field."
+                },
+                "fileType": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "docx"
+                  ],
+                  "description": "Accepted upload type for file_upload fields."
+                }
+              },
+              "required": [
+                "type",
+                "label"
+              ]
+            },
+            "description": "Application screening questions, acknowledgments, or one-file image/DOCX uploads.",
+            "maxItems": 10
+          },
+          "lifecycleMessages": {
+            "type": "object",
+            "description": "Automatic messages for lifecycle transitions. Templates may use {{name}}, {{bountyTitle}}, {{deadline}}, and {{reason}}.",
+            "properties": {
+              "onAccepted": {
+                "type": "string"
+              },
+              "onRejected": {
+                "type": "string"
+              },
+              "onSubmissionReceived": {
+                "type": "string"
+              },
+              "onSubmissionApproved": {
+                "type": "string"
+              },
+              "onSubmissionRejected": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "bountyId"
+        ]
+      }
+    },
+    {
+      "name": "cancel_bounty",
+      "description": "Cancel an owned live bounty when the task is no longer needed. This can trigger refund handling and is permanent.",
+      "method": "DELETE",
+      "path": "/bounties/{bountyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          }
+        },
+        "required": [
+          "bountyId"
+        ]
+      }
+    },
+    {
+      "name": "list_bounty_applications",
+      "description": "List applications for an owned bounty. Upload-collection applications include their submitted file URLs.",
+      "method": "GET",
+      "path": "/bounties/{bountyId}/applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          },
+          "status": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "newest",
+              "oldest"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 50.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        },
+        "required": [
+          "bountyId"
+        ]
+      }
+    },
+    {
+      "name": "get_bounty_application_dataset",
+      "description": "Get all accepted files from an upload-collection bounty. Use format=json for a manifest; omit it for the ZIP archive.",
+      "method": "GET",
+      "path": "/bounties/{bountyId}/applications/dataset",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json"
+            ],
+            "description": "Return a JSON manifest instead of the ZIP archive."
+          }
+        },
+        "required": [
+          "bountyId"
+        ]
+      }
+    },
+    {
+      "name": "update_application",
+      "description": "Accept, reject, or withdraw an application. Fund the application's escrow before accepting; use idempotencyKey for retry-safe acceptance.",
+      "method": "PATCH",
+      "path": "/bounties/{bountyId}/applications/{applicationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          },
+          "applicationId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "reject",
+              "withdraw"
+            ]
+          },
+          "response": {
+            "type": "string",
+            "description": "Optional response to the applicant."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "bountyId",
+          "applicationId",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "browse_services",
+      "description": "Browse active bookable services with provider, price, and duration metadata.",
+      "method": "GET",
+      "path": "/services/browse",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "newest",
+              "price-low",
+              "price-high"
+            ]
+          },
+          "verifiedOnly": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max page size 48.",
+            "minimum": 1,
+            "maximum": 48
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number.",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "get_service_availability",
+      "description": "Get booked time slots for a human on one date.",
+      "method": "GET",
+      "path": "/services/bookings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "date": {
+            "type": "string",
+            "description": "Date in YYYY-MM-DD format.",
+            "format": "date"
+          }
+        },
+        "required": [
+          "humanId",
+          "date"
+        ]
+      }
+    },
+    {
+      "name": "book_service",
+      "description": "Book one service slot with escrow. The response may include a Stripe Checkout URL that the operator must complete.",
+      "method": "POST",
+      "path": "/services/book",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "serviceId": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "Date in YYYY-MM-DD within the next 30 days.",
+            "format": "date"
+          },
+          "startTime": {
+            "type": "string",
+            "description": "Start time in HH:mm."
+          },
+          "message": {
+            "type": "string",
+            "description": "Optional moderated note."
+          }
+        },
+        "required": [
+          "humanId",
+          "serviceId",
+          "date",
+          "startTime"
+        ]
+      }
+    },
+    {
+      "name": "list_service_bookings",
+      "description": "List service bookings made by this account.",
+      "method": "GET",
+      "path": "/services/agent-bookings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "subscribe_to_service",
+      "description": "Create a recurring service subscription and first-cycle escrow checkout.",
+      "method": "POST",
+      "path": "/services/subscribe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "serviceId": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "weekly",
+              "biweekly",
+              "monthly"
+            ]
+          },
+          "dayOfWeek": {
+            "type": "string",
+            "enum": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday",
+              "saturday",
+              "sunday"
+            ]
+          },
+          "startTime": {
+            "type": "string",
+            "description": "HH:mm."
+          }
+        },
+        "required": [
+          "humanId",
+          "serviceId",
+          "interval",
+          "dayOfWeek",
+          "startTime"
+        ]
+      }
+    },
+    {
+      "name": "list_service_subscriptions",
+      "description": "List recurring service subscriptions as booker or provider.",
+      "method": "GET",
+      "path": "/services/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "booker",
+              "provider"
+            ]
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Status filters; repeated query values are supported."
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_service_subscription",
+      "description": "Cancel an active recurring service subscription at the end of its current period.",
+      "method": "DELETE",
+      "path": "/services/subscriptions/{subscriptionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscriptionId"
+        ]
+      }
+    },
+    {
+      "name": "create_escrow_checkout",
+      "description": "Fund a bounty, application, booking, or conversation offer. Returns funded, requires_payment with checkoutUrl, or insufficient_funds. Use idempotencyKey for retries.",
+      "method": "POST",
+      "path": "/escrow/checkout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          },
+          "applicationId": {
+            "type": "string"
+          },
+          "bookingId": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Optional amount in USD."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    {
+      "name": "list_escrows",
+      "description": "List caller-scoped escrows, optionally narrowed by status, application, bounty, or human.",
+      "method": "GET",
+      "path": "/escrow",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "poster",
+              "worker"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "applicationId": {
+            "type": "string"
+          },
+          "bountyId": {
+            "type": "string",
+            "description": "Bounty ID."
+          },
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          }
+        }
+      }
+    },
+    {
+      "name": "rent_human",
+      "description": "One-step rental: create a bounty, assign a specific human, and return the escrow checkout state. The operator may need to complete the returned checkout URL.",
+      "method": "POST",
+      "path": "/escrow/agent-checkout",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "taskTitle": {
+            "type": "string",
+            "description": "5-200 characters.",
+            "minLength": 5,
+            "maxLength": 200
+          },
+          "taskDescription": {
+            "type": "string",
+            "description": "At least 10 characters.",
+            "minLength": 10
+          },
+          "price": {
+            "type": "number",
+            "description": "USD, 1-10000.",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "estimatedHours": {
+            "type": "number",
+            "description": "Minimum five minutes.",
+            "minimum": 0.083
+          }
+        },
+        "required": [
+          "humanId",
+          "taskTitle",
+          "taskDescription",
+          "price"
+        ]
+      }
+    },
+    {
+      "name": "list_rentals",
+      "description": "List active and past rentals with status and next-action guidance.",
+      "method": "GET",
+      "path": "/escrow/agent-rentals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_personal_bounty",
+      "description": "Create a bounty targeted at one specific human after agreeing terms. The response may require the operator to complete Stripe Checkout.",
+      "method": "POST",
+      "path": "/escrow/personal-bounty",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "humanId": {
+            "type": "string",
+            "description": "RentAHuman public human profile ID."
+          },
+          "title": {
+            "type": "string",
+            "description": "5-200 characters.",
+            "minLength": 5,
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "description": "20-5000 characters.",
+            "minLength": 20,
+            "maxLength": 5000
+          },
+          "completionCriteria": {
+            "type": "string",
+            "description": "20-2000 characters.",
+            "minLength": 20,
+            "maxLength": 2000
+          },
+          "price": {
+            "type": "number",
+            "description": "USD, 1-10000.",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "deadline": {
+            "type": "string",
+            "description": "ISO 8601 deadline.",
+            "format": "date-time"
+          },
+          "estimatedHours": {
+            "type": "number",
+            "description": "Minimum five minutes.",
+            "minimum": 0.083
+          },
+          "category": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "humanId",
+          "title",
+          "description",
+          "completionCriteria",
+          "price",
+          "deadline"
+        ]
+      }
+    },
+    {
+      "name": "get_escrow",
+      "description": "Get escrow status, amounts, parties, fees, and audit log.",
+      "method": "GET",
+      "path": "/escrow/{escrowId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "escrowId": {
+            "type": "string",
+            "description": "Escrow ID."
+          }
+        },
+        "required": [
+          "escrowId"
+        ]
+      }
+    },
+    {
+      "name": "confirm_delivery",
+      "description": "Confirm that work was delivered satisfactorily. This approves delivery but does not release payment; call release_payment separately.",
+      "method": "POST",
+      "path": "/escrow/{escrowId}/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "escrowId": {
+            "type": "string",
+            "description": "Escrow ID."
+          }
+        },
+        "required": [
+          "escrowId"
+        ]
+      }
+    },
+    {
+      "name": "release_payment",
+      "description": "Release an approved escrow to the worker. Optionally bind the operation to an expected application ID to prevent paying the wrong worker.",
+      "method": "POST",
+      "path": "/escrow/{escrowId}/release",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "escrowId": {
+            "type": "string",
+            "description": "Escrow ID."
+          },
+          "applicationId": {
+            "type": "string",
+            "description": "Optional escrow/application binding check."
+          }
+        },
+        "required": [
+          "escrowId"
+        ]
+      }
+    },
+    {
+      "name": "cancel_escrow",
+      "description": "Cancel an eligible funding or funded escrow and refund it.",
+      "method": "POST",
+      "path": "/escrow/{escrowId}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "escrowId": {
+            "type": "string",
+            "description": "Escrow ID."
+          }
+        },
+        "required": [
+          "escrowId"
+        ]
+      }
+    },
+    {
+      "name": "open_dispute",
+      "description": "Open a dispute and freeze an eligible escrow for review. Provide specific facts and evidence URLs.",
+      "method": "POST",
+      "path": "/escrow/{escrowId}/dispute",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "escrowId": {
+            "type": "string",
+            "description": "Escrow ID."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "not_delivered",
+              "poor_quality",
+              "not_as_described",
+              "communication_issue",
+              "non_payment",
+              "fraud",
+              "other"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed reason, at least 20 characters.",
+            "minLength": 20
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Evidence URL.",
+              "format": "uri"
+            },
+            "description": "Evidence URLs."
+          }
+        },
+        "required": [
+          "escrowId",
+          "category",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "get_wallet_balance",
+      "description": "Get wallet balance and lifetime deposited and sent totals.",
+      "method": "GET",
+      "path": "/wallet/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_wallet_report",
+      "description": "Get a wallet spend report with totals and per-bounty and per-human breakdowns.",
+      "method": "GET",
+      "path": "/wallet/report",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "description": "ISO date/time or epoch milliseconds."
+          },
+          "end": {
+            "type": "string",
+            "description": "ISO date/time or epoch milliseconds."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_wallet_controls",
+      "description": "Read low-balance alerts, spending caps, and auto-topup configuration.",
+      "method": "GET",
+      "path": "/wallet/controls",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "set_wallet_controls",
+      "description": "Update wallet controls. Send only fields to change; use null to clear a threshold or cap. Enabling auto-topup requires target > floor > 0 and max/day >= target-floor.",
+      "method": "PATCH",
+      "path": "/wallet/controls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lowBalanceThresholdCents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Low-balance email threshold, or null."
+          },
+          "spendingCapPerBountyCents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-bounty cap, or null."
+          },
+          "spendingCapRolling24hCents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rolling 24-hour cap, or null."
+          },
+          "autoTopupEnabled": {
+            "type": "boolean"
+          },
+          "autoTopupFloorCents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Top-up floor, or null."
+          },
+          "autoTopupTargetCents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Top-up target, or null."
+          },
+          "autoTopupMaxPerDayCents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Daily auto-topup cap, or null."
+          }
+        }
+      }
+    },
+    {
+      "name": "deposit_wallet",
+      "description": "Create a Stripe Checkout session to deposit wallet funds. The operator must complete the returned checkout URL.",
+      "method": "POST",
+      "path": "/wallet/deposit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "USD, 1-10000.",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_link",
+      "description": "Create a RentAHuman checkout link for a customer to pay this account; paid links credit the wallet.",
+      "method": "POST",
+      "path": "/payment-links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "USD, 1-10000.",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "description": {
+            "type": "string",
+            "description": "What the customer is paying for, max 500 characters.",
+            "maxLength": 500
+          },
+          "payerEmail": {
+            "type": "string",
+            "description": "Optional prefilled customer email.",
+            "format": "email"
+          }
+        },
+        "required": [
+          "amount",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "get_payment_link",
+      "description": "Get current status for a payment link created by this account.",
+      "method": "GET",
+      "path": "/payment-links/{paymentLinkId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "paymentLinkId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "paymentLinkId"
+        ]
+      }
+    },
+    {
+      "name": "send_money",
+      "description": "Send money by human profile ID or email. Wallet balance is used first; otherwise the response may require Stripe Checkout.",
+      "method": "POST",
+      "path": "/transfers/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipientId": {
+            "type": "string"
+          },
+          "recipientEmail": {
+            "type": "string",
+            "format": "email"
+          },
+          "amount": {
+            "type": "number",
+            "description": "USD, 1-10000.",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional note, max 500 characters.",
+            "maxLength": 500
+          },
+          "conversationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "list_transfers",
+      "description": "List sent and received direct transfers with cursor pagination.",
+      "method": "GET",
+      "path": "/transfers/mine",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "received",
+              "all"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "failed"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max 100.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque pagination cursor returned by the previous response."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_transfer",
+      "description": "Get one transfer visible to the sender or recipient.",
+      "method": "GET",
+      "path": "/transfers/{transferId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transferId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transferId"
+        ]
+      }
+    },
+    {
+      "name": "bulk_send_money",
+      "description": "Atomically send wallet-funded payments to up to 100 recipients. Each recipient needs recipientId or recipientEmail plus amount.",
+      "method": "POST",
+      "path": "/transfers/bulk-send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Transfer recipient.",
+              "properties": {
+                "recipientId": {
+                  "type": "string"
+                },
+                "recipientEmail": {
+                  "type": "string",
+                  "format": "email"
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "USD amount.",
+                  "minimum": 1,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "amount"
+              ]
+            },
+            "description": "Recipients.",
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "description": {
+            "type": "string",
+            "description": "Default note, max 500 characters.",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "recipients"
+        ]
+      }
+    },
+    {
+      "name": "create_taste_run",
+      "description": "Pay a vetted creative panel to compare 2-6 public artifacts. Always provide a stable idempotencyKey; subscribe to run.report_ready or poll get_taste_run.",
+      "method": "POST",
+      "path": "/v1/taste/runs",
+      "header_params": {
+        "idempotencyKey": "Idempotency-Key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Optional title, 3-120 characters.",
+            "minLength": 3,
+            "maxLength": 120
+          },
+          "question": {
+            "type": "string",
+            "description": "Aesthetic judgment question, 5-2000 characters.",
+            "minLength": 5,
+            "maxLength": 2000
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Artifact to compare.",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Public HTTP(S) URL.",
+                  "format": "uri"
+                }
+              },
+              "required": [
+                "label",
+                "url"
+              ]
+            },
+            "description": "Two to six uniquely labelled artifacts.",
+            "minItems": 2,
+            "maxItems": 6
+          },
+          "respondentCount": {
+            "type": "integer",
+            "description": "1-100 respondents.",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "payPerRespondentCents": {
+            "type": "integer",
+            "description": "At least 50 cents.",
+            "minimum": 50
+          },
+          "targetCategories": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "design",
+                "visual-art",
+                "music",
+                "photo-video",
+                "fashion-style",
+                "writing-performance"
+              ]
+            }
+          },
+          "allowedCountries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "ISO-2 country code.",
+              "minLength": 2,
+              "maxLength": 2
+            }
+          },
+          "allowedGenders": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "man",
+                "woman",
+                "other"
+              ]
+            }
+          },
+          "identityRequired": {
+            "type": "boolean"
+          },
+          "requireVideoResponse": {
+            "type": "boolean"
+          },
+          "requirePortfolioUpload": {
+            "type": "boolean"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "question",
+          "artifacts",
+          "respondentCount",
+          "payPerRespondentCents",
+          "idempotencyKey"
+        ]
+      }
+    },
+    {
+      "name": "get_taste_run",
+      "description": "Get taste-run status and, once closed, its summary, vote tally, winner, quotes, and degraded flag.",
+      "method": "GET",
+      "path": "/v1/taste/runs/{runId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId"
+        ]
+      }
+    },
+    {
+      "name": "create_qa_template",
+      "description": "Create and activate a one-time or recurring human QA template. A low wallet warning means the template exists but needs funding before its run proceeds.",
+      "method": "POST",
+      "path": "/v1/qa/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "3-120 characters.",
+            "minLength": 3,
+            "maxLength": 120
+          },
+          "targetUrl": {
+            "type": "string",
+            "description": "Product journey to test.",
+            "format": "uri"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "20-5000 characters.",
+            "minLength": 20,
+            "maxLength": 5000
+          },
+          "testerStartMessage": {
+            "type": "string",
+            "description": "Private test-only setup details sent after acceptance, max 1500. Never use production credentials.",
+            "maxLength": 1500
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "once",
+              "daily",
+              "every_2_days",
+              "weekly"
+            ]
+          },
+          "budgetPerRunCents": {
+            "type": "integer",
+            "description": "Per-run ceiling in USD cents.",
+            "minimum": 1
+          },
+          "payPerTesterCents": {
+            "type": "integer",
+            "description": "Pay per tester in cents.",
+            "minimum": 1
+          },
+          "testerCount": {
+            "type": "integer",
+            "description": "1-20 testers.",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "submissionMode": {
+            "type": "string",
+            "enum": [
+              "photo",
+              "video",
+              "document"
+            ]
+          },
+          "requiredCredentials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tester qualifications."
+          },
+          "allowedCountries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "ISO-2 country code.",
+              "minLength": 2,
+              "maxLength": 2
+            }
+          },
+          "periodCapCents": {
+            "type": "integer",
+            "description": "Reservation cap for the cadence period.",
+            "minimum": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable retry key. Reusing it within 24 hours returns the original result instead of duplicating the operation.",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "name",
+          "targetUrl",
+          "instructions",
+          "cadence",
+          "budgetPerRunCents",
+          "payPerTesterCents",
+          "testerCount",
+          "submissionMode",
+          "periodCapCents"
+        ]
+      }
+    },
+    {
+      "name": "list_qa_templates",
+      "description": "List up to 100 QA templates owned by this API-key account.",
+      "method": "GET",
+      "path": "/v1/qa/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_qa_template",
+      "description": "Edit allowlisted QA-template fields or pause/resume with status. Existing cross-field budget constraints are rechecked.",
+      "method": "PATCH",
+      "path": "/v1/qa/templates/{templateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "targetUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "testerStartMessage": {
+            "type": "string"
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "once",
+              "daily",
+              "every_2_days",
+              "weekly"
+            ]
+          },
+          "budgetPerRunCents": {
+            "type": "integer"
+          },
+          "payPerTesterCents": {
+            "type": "integer"
+          },
+          "testerCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "submissionMode": {
+            "type": "string",
+            "enum": [
+              "photo",
+              "video",
+              "document"
+            ]
+          },
+          "requiredCredentials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedCountries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "periodCapCents": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused"
+            ]
+          }
+        },
+        "required": [
+          "templateId"
+        ]
+      }
+    },
+    {
+      "name": "list_qa_runs",
+      "description": "List owned QA runs newest first, optionally filtered to one template. Use get_qa_run for the completed report.",
+      "method": "GET",
+      "path": "/v1/qa/runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_qa_run",
+      "description": "Get one owned QA run with status, budget totals, report, finding diff, and escalation summaries.",
+      "method": "GET",
+      "path": "/v1/qa/runs/{runId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId"
+        ]
+      }
+    },
+    {
+      "name": "resolve_qa_escalation",
+      "description": "Resolve a submission escalation: accept approves payout; revise asks the tester for new evidence.",
+      "method": "PATCH",
+      "path": "/v1/qa/runs/{runId}/escalations/{applicationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "applicationId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "revise"
+            ]
+          }
+        },
+        "required": [
+          "runId",
+          "applicationId",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "list_api_keys",
+      "description": "List API-key metadata for this account. Raw key values are never returned.",
+      "method": "GET",
+      "path": "/keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_api_key",
+      "description": "Create a new account API key. The raw key is returned only once; expose it only to the operator and store it securely.",
+      "method": "POST",
+      "path": "/keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Key name, max 50 characters.",
+            "minLength": 1,
+            "maxLength": 50
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "revoke_api_key",
+      "description": "Immediately and permanently revoke an API key. List keys first and never revoke the key backing the current connection unless the operator explicitly requests it.",
+      "method": "DELETE",
+      "path": "/keys/{keyId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyId"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook_endpoint",
+      "description": "Register a public HTTPS webhook endpoint for selected event types. The signing secret is returned exactly once.",
+      "method": "POST",
+      "path": "/webhooks/endpoints",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Public HTTPS callback URL.",
+            "format": "uri"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Event names or * for all events.",
+            "minItems": 1
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable endpoint label."
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_endpoints",
+      "description": "List registered webhook endpoints. Signing secrets are redacted.",
+      "method": "GET",
+      "path": "/webhooks/endpoints",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "delete_webhook_endpoint",
+      "description": "Delete a webhook endpoint and stop future deliveries.",
+      "method": "DELETE",
+      "path": "/webhooks/endpoints/{endpointId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpointId"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_deliveries",
+      "description": "Inspect webhook delivery status, attempts, HTTP response status, errors, and timestamps.",
+      "method": "GET",
+      "path": "/webhooks/deliveries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 50, max 200.",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+{
+  "slug": "moz",
+  "name": "Moz Links API",
+  "description": "Moz Links API v3 — Domain Authority, Page Authority, Spam Score, link counts, top linking domains, anchor text, top pages. Free tier available.",
+  "logo": "https://www.google.com/s2/favicons?domain=moz.com&sz=128",
+  "categories": ["seo", "backlinks", "domain-authority", "page-authority", "link-analysis", "competitive-research"],
+  "base_url": "https://lsapi.seomoz.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Generate at moz.com/products/api/keys (Moz Links API)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "url_metrics",
+      "description": "Get DA, PA, Spam Score, link counts for up to 50 URLs",
+      "method": "POST",
+      "path": "/url_metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": { "type": "array", "description": "Array of URLs (max 50)" }
+        },
+        "required": ["targets"]
+      }
+    },
+    {
+      "name": "linking_root_domains",
+      "description": "Top linking root domains pointing to a target",
+      "method": "POST",
+      "path": "/linking_root_domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "target_scope": { "type": "string", "description": "page|subdomain|root_domain" },
+          "filter": { "type": "string", "description": "external|internal" },
+          "sort": { "type": "string", "description": "source_domain_authority" },
+          "limit": { "type": "number" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "linking_domains",
+      "description": "Linking domains pointing to a target (raw, not deduplicated to root)",
+      "method": "POST",
+      "path": "/linking_domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "target_scope": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "linking_pages",
+      "description": "Pages linking to a target with their attributes",
+      "method": "POST",
+      "path": "/linking_pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "target_scope": { "type": "string" },
+          "filter": { "type": "string" },
+          "sort": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "anchor_text",
+      "description": "Anchor text distribution for inbound links",
+      "method": "POST",
+      "path": "/anchor_text",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "target_scope": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "top_pages",
+      "description": "Top pages on a domain by Page Authority / link counts",
+      "method": "POST",
+      "path": "/top_pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "target_scope": { "type": "string" },
+          "limit": { "type": "number" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "final_redirect",
+      "description": "Resolve the final URL after following redirects (Moz canonical resolver)",
+      "method": "POST",
+      "path": "/final_redirect",
+      "input_schema": {
+        "type": "object",
+        "properties": { "page": { "type": "string" } },
+        "required": ["page"]
+      }
+    },
+    {
+      "name": "quota",
+      "description": "Check remaining API quota for the account",
+      "method": "POST",
+      "path": "/quota",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

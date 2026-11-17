@@ -1,0 +1,344 @@
+{
+  "slug": "discord",
+  "name": "Discord",
+  "description": "MCP server for Discord - messages, channels, webhooks, moderation",
+  "logo": "https://www.google.com/s2/favicons?domain=discord.com&sz=128",
+  "categories": [
+    "messaging",
+    "gaming",
+    "community",
+    "chat"
+  ],
+  "base_url": "https://discord.com/api/v10",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://discord.com/api/oauth2/authorize",
+      "token_url": "https://discord.com/api/oauth2/token",
+      "scopes": [
+        "identify",
+        "email",
+        "connections",
+        "guilds",
+        "guilds.join",
+        "guilds.members.read",
+        "gdm.join",
+        "rpc",
+        "rpc.notifications.read",
+        "rpc.voice.read",
+        "rpc.voice.write",
+        "rpc.activities.write",
+        "bot",
+        "webhook.incoming",
+        "messages.read",
+        "applications.builds.upload",
+        "applications.builds.read",
+        "applications.commands",
+        "applications.store.update",
+        "applications.entitlements",
+        "activities.read",
+        "activities.write",
+        "relationships.read",
+        "voice",
+        "dm_channels.read",
+        "role_connections.write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "send_message",
+      "description": "Send a message to a channel",
+      "method": "POST",
+      "path": "/send-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "embeds": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "channel_id",
+          "content"
+        ]
+      },
+      "mock_response": {
+        "id": "1153000000000000001",
+        "type": 0,
+        "channel_id": "1152000000000000000",
+        "content": "(message delivered)",
+        "author": {
+          "id": "1100000000000000000",
+          "username": "apteva-bot",
+          "discriminator": "0",
+          "bot": true
+        },
+        "timestamp": "2026-05-22T12:00:00.000000+00:00",
+        "edited_timestamp": null,
+        "tts": false,
+        "mention_everyone": false,
+        "pinned": false
+      }
+    },
+    {
+      "name": "send_embed",
+      "description": "Send an embedded message",
+      "method": "POST",
+      "path": "/send-embed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "embed": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "channel_id",
+          "embed"
+        ]
+      },
+      "mock_response": {
+        "id": "1153000000000000002",
+        "type": 0,
+        "channel_id": "1152000000000000000",
+        "content": "",
+        "embeds": [
+          {
+            "type": "rich",
+            "title": "(embed title)",
+            "description": "(embed body)",
+            "color": 5814783
+          }
+        ],
+        "author": {
+          "id": "1100000000000000000",
+          "username": "apteva-bot",
+          "bot": true
+        },
+        "timestamp": "2026-05-22T12:00:00.000000+00:00",
+        "tts": false,
+        "pinned": false
+      }
+    },
+    {
+      "name": "create_channel",
+      "description": "Create a new channel",
+      "method": "POST",
+      "path": "/create-channel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "guild_id",
+          "name"
+        ]
+      },
+      "mock_response": {
+        "id": "1154000000000000003",
+        "type": 0,
+        "name": "new-channel",
+        "guild_id": "1150000000000000000",
+        "position": 5,
+        "parent_id": null,
+        "nsfw": false,
+        "rate_limit_per_user": 0
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook",
+      "method": "POST",
+      "path": "/create-webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "name"
+        ]
+      },
+      "mock_response": {
+        "id": "1155000000000000004",
+        "type": 1,
+        "name": "apteva",
+        "channel_id": "1152000000000000000",
+        "guild_id": "1150000000000000000",
+        "token": "mock_webhook_token_AbCdEf123456",
+        "application_id": null,
+        "url": "https://discord.com/api/webhooks/1155000000000000004/mock_webhook_token_AbCdEf123456"
+      }
+    },
+    {
+      "name": "manage_role",
+      "description": "Manage user roles",
+      "method": "GET",
+      "path": "/manage-role",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guild_id",
+          "user_id",
+          "role_id",
+          "action"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "ban_user",
+      "description": "Ban a user from server",
+      "method": "GET",
+      "path": "/ban-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "guild_id",
+          "user_id"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "get_messages",
+      "description": "Retrieve messages from a Discord channel",
+      "method": "GET",
+      "path": "/get-messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string",
+            "description": "Discord channel ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of messages to retrieve",
+            "default": 50,
+            "maximum": 100
+          },
+          "before": {
+            "type": "string",
+            "description": "Get messages before this message ID"
+          },
+          "after": {
+            "type": "string",
+            "description": "Get messages after this message ID"
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      },
+      "mock_response": [
+        {
+          "id": "1153000000000000001",
+          "channel_id": "1152000000000000000",
+          "content": "Hey, are we still on for the demo?",
+          "author": {
+            "id": "1101000000000000000",
+            "username": "alice",
+            "bot": false
+          },
+          "timestamp": "2026-05-22T11:58:00.000000+00:00"
+        },
+        {
+          "id": "1153000000000000000",
+          "channel_id": "1152000000000000000",
+          "content": "Yes, 3pm works.",
+          "author": {
+            "id": "1102000000000000000",
+            "username": "bob",
+            "bot": false
+          },
+          "timestamp": "2026-05-22T11:55:00.000000+00:00"
+        }
+      ]
+    }
+  ]
+}

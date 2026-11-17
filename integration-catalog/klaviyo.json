@@ -1,0 +1,199 @@
+{
+  "slug": "klaviyo",
+  "name": "Klaviyo",
+  "description": "Klaviyo integration for email marketing with profiles, lists, and campaigns",
+  "logo": "https://www.google.com/s2/favicons?domain=klaviyo.com&sz=128",
+  "categories": [
+    "marketing",
+    "email",
+    "klaviyo",
+    "campaigns",
+    "automation"
+  ],
+  "base_url": "https://a.klaviyo.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_profiles",
+      "description": "List profiles/contacts from Klaviyo",
+      "method": "GET",
+      "path": "/list-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_size": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_profile",
+      "description": "Create or update a profile",
+      "method": "POST",
+      "path": "/create-profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "phone_number": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization"
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "location": {
+            "type": "object",
+            "description": "Location"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Custom properties"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_lists",
+      "description": "List all lists from Klaviyo",
+      "method": "GET",
+      "path": "/list-lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_size": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      }
+    },
+    {
+      "name": "add_to_list",
+      "description": "Add profiles to a list",
+      "method": "GET",
+      "path": "/add-to-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "List ID"
+          },
+          "profile_ids": {
+            "type": "array",
+            "description": "Profile IDs to add"
+          }
+        },
+        "required": [
+          "list_id",
+          "profile_ids"
+        ]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns from Klaviyo",
+      "method": "GET",
+      "path": "/list-campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_size": {
+            "type": "number",
+            "description": "Results per page"
+          },
+          "page_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter expression"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create an email campaign",
+      "method": "POST",
+      "path": "/create-campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "list_ids": {
+            "type": "array",
+            "description": "List IDs to send to"
+          },
+          "segment_ids": {
+            "type": "array",
+            "description": "Segment IDs to send to"
+          },
+          "send_strategy": {
+            "type": "string",
+            "description": "Send strategy"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ]
+}

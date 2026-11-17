@@ -1,0 +1,312 @@
+{
+  "slug": "manychat",
+  "name": "ManyChat",
+  "description": "ManyChat chat marketing platform. Manage subscribers, tags, and send messages across Facebook Messenger, Instagram, WhatsApp, and SMS.",
+  "logo": "https://www.google.com/s2/favicons?domain=manychat.com&sz=128",
+  "categories": [
+    "chat",
+    "marketing",
+    "messenger",
+    "whatsapp",
+    "instagram",
+    "automation",
+    "subscribers"
+  ],
+  "base_url": "https://api.manychat.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "ManyChat API token (generate from Settings > API in your ManyChat account)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_subscriber_by_phone",
+      "description": "Find a ManyChat subscriber by their phone number. Returns subscriber details including ID, name, tags, and custom fields. Phone number should include country code (e.g. +1234567890).",
+      "method": "GET",
+      "path": "/fb/subscriber/findBySystemField",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "description": "Phone number to search for, including country code (e.g. +1234567890). Must match the exact phone stored in the subscriber's profile."
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      }
+    },
+    {
+      "name": "find_subscriber_by_email",
+      "description": "Find a ManyChat subscriber by their email address. Returns subscriber details including ID, name, tags, and custom fields.",
+      "method": "GET",
+      "path": "/fb/subscriber/findBySystemField",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to search for. Must match the exact email stored in the subscriber's profile."
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "find_subscribers_by_name",
+      "description": "Search for ManyChat subscribers by name. Returns a list of matching subscribers with their details including ID, tags, and custom fields.",
+      "method": "GET",
+      "path": "/fb/subscriber/findByName",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name to search for. Matches against the subscriber's first name and last name."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_subscriber",
+      "description": "Create a new subscriber in ManyChat. Requires at least a phone number or email address. Optionally provide name, consent details, and opt-in preferences for SMS and email channels.",
+      "method": "POST",
+      "path": "/fb/subscriber/createSubscriber",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "description": "Subscriber's first name."
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Subscriber's last name."
+          },
+          "phone": {
+            "type": "string",
+            "description": "Subscriber's phone number with country code (e.g. +1234567890). Required if email is not provided."
+          },
+          "whatsapp_phone": {
+            "type": "string",
+            "description": "Subscriber's WhatsApp phone number with country code."
+          },
+          "email": {
+            "type": "string",
+            "description": "Subscriber's email address. Required if phone is not provided."
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female"
+            ],
+            "description": "Subscriber's gender."
+          },
+          "has_opt_in_sms": {
+            "type": "boolean",
+            "description": "Whether the subscriber has opted in to SMS messages.",
+            "default": false
+          },
+          "has_opt_in_email": {
+            "type": "boolean",
+            "description": "Whether the subscriber has opted in to email messages.",
+            "default": false
+          },
+          "consent_phrase": {
+            "type": "string",
+            "description": "The consent phrase acknowledged by the subscriber. Required if has_opt_in_sms or has_opt_in_email is true."
+          }
+        }
+      }
+    },
+    {
+      "name": "update_subscriber",
+      "description": "Update an existing subscriber's custom field value in ManyChat. Use this to set or change any custom field on a subscriber's profile.",
+      "method": "POST",
+      "path": "/fb/subscriber/setCustomField",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriber_id": {
+            "type": "integer",
+            "description": "The unique ManyChat subscriber ID."
+          },
+          "field_id": {
+            "type": "integer",
+            "description": "The custom field ID to update. Get field IDs from the page custom fields list."
+          },
+          "field_value": {
+            "type": "string",
+            "description": "The new value to set for the custom field. Can be string, number, boolean, or array depending on field type."
+          }
+        },
+        "required": [
+          "subscriber_id",
+          "field_id",
+          "field_value"
+        ]
+      }
+    },
+    {
+      "name": "add_tag",
+      "description": "Add a tag to a ManyChat subscriber by tag name. The tag will be created if it does not already exist. Use this to segment and organize subscribers.",
+      "method": "POST",
+      "path": "/fb/subscriber/addTagByName",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriber_id": {
+            "type": "integer",
+            "description": "The unique ManyChat subscriber ID to add the tag to."
+          },
+          "tag_name": {
+            "type": "string",
+            "description": "The name of the tag to add. Will be created automatically if it does not exist."
+          }
+        },
+        "required": [
+          "subscriber_id",
+          "tag_name"
+        ]
+      }
+    },
+    {
+      "name": "remove_tag",
+      "description": "Remove a tag from a ManyChat subscriber by tag name. If the subscriber does not have the tag, the request will succeed silently.",
+      "method": "POST",
+      "path": "/fb/subscriber/removeTagByName",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriber_id": {
+            "type": "integer",
+            "description": "The unique ManyChat subscriber ID to remove the tag from."
+          },
+          "tag_name": {
+            "type": "string",
+            "description": "The name of the tag to remove from the subscriber."
+          }
+        },
+        "required": [
+          "subscriber_id",
+          "tag_name"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message to a ManyChat subscriber. Supports text messages, images, buttons, and other rich content. The message_tag is required if the subscriber's last interaction was more than 24 hours ago (Facebook policy).",
+      "method": "POST",
+      "path": "/fb/sending/sendContent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscriber_id": {
+            "type": "integer",
+            "description": "The unique ManyChat subscriber ID to send the message to."
+          },
+          "data": {
+            "type": "object",
+            "description": "Message content object in ManyChat Dynamic Block format.",
+            "properties": {
+              "version": {
+                "type": "string",
+                "description": "API version. Use 'v2'.",
+                "default": "v2"
+              },
+              "content": {
+                "type": "object",
+                "description": "Content object containing the messages array.",
+                "properties": {
+                  "messages": {
+                    "type": "array",
+                    "description": "Array of message objects to send.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "image",
+                            "card",
+                            "cards"
+                          ],
+                          "description": "Message type."
+                        },
+                        "text": {
+                          "type": "string",
+                          "description": "Message text content (for type 'text')."
+                        },
+                        "url": {
+                          "type": "string",
+                          "description": "Image URL (for type 'image')."
+                        },
+                        "buttons": {
+                          "type": "array",
+                          "description": "Array of button objects.",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "url",
+                                  "flow",
+                                  "call",
+                                  "buy"
+                                ]
+                              },
+                              "caption": {
+                                "type": "string",
+                                "description": "Button label text."
+                              },
+                              "url": {
+                                "type": "string",
+                                "description": "Target URL (for type 'url')."
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "message_tag": {
+            "type": "string",
+            "enum": [
+              "ACCOUNT_UPDATE",
+              "CONFIRMED_EVENT_UPDATE",
+              "POST_PURCHASE_UPDATE"
+            ],
+            "description": "Facebook message tag. Required for sending messages outside the 24-hour messaging window. Use ACCOUNT_UPDATE for account-related notifications, CONFIRMED_EVENT_UPDATE for event reminders, POST_PURCHASE_UPDATE for order updates."
+          }
+        },
+        "required": [
+          "subscriber_id",
+          "data"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "slug": "awin",
+  "name": "Awin",
+  "description": "Awin publisher APIs for programme discovery, product feeds, offers/vouchers, link building, and publisher transaction reporting.",
+  "logo": "https://www.google.com/s2/favicons?domain=awin.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "offers", "products", "links", "stats", "marketing", "ecommerce"],
+  "base_url": "https://api.awin.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Awin API token",
+        "description": "Personal API token from Awin API Credentials.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "product_feed_key",
+        "label": "Product feed API key",
+        "description": "Separate data-feed key from Toolbox > Create-a-Feed. Awin does not accept the Publisher API token for product feeds.",
+        "type": "password",
+        "required": false
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "accounts_list",
+    "input": { "type": "publisher" },
+    "expect_status": [200]
+  },
+  "tools": [
+    {
+      "name": "accounts_list",
+      "description": "List the Awin publisher accounts accessible to the authenticated user, including publisher IDs used by other tools.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["publisher", "advertiser"],
+            "description": "Optional account type filter."
+          }
+        }
+      }
+    },
+    {
+      "name": "programs_list",
+      "description": "List Awin advertiser programmes for a publisher, optionally filtered by relationship and country.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/programmes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "relationship": { "type": "string", "enum": ["joined", "pending", "suspended", "rejected", "notjoined"] },
+          "countryCode": { "type": "string", "description": "ISO 3166 alpha-2 country code such as GB, DE, FR." },
+          "includeHidden": { "type": "boolean" }
+        },
+        "required": ["publisherId"]
+      }
+    },
+    {
+      "name": "program_details_get",
+      "description": "Get KPIs, description, and commission range for one Awin advertiser programme.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/programmedetails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "advertiserId": { "type": "integer" },
+          "relationship": { "type": "string", "enum": ["joined", "pending", "suspended", "rejected", "notjoined", "any"], "default": "joined" }
+        },
+        "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
+      "name": "offers_list",
+      "description": "Retrieve Awin promotions and voucher codes from joined and non-joined advertisers.",
+      "method": "POST",
+      "path": "/publisher/{publisherId}/promotions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "filters": { "type": "object", "description": "Awin filters object: advertiserIds, exclusiveOnly, membership, regionCodes, status, type, updatedSince." },
+          "pagination": { "type": "object", "description": "Awin pagination object: page and pageSize." }
+        },
+        "required": ["publisherId"]
+      }
+    },
+    {
+      "name": "commission_groups_get",
+      "description": "Retrieve the active fixed and percentage commission groups for one joined Awin advertiser programme.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/commissiongroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "advertiserId": { "type": "integer" },
+          "effectiveDate": { "type": "string", "description": "Optional ISO-8601 date-time; defaults to the currently active rates." },
+          "extraConditionsDetails": { "type": "boolean", "default": false }
+        },
+        "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
+      "name": "product_feeds_list",
+      "description": "Download the CSV catalog of Awin product feeds visible to this publisher, including advertiser, feed ID, membership status, last import time, and feed URL. Requires the separate product-feed API key.",
+      "method": "GET",
+      "base_url": "https://productdata.awin.com",
+      "path": "/datafeed/list/apikey/{{credential.product_feed_key}}",
+      "omit_auth_headers": ["Authorization", "Accept"],
+      "headers": { "Accept": "text/csv" },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "product_feed_download",
+      "description": "Download a normalized CSV page for one Awin product feed. Returns product IDs, merchant metadata, prices, descriptions, category, brand, stock state, destination URL, image URL, and commissionable Awin deep link.",
+      "method": "GET",
+      "base_url": "https://datafeed.api.productserve.com",
+      "path": "/datafeed/download/apikey/{{credential.product_feed_key}}/fid/{feedId}/format/csv/language/{language}/delimiter/%2C/compression/none/adultcontent/{adultContent}/columns/aw_deep_link%2Cproduct_name%2Caw_product_id%2Cmerchant_product_id%2Cmerchant_image_url%2Cdescription%2Cmerchant_category%2Csearch_price%2Cmerchant_name%2Cmerchant_id%2Ccategory_name%2Ccurrency%2Cstore_price%2Cmerchant_deep_link%2Cbrand_name%2Ccommission_group%2Cin_stock%2Cstock_quantity%2Cstock_status%2Cean%2Cupc%2Cmpn%2Cproduct_GTIN/",
+      "omit_auth_headers": ["Authorization", "Accept"],
+      "headers": { "Accept": "text/csv" },
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feedId": { "type": "integer", "description": "Feed ID returned by product_feeds_list." },
+          "language": { "type": "string", "description": "Awin feed language code, normally en.", "default": "en" },
+          "adultContent": { "type": "integer", "enum": [0, 1], "description": "Whether adult products may be returned.", "default": 0 }
+        },
+        "required": ["feedId", "language", "adultContent"]
+      }
+    },
+    {
+      "name": "tracking_link_generate",
+      "description": "Generate one or a batch of Awin tracking links/deeplinks for an advertiser.",
+      "method": "POST",
+      "path": "/publishers/{publisherId}/linkbuilder/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "advertiserId": { "type": "integer" },
+          "destinationUrl": { "type": "string" },
+          "parameters": { "type": "object", "description": "Awin click parameters such as campaign, clickref, clickref2 through clickref6." },
+          "shorten": { "type": "boolean" }
+        },
+        "required": ["publisherId", "advertiserId"]
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "List publisher transactions for a date range and optional advertiser/status filters.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/transactions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "startDate": { "type": "string", "description": "Required by Awin transaction API, ISO date-time." },
+          "endDate": { "type": "string", "description": "Required by Awin transaction API, ISO date-time." },
+          "dateType": { "type": "string", "enum": ["transaction", "validation", "amendment"], "default": "transaction" },
+          "advertiserId": { "type": "string" },
+          "showBasketProducts": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["pending", "approved", "declined", "deleted"] },
+          "timezone": { "type": "string", "default": "UTC" }
+        },
+        "required": ["publisherId", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "campaign_performance_report",
+      "description": "Retrieve publisher performance by day, campaign, and advertiser, including clicks, transactions, sale value, and commission.",
+      "method": "GET",
+      "path": "/publishers/{publisherId}/reports/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "publisherId": { "type": "string" },
+          "startDate": { "type": "string", "description": "Inclusive YYYY-MM-DD start date." },
+          "endDate": { "type": "string", "description": "Inclusive YYYY-MM-DD end date." },
+          "region": { "type": "string", "description": "Awin advertiser region code such as GB, DE, FR, or US." },
+          "advertiserIds": { "type": "string", "description": "Optional comma-separated advertiser IDs from the selected region." },
+          "campaign": { "type": "string" },
+          "includeNumbersWithoutCampaign": { "type": "boolean", "default": true },
+          "interval": { "type": "string", "enum": ["day", "month", "year"], "default": "day" },
+          "timezone": { "type": "string", "default": "UTC" }
+        },
+        "required": ["publisherId", "startDate", "endDate", "region"]
+      }
+    }
+  ]
+}

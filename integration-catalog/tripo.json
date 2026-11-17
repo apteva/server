@@ -1,0 +1,157 @@
+{
+  "slug": "tripo",
+  "name": "Tripo AI",
+  "description": "MCP server for Tripo AI - high-quality text-to-3D and image-to-3D generation with 300 free credits/month",
+  "logo": "https://www.google.com/s2/favicons?domain=tripo3d.ai&sz=128",
+  "categories": [
+    "3d-modeling",
+    "ai",
+    "text-to-3d",
+    "image-to-3d",
+    "mesh-generation"
+  ],
+  "base_url": "https://api.tripo3d.ai",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Tripo API key (get from platform.tripo3d.ai/api-keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "upload_image",
+      "description": "Upload an image to get a token for image-to-3D generation",
+      "method": "POST",
+      "path": "/upload-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string",
+            "description": "URL of the image to upload"
+          }
+        },
+        "required": [
+          "image_url"
+        ]
+      }
+    },
+    {
+      "name": "text_to_3d",
+      "description": "Generate a 3D model from a text prompt",
+      "method": "GET",
+      "path": "/text-to-3d",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the 3D model to generate"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "What to avoid in the generation"
+          },
+          "model_version": {
+            "type": "string",
+            "description": "Model version to use",
+            "default": "v2.0-20240919"
+          },
+          "face_limit": {
+            "type": "number",
+            "description": "Maximum number of faces in the mesh",
+            "default": 10000
+          },
+          "texture": {
+            "type": "boolean",
+            "description": "Whether to generate textures",
+            "default": true
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "image_to_3d",
+      "description": "Generate a 3D model from an image (use tripo-upload-image first or provide image_url)",
+      "method": "GET",
+      "path": "/image-to-3d",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_token": {
+            "type": "string",
+            "description": "Image token from tripo-upload-image"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct URL of the image (alternative to image_token)"
+          },
+          "model_version": {
+            "type": "string",
+            "description": "Model version to use",
+            "default": "v2.0-20240919"
+          },
+          "face_limit": {
+            "type": "number",
+            "description": "Maximum number of faces",
+            "default": 10000
+          },
+          "texture": {
+            "type": "boolean",
+            "description": "Whether to generate textures",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "task_get",
+      "description": "Get the status and result of a Tripo task",
+      "method": "GET",
+      "path": "/task-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "task_list",
+      "description": "List all Tripo tasks with pagination",
+      "method": "GET",
+      "path": "/task-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    }
+  ]
+}

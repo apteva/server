@@ -71,8 +71,9 @@ func setupA2ARealHarness(t *testing.T, coordinatorDirective, workerDirective str
 	}
 
 	environment, err := s.environments.Create(EnvironmentSpec{
-		ID:         fmt.Sprintf("env-a2a-%d", time.Now().UnixNano()),
-		GatewayURL: "http://127.0.0.1:" + s.port,
+		ID:            fmt.Sprintf("env-a2a-%d", time.Now().UnixNano()),
+		GatewayURL:    "http://127.0.0.1:" + s.port,
+		CreatorUserID: userID,
 		AppSrcDirs: map[string]string{
 			"a2a":   a2aSrc,
 			"notes": notesSrc,

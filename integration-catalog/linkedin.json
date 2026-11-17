@@ -1,0 +1,277 @@
+{
+  "slug": "linkedin",
+  "name": "LinkedIn",
+  "description": "MCP server for LinkedIn operations - profiles, posts, connections, and company pages",
+  "logo": "https://www.google.com/s2/favicons?domain=linkedin.com&sz=128",
+  "categories": [
+    "social",
+    "linkedin",
+    "professional",
+    "networking",
+    "business"
+  ],
+  "base_url": "https://api.linkedin.com/v2",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.linkedin.com/oauth/v2/authorization",
+      "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+      "scopes": [
+        "r_liteprofile",
+        "r_emailaddress",
+        "w_member_social",
+        "r_organization_social",
+        "w_organization_social",
+        "r_1st_connections_size",
+        "r_ads",
+        "r_ads_reporting",
+        "r_basicprofile",
+        "r_organization_admin"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "get_profile",
+      "description": "Get current user's LinkedIn profile",
+      "method": "GET",
+      "path": "/get-profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "mock_response": {
+        "id": "abc123XYZ",
+        "localizedFirstName": "Marco",
+        "localizedLastName": "Schwartz",
+        "headline": "Founder at Apteva",
+        "profilePicture": {
+          "displayImage": "urn:li:digitalmediaAsset:mockAssetId"
+        }
+      }
+    },
+    {
+      "name": "create_post",
+      "description": "Create a post on LinkedIn",
+      "method": "POST",
+      "path": "/create-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author URN (urn:li:person:id)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Post text content"
+          },
+          "visibility": {
+            "type": "string",
+            "description": "Post visibility",
+            "default": "PUBLIC"
+          },
+          "media_category": {
+            "type": "string",
+            "description": "Media category if including media"
+          },
+          "media": {
+            "type": "array",
+            "description": "Media attachments"
+          }
+        },
+        "required": [
+          "author",
+          "text"
+        ]
+      },
+      "mock_response": {
+        "id": "urn:li:ugcPost:7200000000000000001"
+      }
+    },
+    {
+      "name": "delete_post",
+      "description": "Delete a LinkedIn UGC post by its URN. Pass the full URN (e.g. urn:li:share:1234567890 or urn:li:ugcPost:1234567890); it gets URL-encoded into the request path. Only the original author (or an admin of the owning organization) can delete a post \u2014 others get 403.",
+      "method": "DELETE",
+      "path": "/ugcPosts/{urn}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urn": {
+            "type": "string",
+            "description": "Post URN to delete (urn:li:share:xxx or urn:li:ugcPost:xxx)"
+          }
+        },
+        "required": [
+          "urn"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "get_connections",
+      "description": "Get user's connections count",
+      "method": "GET",
+      "path": "/get-connections",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "mock_response": {
+        "elements": [
+          {
+            "firstName": "Alice",
+            "lastName": "Martin",
+            "headline": "Software Engineer"
+          }
+        ],
+        "paging": {
+          "count": 10,
+          "start": 0,
+          "total": 248
+        }
+      }
+    },
+    {
+      "name": "list_posts",
+      "description": "List posts by author",
+      "method": "GET",
+      "path": "/list-posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author URN"
+          },
+          "start": {
+            "type": "number",
+            "description": "Pagination offset",
+            "default": 0
+          },
+          "count": {
+            "type": "number",
+            "description": "Number of results",
+            "default": 50
+          }
+        },
+        "required": [
+          "author"
+        ]
+      },
+      "mock_response": {
+        "elements": [
+          {
+            "id": "urn:li:ugcPost:7200000000000000001",
+            "text": {
+              "text": "Excited to announce our latest release."
+            },
+            "created": {
+              "time": 1747915200000
+            }
+          }
+        ],
+        "paging": {
+          "count": 10,
+          "start": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "get_company",
+      "description": "Get company page details",
+      "method": "GET",
+      "path": "/get-company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      },
+      "mock_response": {
+        "id": 12345678,
+        "name": "Apteva",
+        "vanityName": "apteva",
+        "localizedName": "Apteva",
+        "staffCountRange": "SIZE_2_TO_10",
+        "localizedWebsite": "https://apteva.example"
+      }
+    },
+    {
+      "name": "list_company_posts",
+      "description": "List posts from a company page",
+      "method": "GET",
+      "path": "/list-company-posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID"
+          },
+          "start": {
+            "type": "number",
+            "description": "Pagination offset",
+            "default": 0
+          },
+          "count": {
+            "type": "number",
+            "description": "Number of results",
+            "default": 50
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      },
+      "mock_response": {
+        "elements": [
+          {
+            "id": "urn:li:ugcPost:7200000000000000002",
+            "text": {
+              "text": "We're hiring engineers."
+            },
+            "created": {
+              "time": 1747828800000
+            }
+          }
+        ],
+        "paging": {
+          "count": 10,
+          "start": 0,
+          "total": 1
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_profile"
+  }
+}

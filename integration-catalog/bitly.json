@@ -1,0 +1,175 @@
+{
+  "slug": "bitly",
+  "name": "Bitly",
+  "description": "Bitly URL shortening and link management platform. Shorten URLs, retrieve link details, manage bitlinks, and access click analytics.",
+  "logo": "https://www.google.com/s2/favicons?domain=bitly.com&sz=128",
+  "categories": [
+    "url-shortener",
+    "links",
+    "analytics",
+    "marketing",
+    "tracking"
+  ],
+  "base_url": "https://api-ssl.bitly.com/v4",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Bitly access token (generate at app.bitly.com/settings/api)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "shorten_url",
+      "description": "Shorten a long URL into a Bitly short link. Optionally specify a custom domain (defaults to bit.ly) and a group GUID.",
+      "method": "POST",
+      "path": "/shorten",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "long_url": {
+            "type": "string",
+            "description": "The long URL to shorten."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Custom short domain to use (e.g. 'bit.ly', 'j.mp', or your custom branded domain). Defaults to 'bit.ly'."
+          },
+          "group_guid": {
+            "type": "string",
+            "description": "GUID of the group to associate the short link with. Optional."
+          }
+        },
+        "required": [
+          "long_url"
+        ]
+      }
+    },
+    {
+      "name": "get_bitlink",
+      "description": "Retrieve details about a specific Bitlink including its long URL, creation date, tags, and custom bitlinks. The bitlink parameter should be the short URL without the protocol (e.g. 'bit.ly/abc123').",
+      "method": "GET",
+      "path": "/bitlinks/{{param.bitlink}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bitlink": {
+            "type": "string",
+            "description": "The Bitlink to retrieve, without the protocol. Example: 'bit.ly/abc123'."
+          }
+        },
+        "required": [
+          "bitlink"
+        ]
+      }
+    },
+    {
+      "name": "list_bitlinks",
+      "description": "Retrieve a list of Bitlinks for a specific group. Returns Bitlinks sorted by creation date. Supports pagination and filtering.",
+      "method": "GET",
+      "path": "/groups/{{param.group_guid}}/bitlinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_guid": {
+            "type": "string",
+            "description": "The GUID of the group whose Bitlinks to list. Find your group GUID via the Bitly dashboard or by calling the groups endpoint."
+          },
+          "size": {
+            "type": "number",
+            "description": "Number of results per page. Default is 50."
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination. Default is 1."
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Filter Bitlinks by keyword in the long URL or title. Optional."
+          }
+        },
+        "required": [
+          "group_guid"
+        ]
+      }
+    },
+    {
+      "name": "get_clicks_summary",
+      "description": "Get a summary of clicks for a specific Bitlink. Returns total click count for the specified time period. Useful for analytics and reporting.",
+      "method": "GET",
+      "path": "/bitlinks/{{param.bitlink}}/clicks/summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bitlink": {
+            "type": "string",
+            "description": "The Bitlink to get clicks for, without protocol. Example: 'bit.ly/abc123'."
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "minute",
+              "hour",
+              "day",
+              "week",
+              "month"
+            ],
+            "description": "Time unit for the click data. Defaults to 'day'."
+          },
+          "units": {
+            "type": "number",
+            "description": "Number of time units to query. Use -1 to return all available data. Defaults to -1."
+          },
+          "unit_reference": {
+            "type": "string",
+            "description": "ISO 8601 timestamp for the most recent time to pull metrics. Defaults to current time. Optional."
+          }
+        },
+        "required": [
+          "bitlink"
+        ]
+      }
+    },
+    {
+      "name": "update_bitlink",
+      "description": "Update properties of an existing Bitlink such as its title, tags, or archived status. Note: the destination URL (long_url) cannot be changed after creation.",
+      "method": "PATCH",
+      "path": "/bitlinks/{{param.bitlink}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bitlink": {
+            "type": "string",
+            "description": "The Bitlink to update, without protocol. Example: 'bit.ly/abc123'."
+          },
+          "title": {
+            "type": "string",
+            "description": "New title for the Bitlink."
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Whether to archive the Bitlink."
+          },
+          "tags": {
+            "type": "array",
+            "description": "Array of tags to associate with the Bitlink.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "bitlink"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,184 @@
+{
+  "slug": "naver-cloud",
+  "name": "Naver Cloud Platform (Server)",
+  "description": "MCP server for Naver Cloud Platform Server v2 - server instances, server images, server products, login keys, public IPs (Korea-focused). NOTE: NCloud uses HMAC-SHA256 signing (x-ncp-apigw-signature-v2 header) not yet implemented in the http-executor; this manifest is published for catalog discoverability — runtime calls will fail until executor adds NCP signing support.",
+  "logo": "https://www.google.com/s2/favicons?domain=ncloud.com&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "korea", "asia", "needs-signing-support"],
+  "base_url": "https://ncloud.apigw.ntruss.com/server/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-ncp-apigw-timestamp": "{{timestamp}}",
+      "x-ncp-iam-access-key": "{{access_key}}",
+      "x-ncp-apigw-signature-v2": "{{signature}}"
+    },
+    "credential_fields": [
+      { "name": "access_key", "label": "Access Key ID", "description": "Naver Cloud Platform Access Key (Manage Auth Key)" },
+      { "name": "secret_key", "label": "Secret Key", "description": "Used to compute HMAC-SHA256 signature over METHOD + space + URI + newline + timestamp + newline + access_key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_server_instance_list",
+      "description": "List server instances",
+      "method": "GET",
+      "path": "/getServerInstanceList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string", "description": "json|xml" },
+          "regionCode": { "type": "string", "description": "KR | SGN | JPN | USWN | DEN" },
+          "pageNo": { "type": "number" },
+          "pageSize": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_server_instances",
+      "description": "Create server instances",
+      "method": "POST",
+      "path": "/createServerInstances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "serverImageProductCode": { "type": "string" },
+          "serverProductCode": { "type": "string" },
+          "serverName": { "type": "string" },
+          "loginKeyName": { "type": "string" },
+          "regionCode": { "type": "string" },
+          "zoneCode": { "type": "string" },
+          "serverCreateCount": { "type": "number" }
+        },
+        "required": ["serverImageProductCode", "serverProductCode"]
+      }
+    },
+    {
+      "name": "terminate_server_instances",
+      "description": "Terminate server instances",
+      "method": "POST",
+      "path": "/terminateServerInstances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "serverInstanceNoList.N": { "type": "string", "description": "Repeat per instance: serverInstanceNoList.1, .2, ..." }
+        }
+      }
+    },
+    {
+      "name": "start_server_instances",
+      "description": "Start stopped server instances",
+      "method": "POST",
+      "path": "/startServerInstances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "serverInstanceNoList.N": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "stop_server_instances",
+      "description": "Stop running server instances",
+      "method": "POST",
+      "path": "/stopServerInstances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "serverInstanceNoList.N": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "reboot_server_instances",
+      "description": "Reboot server instances",
+      "method": "POST",
+      "path": "/rebootServerInstances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "serverInstanceNoList.N": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_region_list",
+      "description": "List available regions",
+      "method": "GET",
+      "path": "/getRegionList",
+      "input_schema": {
+        "type": "object",
+        "properties": { "responseFormatType": { "type": "string" } }
+      }
+    },
+    {
+      "name": "get_zone_list",
+      "description": "List availability zones",
+      "method": "GET",
+      "path": "/getZoneList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "regionCode": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_server_image_product_list",
+      "description": "List server image products (OS images)",
+      "method": "GET",
+      "path": "/getServerImageProductList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "regionCode": { "type": "string" },
+          "platformTypeCodeList.N": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_server_product_list",
+      "description": "List server products (instance specs)",
+      "method": "GET",
+      "path": "/getServerProductList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "serverImageProductCode": { "type": "string" },
+          "regionCode": { "type": "string" }
+        },
+        "required": ["serverImageProductCode"]
+      }
+    },
+    {
+      "name": "get_login_key_list",
+      "description": "List login (SSH) keys",
+      "method": "GET",
+      "path": "/getLoginKeyList",
+      "input_schema": {
+        "type": "object",
+        "properties": { "responseFormatType": { "type": "string" } }
+      }
+    },
+    {
+      "name": "get_public_ip_instance_list",
+      "description": "List public IP instances",
+      "method": "GET",
+      "path": "/getPublicIpInstanceList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFormatType": { "type": "string" },
+          "regionCode": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

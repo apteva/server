@@ -1,0 +1,229 @@
+{
+  "slug": "dialpad",
+  "name": "Dialpad",
+  "description": "Dialpad cloud communications and VoIP platform. Manage contacts, calls, and SMS messaging through the Dialpad API.",
+  "logo": "https://www.google.com/s2/favicons?domain=dialpad.com&sz=128",
+  "categories": [
+    "communications",
+    "voip",
+    "phone",
+    "sms",
+    "calls",
+    "contacts"
+  ],
+  "base_url": "https://dialpad.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Dialpad API key (generate from admin.dialpad.com)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_contacts",
+      "description": "List company shared contacts or a user's local contacts. Returns contact details including name, phone numbers, and email addresses. Supports pagination via cursor.",
+      "method": "GET",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of contacts to return (default 25, max 100).",
+            "default": 25
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response to get the next page."
+          },
+          "owner_id": {
+            "type": "string",
+            "description": "User ID to retrieve local contacts for. If omitted, returns company shared contacts."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Retrieve a specific contact by ID. Returns full contact details including name, phone numbers, email, company, and title. Only shared and local contact types can be retrieved.",
+      "method": "GET",
+      "path": "/contacts/{{param.contact_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "The unique ID of the contact to retrieve."
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List call records from Dialpad. Returns call details including duration, participants, direction, and timestamps. Supports filtering by date range and pagination.",
+      "method": "GET",
+      "path": "/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of call records to return (default 25, max 100).",
+            "default": 25
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response to get the next page."
+          },
+          "started_after": {
+            "type": "string",
+            "description": "Filter calls started after this time (epoch milliseconds or ISO 8601 format)."
+          },
+          "started_before": {
+            "type": "string",
+            "description": "Filter calls started before this time (epoch milliseconds or ISO 8601 format)."
+          },
+          "target_id": {
+            "type": "string",
+            "description": "Filter by target ID (user, office, department, or call center ID)."
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "office",
+              "department",
+              "call_center"
+            ],
+            "description": "The type of target to filter calls by. Required when target_id is provided."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_call",
+      "description": "Retrieve details about a specific call by its ID. Returns call information including duration, participants, direction, recording status, and transcript availability.",
+      "method": "GET",
+      "path": "/calls/{{param.call_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "description": "The unique ID of the call to retrieve."
+          }
+        },
+        "required": [
+          "call_id"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a new contact in Dialpad. Add shared company contacts or local contacts for a specific user. Provide at least a name and one phone number or email.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "description": "The contact's first name."
+          },
+          "last_name": {
+            "type": "string",
+            "description": "The contact's last name."
+          },
+          "company_name": {
+            "type": "string",
+            "description": "The contact's company name."
+          },
+          "title": {
+            "type": "string",
+            "description": "The contact's job title."
+          },
+          "phones": {
+            "type": "array",
+            "description": "Array of phone number strings for the contact.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "emails": {
+            "type": "array",
+            "description": "Array of email address strings for the contact.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner_id": {
+            "type": "string",
+            "description": "User ID of the contact owner. If provided, creates a local contact for that user. If omitted, creates a shared company contact."
+          },
+          "urls": {
+            "type": "array",
+            "description": "Array of URL strings associated with the contact (e.g., LinkedIn, website).",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "first_name"
+        ]
+      }
+    },
+    {
+      "name": "send_sms",
+      "description": "Send an SMS message from a Dialpad number. The message is sent on behalf of the authenticated user or a specified user/office/department. Supports text messages to phone numbers.",
+      "method": "POST",
+      "path": "/sms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to_numbers": {
+            "type": "array",
+            "description": "Array of phone numbers to send the SMS to (E.164 format, e.g. '+14155551234').",
+            "items": {
+              "type": "string"
+            }
+          },
+          "text": {
+            "type": "string",
+            "description": "The SMS message text to send. Use \\n for line breaks."
+          },
+          "sender_id": {
+            "type": "string",
+            "description": "The ID of the user, office, or department sending the SMS. Defaults to the authenticated user."
+          },
+          "sender_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "office",
+              "department"
+            ],
+            "description": "The type of sender. Required when sender_id is provided.",
+            "default": "user"
+          }
+        },
+        "required": [
+          "to_numbers",
+          "text"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "slug": "polygonscan",
+  "name": "Polygonscan",
+  "description": "Polygon (MATIC) mainnet block explorer API — same tool surface as Etherscan, different chain. ESPECIALLY relevant to Polymarket: their CLOB settles every order on Polygon, so on-chain views of YOUR wallet's USDC balance + ERC-1155 conditional token holdings + USDC transfers to/from Polymarket contracts are all served from here. Whale watching on Polymarket markets means tracking specific Polygon addresses. Free tier: 5 req/sec. Sign up at https://polygonscan.com/apis.",
+  "logo": "https://www.google.com/s2/favicons?domain=polygonscan.com&sz=128",
+  "categories": [
+    "crypto",
+    "polygon",
+    "explorer",
+    "on-chain",
+    "polymarket",
+    "matic",
+    "blockchain"
+  ],
+  "base_url": "https://api.polygonscan.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your Polygonscan account dashboard at https://polygonscan.com/myapikey. Same Etherscan-family auth model; key is distinct from your Etherscan key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "matic_balance",
+      "description": "Native MATIC balance for an address, in wei. Divide by 1e18 for MATIC. Polymarket users need MATIC for gas; this is how you check they have enough to cancel/place orders.",
+      "method": "GET",
+      "path": "/api?module=account&action=balance&tag=latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {"type": "string"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "tx_list",
+      "description": "Normal transactions for an address on Polygon.",
+      "method": "GET",
+      "path": "/api?module=account&action=txlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":    {"type": "string"},
+          "startblock": {"type": "integer", "default": 0},
+          "endblock":   {"type": "integer", "default": 99999999},
+          "page":       {"type": "integer", "default": 1},
+          "offset":     {"type": "integer", "default": 100},
+          "sort":       {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "internal_tx_list",
+      "description": "Internal contract-to-contract transactions for an address. Polymarket trades route through their CTF Exchange contract — internal txs are what reveal the actual fund movements.",
+      "method": "GET",
+      "path": "/api?module=account&action=txlistinternal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":    {"type": "string"},
+          "startblock": {"type": "integer", "default": 0},
+          "endblock":   {"type": "integer", "default": 99999999},
+          "page":       {"type": "integer", "default": 1},
+          "offset":     {"type": "integer", "default": 100},
+          "sort":       {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "erc20_transfers",
+      "description": "ERC-20 token transfers for an address. Polygon's USDC contract is 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 — filter by that to see ALL USDC movements (deposits/withdrawals/Polymarket settlement). Whale-following polymarket players means watching big addresses for USDC out → Polymarket and YES/NO tokens back.",
+      "method": "GET",
+      "path": "/api?module=account&action=tokentx",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":         {"type": "string"},
+          "contractaddress": {"type": "string", "description": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 = USDC on Polygon."},
+          "startblock":      {"type": "integer", "default": 0},
+          "endblock":        {"type": "integer", "default": 99999999},
+          "page":            {"type": "integer", "default": 1},
+          "offset":          {"type": "integer", "default": 100},
+          "sort":            {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "erc20_balance",
+      "description": "ERC-20 balance for an address against one specific token contract on Polygon.",
+      "method": "GET",
+      "path": "/api?module=account&action=tokenbalance&tag=latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":         {"type": "string"},
+          "contractaddress": {"type": "string"}
+        },
+        "required": ["address","contractaddress"]
+      }
+    },
+    {
+      "name": "tx_status",
+      "description": "Polygon transaction success/failure status. Useful when a Polymarket order's broker_order_id was registered but you're not sure if the settlement landed.",
+      "method": "GET",
+      "path": "/api?module=transaction&action=getstatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txhash": {"type": "string"}
+        },
+        "required": ["txhash"]
+      }
+    },
+    {
+      "name": "block_by_time",
+      "description": "Find the closest Polygon block number for a given Unix timestamp.",
+      "method": "GET",
+      "path": "/api?module=block&action=getblocknobytime",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timestamp": {"type": "integer"},
+          "closest":   {"type": "string", "enum": ["before","after"], "default": "before"}
+        },
+        "required": ["timestamp"]
+      }
+    },
+    {
+      "name": "gas_oracle",
+      "description": "Polygon gas prices in gwei. MATIC gas is much cheaper than ETH but still varies — check before tx-heavy bursts.",
+      "method": "GET",
+      "path": "/api?module=gastracker&action=gasoracle",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "matic_price",
+      "description": "Current MATIC/BTC and MATIC/USD prices via Polygonscan's feed.",
+      "method": "GET",
+      "path": "/api?module=stats&action=maticprice",
+      "input_schema": {"type": "object", "properties": {}}
+    }
+  ],
+  "health_check": {
+    "tool": "gas_oracle"
+  }
+}

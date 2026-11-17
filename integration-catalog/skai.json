@@ -1,0 +1,787 @@
+{
+  "slug": "skai",
+  "name": "Skai (Kenshoo)",
+  "description": "MCP server for Skai (formerly Kenshoo) - omnichannel ad management across Search, Social, Meta, Retail Media, and more. Manage campaigns, ad groups, ads, reports, portfolios, and bulk operations via a single unified API.",
+  "logo": "https://www.google.com/s2/favicons?domain=skai.io&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "omnichannel",
+    "skai",
+    "kenshoo",
+    "ppc",
+    "retail-media"
+  ],
+  "base_url": "https://app.skai.io",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.kenshoo.com/oauth/authorize",
+      "token_url": "https://login.kenshoo.com/api/v1/token",
+      "scopes": [
+        "campaigns:read",
+        "campaigns:write",
+        "ad_groups:read",
+        "ad_groups:write",
+        "ads:read",
+        "ads:write",
+        "reports:read",
+        "portfolios:read",
+        "portfolios:write",
+        "bulk:write",
+        "profiles:read",
+        "profiles:write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "campaigns_list",
+      "description": "Retrieve campaigns from Skai. Filter by profile, channel type (SEARCH, SOCIAL, META, PINTEREST_SHOPPING, RETAIL_MEDIA), status, or specific campaign IDs. Supports pagination.",
+      "method": "GET",
+      "path": "/api/v1/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID to retrieve campaigns for"
+          },
+          "campaignIds": {
+            "type": "string",
+            "description": "Comma-separated campaign IDs to retrieve specific campaigns"
+          },
+          "channelTypes": {
+            "type": "string",
+            "description": "Filter by channel type",
+            "enum": [
+              "SEARCH",
+              "SOCIAL",
+              "META",
+              "PINTEREST_SHOPPING",
+              "RETAIL_MEDIA"
+            ]
+          },
+          "campaignStatuses": {
+            "type": "string",
+            "description": "Filter by status (e.g., ACTIVE, PAUSED, DELETED)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of campaigns to return",
+            "default": 100
+          },
+          "pageId": {
+            "type": "string",
+            "description": "Pagination token for next page"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "campaigns_create",
+      "description": "Create a new campaign in Skai. Specify profile, channel, name, budget, status, and publisher-specific settings. The campaign is created across the connected publisher account.",
+      "method": "POST",
+      "path": "/api/v1/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "channelType": {
+            "type": "string",
+            "description": "Channel type for the campaign",
+            "enum": [
+              "SEARCH",
+              "SOCIAL",
+              "META",
+              "PINTEREST_SHOPPING",
+              "RETAIL_MEDIA"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "status": {
+            "type": "string",
+            "description": "Campaign status",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED"
+          },
+          "dailyBudget": {
+            "type": "number",
+            "description": "Daily budget amount"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Campaign start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Campaign end date (YYYY-MM-DD)"
+          },
+          "publisherSettings": {
+            "type": "object",
+            "description": "Publisher-specific settings (varies by channel type)"
+          }
+        },
+        "required": [
+          "profileId",
+          "channelType",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "campaigns_update",
+      "description": "Edit an existing campaign in Skai. Update name, status, budget, dates, or publisher-specific settings.",
+      "method": "PUT",
+      "path": "/api/v1/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "Skai campaign ID to update"
+          },
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated campaign name"
+          },
+          "status": {
+            "type": "string",
+            "description": "Updated status",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ]
+          },
+          "dailyBudget": {
+            "type": "number",
+            "description": "Updated daily budget"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Updated end date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "campaignId",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "ad_groups_list",
+      "description": "Retrieve ad groups from Skai. Filter by profile, campaign, channel type, or status.",
+      "method": "GET",
+      "path": "/api/v1/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "adGroupIds": {
+            "type": "string",
+            "description": "Comma-separated ad group IDs"
+          },
+          "campaignIds": {
+            "type": "string",
+            "description": "Comma-separated campaign IDs to filter by"
+          },
+          "channelTypes": {
+            "type": "string",
+            "description": "Filter by channel type",
+            "enum": [
+              "SEARCH",
+              "SOCIAL",
+              "META",
+              "PINTEREST_SHOPPING",
+              "RETAIL_MEDIA"
+            ]
+          },
+          "statuses": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "pageId": {
+            "type": "string",
+            "description": "Pagination token"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "ad_groups_create",
+      "description": "Create a new ad group in Skai under a specific campaign.",
+      "method": "POST",
+      "path": "/api/v1/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to create the ad group under"
+          },
+          "name": {
+            "type": "string",
+            "description": "Ad group name"
+          },
+          "status": {
+            "type": "string",
+            "description": "Ad group status",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED"
+          },
+          "defaultBid": {
+            "type": "number",
+            "description": "Default bid amount"
+          },
+          "publisherSettings": {
+            "type": "object",
+            "description": "Publisher-specific settings"
+          }
+        },
+        "required": [
+          "profileId",
+          "campaignId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "ad_groups_update",
+      "description": "Edit an existing ad group in Skai. Update name, status, bids, or targeting.",
+      "method": "PUT",
+      "path": "/api/v1/ad_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adGroupId": {
+            "type": "string",
+            "description": "Ad group ID to update"
+          },
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated ad group name"
+          },
+          "status": {
+            "type": "string",
+            "description": "Updated status",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ]
+          },
+          "defaultBid": {
+            "type": "number",
+            "description": "Updated default bid"
+          }
+        },
+        "required": [
+          "adGroupId",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "ads_list",
+      "description": "Retrieve ads from Skai. Filter by profile, ad group, campaign, or channel type.",
+      "method": "GET",
+      "path": "/api/v1/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "adGroupIds": {
+            "type": "string",
+            "description": "Comma-separated ad group IDs to filter by"
+          },
+          "campaignIds": {
+            "type": "string",
+            "description": "Comma-separated campaign IDs to filter by"
+          },
+          "channelTypes": {
+            "type": "string",
+            "description": "Filter by channel type"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "pageId": {
+            "type": "string",
+            "description": "Pagination token"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "ads_create",
+      "description": "Create a new product ad in Skai. Specify the ad group, creative content, and publisher-specific settings.",
+      "method": "POST",
+      "path": "/api/v1/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "adGroupId": {
+            "type": "string",
+            "description": "Ad group ID to create the ad under"
+          },
+          "headline": {
+            "type": "string",
+            "description": "Ad headline text"
+          },
+          "description": {
+            "type": "string",
+            "description": "Ad description text"
+          },
+          "finalUrl": {
+            "type": "string",
+            "description": "Landing page URL"
+          },
+          "status": {
+            "type": "string",
+            "description": "Ad status",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED"
+          },
+          "publisherSettings": {
+            "type": "object",
+            "description": "Publisher-specific ad settings"
+          }
+        },
+        "required": [
+          "profileId",
+          "adGroupId"
+        ]
+      }
+    },
+    {
+      "name": "profiles_update",
+      "description": "Edit a Skai profile's attributes such as name, settings, or publisher connections.",
+      "method": "PUT",
+      "path": "/api/v1/profiles/{profile_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated profile name"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Updated profile settings"
+          }
+        },
+        "required": [
+          "profile_id"
+        ]
+      }
+    },
+    {
+      "name": "reports_create",
+      "description": "Fetch a synchronous dataset from Skai Grids. Returns data immediately for smaller reports. Specify the entity type, columns, filters, and date range.",
+      "method": "POST",
+      "path": "/api/v1/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "entityType": {
+            "type": "string",
+            "description": "Entity type to report on",
+            "enum": [
+              "CAMPAIGN",
+              "AD_GROUP",
+              "AD",
+              "KEYWORD",
+              "PRODUCT_GROUP"
+            ]
+          },
+          "columns": {
+            "type": "array",
+            "description": "Column names to include in the report",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filters to apply to the report data"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Report start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Report end date (YYYY-MM-DD)"
+          },
+          "channelTypes": {
+            "type": "array",
+            "description": "Channel types to include",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "profileId",
+          "entityType",
+          "columns"
+        ]
+      }
+    },
+    {
+      "name": "reports_async_create",
+      "description": "Configure and run an asynchronous analysis grid report. Returns an execution_id to poll for status and download results. Use for large datasets.",
+      "method": "POST",
+      "path": "/api/v1/reports/async/analysis",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "entityType": {
+            "type": "string",
+            "description": "Entity type to report on",
+            "enum": [
+              "CAMPAIGN",
+              "AD_GROUP",
+              "AD",
+              "KEYWORD",
+              "PRODUCT_GROUP"
+            ]
+          },
+          "columns": {
+            "type": "array",
+            "description": "Column names to include",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filters": {
+            "type": "object",
+            "description": "Filters for the report"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Report start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Report end date (YYYY-MM-DD)"
+          },
+          "granularity": {
+            "type": "string",
+            "description": "Time granularity",
+            "enum": [
+              "DAILY",
+              "WEEKLY",
+              "MONTHLY",
+              "TOTAL"
+            ]
+          }
+        },
+        "required": [
+          "profileId",
+          "entityType",
+          "columns"
+        ]
+      }
+    },
+    {
+      "name": "reports_async_status",
+      "description": "Poll the status of an asynchronous report execution. Returns PENDING, RUNNING, COMPLETED, or FAILED.",
+      "method": "GET",
+      "path": "/api/v1/reports/async/{execution_id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "description": "Execution ID from the async report creation"
+          }
+        },
+        "required": [
+          "execution_id"
+        ]
+      }
+    },
+    {
+      "name": "reports_async_download",
+      "description": "Download the results of a completed asynchronous report.",
+      "method": "GET",
+      "path": "/api/v1/reports/async/{execution_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "type": "string",
+            "description": "Execution ID of the completed report"
+          }
+        },
+        "required": [
+          "execution_id"
+        ]
+      }
+    },
+    {
+      "name": "reports_columns",
+      "description": "Get available column names for a given entity type. Use this to discover which metrics and dimensions can be included in reports.",
+      "method": "GET",
+      "path": "/api/v1/reports/{entity}/available_columns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entity": {
+            "type": "string",
+            "description": "Entity type to get columns for",
+            "enum": [
+              "campaigns",
+              "ad_groups",
+              "ads",
+              "keywords",
+              "product_groups"
+            ]
+          }
+        },
+        "required": [
+          "entity"
+        ]
+      }
+    },
+    {
+      "name": "portfolios_list",
+      "description": "Retrieve portfolios from Skai. Portfolios group campaigns for budget and performance management.",
+      "method": "GET",
+      "path": "/api/v1/portfolios",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "portfolioIds": {
+            "type": "string",
+            "description": "Comma-separated portfolio IDs"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "pageId": {
+            "type": "string",
+            "description": "Pagination token"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "portfolios_create",
+      "description": "Create a new portfolio in Skai for grouping campaigns under shared budget and performance targets.",
+      "method": "POST",
+      "path": "/api/v1/portfolios",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Portfolio name"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Portfolio budget"
+          },
+          "budgetType": {
+            "type": "string",
+            "description": "Budget type",
+            "enum": [
+              "DAILY",
+              "MONTHLY",
+              "TOTAL"
+            ]
+          },
+          "campaignIds": {
+            "type": "array",
+            "description": "Campaign IDs to include in the portfolio",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "profileId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "portfolios_update",
+      "description": "Edit an existing portfolio's name, budget, or campaign assignments.",
+      "method": "PUT",
+      "path": "/api/v1/portfolios",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolioId": {
+            "type": "string",
+            "description": "Portfolio ID to update"
+          },
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated portfolio name"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Updated budget"
+          },
+          "campaignIds": {
+            "type": "array",
+            "description": "Updated campaign IDs",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "portfolioId",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "bulk_update",
+      "description": "Upload a bulk update to modify multiple entities at once (campaigns, ad groups, keywords, ads, product groups, portfolios). Accepts JSON payload with entity data. Returns a job_id for tracking.",
+      "method": "POST",
+      "path": "/api/v1/bulk_update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Skai profile ID"
+          },
+          "entityType": {
+            "type": "string",
+            "description": "Entity type to bulk update",
+            "enum": [
+              "CAMPAIGN",
+              "AD_GROUP",
+              "KEYWORD",
+              "AD",
+              "PRODUCT_GROUP",
+              "PORTFOLIO"
+            ]
+          },
+          "entities": {
+            "type": "array",
+            "description": "Array of entity objects to create or update",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "profileId",
+          "entityType",
+          "entities"
+        ]
+      }
+    }
+  ]
+}

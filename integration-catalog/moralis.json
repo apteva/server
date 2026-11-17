@@ -1,0 +1,196 @@
+{
+  "slug": "moralis",
+  "name": "Moralis Web3 Data",
+  "description": "Web3 data API \u2014 wallet portfolios, token transfers, DeFi positions, price data, and blockchain events via REST. No Web3 SDK needed.",
+  "logo": "https://www.google.com/s2/favicons?domain=moralis.io&sz=128",
+  "categories": [
+    "web3",
+    "wallet",
+    "tokens",
+    "nft",
+    "defi",
+    "blockchain"
+  ],
+  "base_url": "https://deep-index.moralis.io/api/v2.2",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Moralis API key (from https://admin.moralis.io/api-keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_wallet_balance",
+      "description": "Get native token balance (ETH, MATIC, BNB, etc.) for a wallet address.",
+      "method": "GET",
+      "path": "/get-wallet-balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address (0x...)"
+          },
+          "chain": {
+            "type": "string",
+            "description": "Chain: eth, polygon, bsc, arbitrum, optimism, base, avalanche",
+            "default": "eth"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_wallet_tokens",
+      "description": "Get all ERC20 token balances for a wallet with USD prices.",
+      "method": "GET",
+      "path": "/get-wallet-tokens",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chain": {
+            "type": "string",
+            "default": "eth"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_wallet_history",
+      "description": "Get full transaction history for a wallet \u2014 transfers, swaps, approvals, decoded with human-readable labels.",
+      "method": "GET",
+      "path": "/get-wallet-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chain": {
+            "type": "string",
+            "default": "eth"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_token_price",
+      "description": "Get current USD price for any ERC20 token by contract address.",
+      "method": "GET",
+      "path": "/get-token-price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Token contract address"
+          },
+          "chain": {
+            "type": "string",
+            "default": "eth"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_token_transfers",
+      "description": "Get ERC20 token transfer events for a wallet.",
+      "method": "GET",
+      "path": "/get-token-transfers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chain": {
+            "type": "string",
+            "default": "eth"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_defi_positions",
+      "description": "Get all DeFi protocol positions (lending, staking, LPs) for a wallet.",
+      "method": "GET",
+      "path": "/get-defi-positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chain": {
+            "type": "string",
+            "default": "eth"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_wallet_net_worth",
+      "description": "Get total net worth of a wallet across all chains and tokens.",
+      "method": "GET",
+      "path": "/get-wallet-net-worth",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "chains": {
+            "type": "string",
+            "description": "Comma-separated chains (eth,polygon,bsc)",
+            "default": "eth,polygon,bsc,arbitrum"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    }
+  ]
+}

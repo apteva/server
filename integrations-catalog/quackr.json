@@ -1,0 +1,704 @@
+{
+  "slug": "quackr",
+  "name": "Quackr",
+  "description": "Purchase and renew Quackr private or per-service SMS numbers, inspect pricing and inventory, read received messages, and configure the account webhook. API access is subject to the Quackr account plan.",
+  "logo": "https://www.google.com/s2/favicons?domain=quackr.io&sz=128",
+  "categories": [
+    "telephony",
+    "phone-numbers",
+    "sms"
+  ],
+  "base_url": "https://api.quackr.io",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "x-api-key": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Quackr API key from your account profile. Confirm API access is enabled for your rental plan.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_balance"
+  },
+  "tools": [
+    {
+      "name": "get_balance",
+      "description": "Read the Quackr account balance and currency.",
+      "method": "GET",
+      "path": "/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "get_pricing",
+      "description": "Get current number rental prices for a country. Use the provider locale codes, including UK for the United Kingdom.",
+      "method": "GET",
+      "path": "/pricing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "locale": { "type": "string", "description": "Country code for phone numbers (e.g., US, UK, DE)" },
+          "carrier": {
+            "type": "string",
+            "enum": [
+              "US1",
+              "US2"
+            ],
+            "description": "(US and UK locale only) Get carrier-specific pricing if configured"
+          }
+        },
+        "required": [
+          "locale"
+        ]
+      },
+      "query_params": [
+        "locale",
+        "carrier"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "get_inventory",
+      "description": "Check number availability for a country, duration, and optional carrier before purchasing.",
+      "method": "GET",
+      "path": "/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "locale": { "type": "string", "description": "Country code for phone numbers" },
+          "duration": {
+            "type": "string",
+            "enum": [
+              "halfDay",
+              "oneDay",
+              "oneWeek",
+              "oneMonth",
+              "sixMonths",
+              "twelveMonths"
+            ],
+            "description": "Duration period for phone number rental"
+          },
+          "carrier": {
+            "type": "string",
+            "enum": [
+              "US1",
+              "US2"
+            ],
+            "description": "(US locale only) Get inventory for a specific carrier"
+          }
+        },
+        "required": [
+          "locale",
+          "duration"
+        ]
+      },
+      "query_params": [
+        "locale",
+        "duration",
+        "carrier"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "purchase_numbers",
+      "description": "Purchase one or more billed Quackr numbers. US4 delivery can be asynchronous. Track pending delivery with list_orders and the returned orderId.",
+      "method": "POST",
+      "path": "/purchase",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string",
+            "enum": [
+              "halfDay",
+              "oneDay",
+              "oneWeek",
+              "oneMonth",
+              "sixMonths",
+              "twelveMonths"
+            ]
+          },
+          "locale": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "carrier": {
+            "type": "string",
+            "enum": [
+              "US1",
+              "US2",
+              "US4"
+            ],
+            "description": "(US locale only) Select a specific carrier. US4 numbers are oneMonth only and arrive a few minutes after the order: the response has \"pending\": true and an orderId, GET /orders shows each number as it arrives, and you're charged for each number when it arrives."
+          },
+          "receiveCalls": { "type": "boolean", "description": "(US locale only) Enable the number to receive voice calls. Incoming calls will be transcribed and delivered as SMS messages to your stored messages." },
+          "autoRenew": { "type": "boolean", "description": "Automatically renew the number before it expires, using the same duration." },
+          "areaCode": {
+            "type": "string",
+            "pattern": "^[2-9][0-9]{2}$",
+            "description": "(carrier US4 only) A 3-digit US area code for every number in the order. Each number is ordered in that area code; any we can't get in it within 24 hours is cancelled and not charged. Rejected with 400 on any other carrier, or together with state."
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "(carrier US4 only) Instead of areaCode: a 2-letter US state code (or DC) for every number in the order. Each number has one of that state's area codes; any we can't get in that state within 24 hours is cancelled and not charged. Rejected with 400 on any other carrier, together with areaCode, or for anything but a US state or DC."
+          }
+        },
+        "required": [
+          "duration",
+          "locale"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "renew_number",
+      "description": "Extend a billed Quackr number rental. An optional locale disambiguates countries sharing a dialling prefix.",
+      "method": "POST",
+      "path": "/renew",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "duration": {
+            "type": "string",
+            "enum": [
+              "halfDay",
+              "oneDay",
+              "oneWeek",
+              "oneMonth",
+              "sixMonths",
+              "twelveMonths"
+            ]
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "locale": { "type": "string", "description": "Optional locale override. Useful when countries share the same mobile prefix (e.g. US and CA both use +1)." },
+          "autoRenew": { "type": "boolean", "description": "Automatically renew the number before it expires, using the same duration." }
+        },
+        "required": [
+          "duration",
+          "phoneNumber"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "cancel_number",
+      "description": "Cancel a recently purchased number and request a refund. The provider enforces the cancellation window and rejects numbers that have received SMS.",
+      "method": "POST",
+      "path": "/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": { "type": "string", "description": "The phone number to cancel (with or without + prefix)" }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "receive_sms",
+      "description": "Read SMS messages received by an owned Quackr number.",
+      "method": "POST",
+      "path": "/receive-sms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_active_numbers",
+      "description": "List active Quackr number rentals.",
+      "method": "GET",
+      "path": "/active-numbers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "description": "Maximum number of results to return. If not specified, returns all numbers efficiently."
+          }
+        }
+      },
+      "query_params": [
+        "limit"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_recent_numbers",
+      "description": "List recently purchased numbers, including pending deliveries.",
+      "method": "GET",
+      "path": "/recent-numbers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lastMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440,
+            "default": 60,
+            "description": "Window size in minutes (max 1440 / 24h). Defaults to 60."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1500,
+            "default": 500,
+            "description": "Maximum number of assigned numbers to return (max 1500). Defaults to 500."
+          }
+        }
+      },
+      "query_params": [
+        "lastMinutes",
+        "limit"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "get_number",
+      "description": "Get details of an owned Quackr number.",
+      "method": "GET",
+      "path": "/number",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": { "type": "string", "description": "Phone number to get details for" }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "query_params": [
+        "phoneNumber"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_expiring_numbers",
+      "description": "List Quackr numbers nearing expiration.",
+      "method": "GET",
+      "path": "/expiring-numbers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List recent purchase and renewal orders, or look up an orderId to track asynchronous number delivery.",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lastDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "How many days back to look. Default 7, maximum 30."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "How many orders to return. Default 20, maximum 50. The summary always covers the whole window."
+          },
+          "orderId": { "type": "string", "description": "Return just this order (it must still be inside the lastDays window)." }
+        }
+      },
+      "query_params": [
+        "lastDays",
+        "limit",
+        "orderId"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "get_number_nickname",
+      "description": "Read the nickname of a Quackr number.",
+      "method": "GET",
+      "path": "/nickname",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": { "type": "string", "description": "Phone number to get nickname for" }
+        },
+        "required": [
+          "phoneNumber"
+        ]
+      },
+      "query_params": [
+        "phoneNumber"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "set_number_nickname",
+      "description": "Set the nickname of a Quackr number.",
+      "method": "POST",
+      "path": "/nickname",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "phoneNumber": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9 ]+$"
+          }
+        },
+        "required": [
+          "phoneNumber",
+          "nickname"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_services",
+      "description": "List services, availability, and pricing for dedicated per-service numbers in a country.",
+      "method": "GET",
+      "path": "/per-service/services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "Country code (e.g. US, UK, AU)"
+          }
+        },
+        "required": [
+          "locale"
+        ]
+      },
+      "query_params": [
+        "locale"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "purchase_service_number",
+      "description": "Purchase a billed dedicated number for one service. Use a service slug returned by list_services.",
+      "method": "POST",
+      "path": "/per-service/purchase",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "locale": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "Country code (e.g. US, UK, AU)"
+          },
+          "service": { "type": "string", "description": "Service slug from the /per-service/services endpoint" },
+          "duration": {
+            "type": "string",
+            "enum": [
+              "oneWeek",
+              "oneMonth",
+              "sixMonths",
+              "twelveMonths"
+            ]
+          }
+        },
+        "required": [
+          "locale",
+          "service",
+          "duration"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "renew_service_number",
+      "description": "Extend a billed per-service rental using the rentId returned by purchase_service_number.",
+      "method": "POST",
+      "path": "/per-service/renew",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rentId": { "type": "string", "description": "The rental ID returned from the purchase endpoint" },
+          "duration": {
+            "type": "string",
+            "enum": [
+              "oneWeek",
+              "oneMonth",
+              "sixMonths",
+              "twelveMonths"
+            ]
+          }
+        },
+        "required": [
+          "rentId",
+          "duration"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "cancel_service_number",
+      "description": "Cancel a per-service rental and request a refund subject to provider eligibility.",
+      "method": "POST",
+      "path": "/per-service/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rentId": { "type": "string", "description": "The rental ID returned from the purchase endpoint" }
+        },
+        "required": [
+          "rentId"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_service_rentals",
+      "description": "List active per-service rentals.",
+      "method": "GET",
+      "path": "/per-service/rentals",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "list_service_messages",
+      "description": "Read SMS messages received by an owned per-service rental.",
+      "method": "GET",
+      "path": "/per-service/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rentId": { "type": "string", "description": "The rental ID to get messages for" }
+        },
+        "required": [
+          "rentId"
+        ]
+      },
+      "query_params": [
+        "rentId"
+      ],
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Read the account webhook URL for SMS notifications.",
+      "method": "GET",
+      "path": "/webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    },
+    {
+      "name": "set_webhook",
+      "description": "Set the account webhook URL to an HTTPS endpoint for SMS notifications.",
+      "method": "POST",
+      "path": "/webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 300,
+            "pattern": "^https://"
+          }
+        },
+        "required": [
+          "webhookUrl"
+        ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "error"
+      }
+    }
+  ]
+}

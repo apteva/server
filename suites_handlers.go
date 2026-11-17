@@ -74,7 +74,7 @@ func (s *Server) anyGroupMember(groupID string) *AppTemplate {
 // stripReservedCreds when forwarding to upstream calls.
 func (s *Server) decryptMasterCreds(masterID int64) (string, string, map[string]string, error) {
 	var encCreds string
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		"SELECT encrypted_credentials FROM connections WHERE id = ?", masterID,
 	).Scan(&encCreds)
 	if err != nil {

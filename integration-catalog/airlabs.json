@@ -1,0 +1,327 @@
+{
+  "slug": "airlabs",
+  "name": "AirLabs",
+  "description": "Affordable real-time flight status, positions, airport schedules, delays, aviation reference databases, and paid-plan flight alert listeners through the AirLabs v9 API.",
+  "logo": "https://www.google.com/s2/favicons?domain=airlabs.co&sz=128",
+  "categories": ["aviation", "flight-tracking", "flight-status", "airports", "travel", "webhooks"],
+  "base_url": "https://airlabs.co/api/v9",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "api_key": "{{api_key}}" },
+    "headers": { "Accept": "application/json" },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "AirLabs API key from the account dashboard.",
+        "required": true,
+        "secret": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "ping",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "ping",
+      "description": "Check the AirLabs API key and service availability without retrieving flight data.",
+      "method": "GET",
+      "path": "/ping",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_live_flights",
+      "description": "List currently tracked aircraft and flights. Narrow by flight, airline, route, aircraft, or bounding box and use _fields to keep agent responses compact.",
+      "method": "GET",
+      "path": "/flights",
+      "query_params": ["bbox", "zoom", "hex", "reg_number", "airline_icao", "airline_iata", "flag", "flight_icao", "flight_iata", "flight_number", "dep_icao", "dep_iata", "arr_icao", "arr_iata", "_fields", "_view"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bbox": { "type": "string", "description": "South-west latitude/longitude and north-east latitude/longitude as comma-separated coordinates." },
+          "zoom": { "type": "integer", "minimum": 0, "maximum": 11, "description": "Map zoom level used by AirLabs to reduce the returned flight set." },
+          "hex": { "type": "string", "description": "ICAO24 hexadecimal aircraft address." },
+          "reg_number": { "type": "string", "description": "Aircraft registration or tail number." },
+          "airline_icao": { "type": "string", "description": "Airline ICAO code." },
+          "airline_iata": { "type": "string", "description": "Airline IATA code." },
+          "flag": { "type": "string", "description": "Aircraft registration country ISO 3166-1 alpha-2 code." },
+          "flight_icao": { "type": "string", "description": "ICAO flight designator, such as BAW117." },
+          "flight_iata": { "type": "string", "description": "IATA flight designator, such as BA117." },
+          "flight_number": { "type": "string", "description": "Numeric flight number without an airline code." },
+          "dep_icao": { "type": "string", "description": "Departure airport ICAO code." },
+          "dep_iata": { "type": "string", "description": "Departure airport IATA code." },
+          "arr_icao": { "type": "string", "description": "Arrival airport ICAO code." },
+          "arr_iata": { "type": "string", "description": "Arrival airport IATA code." },
+          "_fields": { "type": "string", "description": "Comma-separated response fields, for example flight_iata,status,lat,lng,arr_estimated." },
+          "_view": { "type": "string", "enum": ["object", "array"], "description": "Response representation." }
+        }
+      }
+    },
+    {
+      "name": "get_flight_status",
+      "description": "Get the closest live, scheduled, or landed occurrence of one flight with status, schedule, estimates, gates, terminals, delays, aircraft, and position when available. Provide flight_iata or flight_icao.",
+      "method": "GET",
+      "path": "/flight",
+      "query_params": ["flight_icao", "flight_iata"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flight_icao": { "type": "string", "description": "ICAO flight designator, such as BAW117. Use this or flight_iata." },
+          "flight_iata": { "type": "string", "description": "IATA flight designator, such as BA117. Use this or flight_icao." }
+        }
+      }
+    },
+    {
+      "name": "list_schedules",
+      "description": "List live schedules for an airport, route, airline, or flight, including terminals, gates, status, estimates, delays, and codeshares.",
+      "method": "GET",
+      "path": "/schedules",
+      "query_params": ["dep_iata", "dep_icao", "arr_iata", "arr_icao", "airline_iata", "airline_icao", "flight_icao", "flight_iata", "_fields", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dep_iata": { "type": "string" },
+          "dep_icao": { "type": "string" },
+          "arr_iata": { "type": "string" },
+          "arr_icao": { "type": "string" },
+          "airline_iata": { "type": "string" },
+          "airline_icao": { "type": "string" },
+          "flight_icao": { "type": "string" },
+          "flight_iata": { "type": "string" },
+          "_fields": { "type": "string", "description": "Comma-separated response fields." },
+          "limit": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_delayed_flights",
+      "description": "List delayed arrivals or departures, filtered by minimum delay, airport, airline, or flight.",
+      "method": "GET",
+      "path": "/delays",
+      "query_params": ["delay", "type", "dep_iata", "dep_icao", "arr_iata", "arr_icao", "airline_icao", "airline_iata", "flight_icao", "flight_iata", "flight_number", "_fields", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "delay": { "type": "integer", "minimum": 0, "description": "Minimum delay in minutes." },
+          "type": { "type": "string", "enum": ["departures", "arrivals"] },
+          "dep_iata": { "type": "string" },
+          "dep_icao": { "type": "string" },
+          "arr_iata": { "type": "string" },
+          "arr_icao": { "type": "string" },
+          "airline_icao": { "type": "string" },
+          "airline_iata": { "type": "string" },
+          "flight_icao": { "type": "string" },
+          "flight_iata": { "type": "string" },
+          "flight_number": { "type": "string" },
+          "_fields": { "type": "string", "description": "Comma-separated response fields." },
+          "limit": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "name": "create_flight_listener",
+      "description": "Create a paid-plan AirLabs listener that posts flight changes to a public webhook URL. Narrow the listener to avoid unnecessary notifications and save the returned listener_id.",
+      "method": "GET",
+      "path": "/listen",
+      "query_params": ["webhook_url", "airline_iata", "airline_icao", "flight_number", "dep_iata", "dep_icao", "dep_date", "dep_time", "arr_iata", "arr_icao", "arr_date", "arr_time", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_url": { "type": "string", "format": "uri", "description": "Public URL that accepts AirLabs flight update POSTs." },
+          "airline_iata": { "type": "string" },
+          "airline_icao": { "type": "string" },
+          "flight_number": { "type": "string" },
+          "dep_iata": { "type": "string" },
+          "dep_icao": { "type": "string" },
+          "dep_date": { "type": "string", "description": "Departure date filter." },
+          "dep_time": { "type": "string", "description": "Departure time filter." },
+          "arr_iata": { "type": "string" },
+          "arr_icao": { "type": "string" },
+          "arr_date": { "type": "string", "description": "Arrival date filter." },
+          "arr_time": { "type": "string", "description": "Arrival time filter." },
+          "_fields": { "type": "string", "description": "Comma-separated fields whose changes should be delivered." }
+        },
+        "required": ["webhook_url"]
+      }
+    },
+    {
+      "name": "delete_flight_listener",
+      "description": "Stop an AirLabs flight listener by its listener ID.",
+      "method": "GET",
+      "path": "/unlisten",
+      "query_params": ["listener_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listener_id": { "type": "integer", "description": "Listener ID returned by create_flight_listener." }
+        },
+        "required": ["listener_id"]
+      }
+    },
+    {
+      "name": "find_nearby_airports",
+      "description": "Find airports near a latitude and longitude within a distance in kilometers.",
+      "method": "GET",
+      "path": "/nearby",
+      "query_params": ["lat", "lng", "distance", "lang", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lng": { "type": "number", "minimum": -180, "maximum": 180 },
+          "distance": { "type": "number", "minimum": 0, "description": "Search radius in kilometers." },
+          "lang": { "type": "string", "description": "Two-letter language code." },
+          "_fields": { "type": "string", "description": "Comma-separated response fields." }
+        },
+        "required": ["lat", "lng", "distance"]
+      }
+    },
+    {
+      "name": "suggest_destinations",
+      "description": "Autocomplete matching airports, cities, or countries from a 3-30 character search term.",
+      "method": "GET",
+      "path": "/suggest",
+      "query_params": ["q", "lang", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "minLength": 3, "maxLength": 30 },
+          "lang": { "type": "string", "description": "Two-letter language code." },
+          "_fields": { "type": "string", "description": "Comma-separated response fields." }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "list_airlines",
+      "description": "Search the AirLabs airline database by codes, callsign, name, or country.",
+      "method": "GET",
+      "path": "/airlines",
+      "query_params": ["iata_code", "iata_prefix", "iata_accounting", "icao_code", "callsign", "name", "country_code", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iata_code": { "type": "string" },
+          "iata_prefix": { "type": "string" },
+          "iata_accounting": { "type": "string" },
+          "icao_code": { "type": "string" },
+          "callsign": { "type": "string" },
+          "name": { "type": "string" },
+          "country_code": { "type": "string" },
+          "_fields": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_airports",
+      "description": "Search the AirLabs airport database by IATA, ICAO, city, or country.",
+      "method": "GET",
+      "path": "/airports",
+      "query_params": ["iata_code", "icao_code", "city_code", "country_code", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iata_code": { "type": "string" },
+          "icao_code": { "type": "string" },
+          "city_code": { "type": "string" },
+          "country_code": { "type": "string" },
+          "_fields": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_cities",
+      "description": "Search aviation cities by city code or country.",
+      "method": "GET",
+      "path": "/cities",
+      "query_params": ["city_code", "country_code", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "city_code": { "type": "string" },
+          "country_code": { "type": "string" },
+          "_fields": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_aircraft_fleet",
+      "description": "Search aircraft fleet records by airline, ICAO24 address, registration, manufacturer serial number, or country.",
+      "method": "GET",
+      "path": "/fleets",
+      "query_params": ["limit", "offset", "airline_iata", "airline_icao", "hex", "reg_number", "msn", "flag", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 },
+          "airline_iata": { "type": "string" },
+          "airline_icao": { "type": "string" },
+          "hex": { "type": "string" },
+          "reg_number": { "type": "string" },
+          "msn": { "type": "string" },
+          "flag": { "type": "string", "description": "Registration country ISO code." },
+          "_fields": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_routes",
+      "description": "Search scheduled airline routes by airports, airline, or flight designator.",
+      "method": "GET",
+      "path": "/routes",
+      "query_params": ["dep_iata", "dep_icao", "arr_iata", "arr_icao", "airline_icao", "airline_iata", "flight_icao", "flight_iata", "flight_number", "_fields", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dep_iata": { "type": "string" },
+          "dep_icao": { "type": "string" },
+          "arr_iata": { "type": "string" },
+          "arr_icao": { "type": "string" },
+          "airline_icao": { "type": "string" },
+          "airline_iata": { "type": "string" },
+          "flight_icao": { "type": "string" },
+          "flight_iata": { "type": "string" },
+          "flight_number": { "type": "string" },
+          "_fields": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1 },
+          "offset": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_countries",
+      "description": "Search the AirLabs country database by ISO code or continent.",
+      "method": "GET",
+      "path": "/countries",
+      "query_params": ["code", "code3", "continent", "_fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "description": "ISO 3166-1 alpha-2 code." },
+          "code3": { "type": "string", "description": "ISO 3166-1 alpha-3 code." },
+          "continent": { "type": "string" },
+          "_fields": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_timezones",
+      "description": "List AirLabs timezone reference records.",
+      "method": "GET",
+      "path": "/timezones",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_aviation_taxes",
+      "description": "List aviation tax code reference records.",
+      "method": "GET",
+      "path": "/taxes",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

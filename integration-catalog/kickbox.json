@@ -1,0 +1,71 @@
+{
+  "slug": "kickbox",
+  "name": "Kickbox",
+  "description": "Email verification with Sendex (deliverability) score and 'role' detection. Premium-priced but very low false-positive rate — pair with NeverBounce/ZeroBounce for double-check on high-value lists.",
+  "logo": "https://www.google.com/s2/favicons?domain=kickbox.com&sz=128",
+  "categories": ["email", "verification", "deliverability"],
+  "base_url": "https://api.kickbox.com/v2",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Kickbox API key from app.kickbox.com → API Settings"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "verify",
+      "description": "Verify a single email address.",
+      "method": "GET",
+      "path": "/verify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "timeout": { "type": "integer", "description": "Verification timeout in milliseconds (max 30000)" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "balance",
+      "description": "Get remaining credits.",
+      "method": "GET",
+      "path": "/balance",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "verifications_create",
+      "description": "Create a bulk verification job from a list of emails.",
+      "method": "PUT",
+      "path": "/verifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Job name" },
+          "emails": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["emails"]
+      }
+    },
+    {
+      "name": "verifications_get",
+      "description": "Get the status / results of a bulk verification.",
+      "method": "GET",
+      "path": "/verifications/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}

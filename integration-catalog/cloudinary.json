@@ -1,0 +1,186 @@
+{
+  "slug": "cloudinary",
+  "name": "Cloudinary",
+  "description": "Cloud media management — upload images and video, apply transformations (resize, transcode, trim, crop, extract frame, audio extract, concat), and deliver via CDN. Account-scoped: every account has its own cloud_name that becomes part of the URL path.",
+  "logo": "https://www.google.com/s2/favicons?domain=cloudinary.com&sz=128",
+  "categories": ["media", "images", "videos", "cdn", "transcoding"],
+  "base_url": "https://api.cloudinary.com",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "cloud_name",
+        "label": "Cloud Name",
+        "description": "Your Cloudinary account's cloud name — visible at the top of https://console.cloudinary.com. Used as a URL path segment, not a credential.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Found at https://console.cloudinary.com/settings/api-keys.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "api_secret",
+        "label": "API Secret",
+        "description": "Paired with API Key for HTTP Basic auth.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "upload",
+      "description": "Upload bytes or a URL to Cloudinary. Accepts a remote URL, a data URI, or an S3/GCS-style path. Returns the asset's public_id, secure_url, format, dimensions. Use this for ingesting source media before applying transformations via `explicit`.",
+      "method": "POST",
+      "path": "/v1_1/{{cloud_name}}/{resource_type}/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "enum": ["image", "video", "raw", "auto"],
+            "default": "auto",
+            "description": "Path segment. `auto` lets Cloudinary detect from the file. Required because the path interpolates this value."
+          },
+          "file": {
+            "type": "string",
+            "description": "Source: HTTPS URL, data: URI, or S3 URL (s3://bucket/key) when account has S3 fetch enabled."
+          },
+          "public_id": {
+            "type": "string",
+            "description": "Stable identifier the asset will be addressable by. Optional; auto-generated when omitted."
+          },
+          "folder": {
+            "type": "string",
+            "description": "Asset folder (e.g. \"agents/inbox\"). Distinct from public_id; the folder is metadata, the public_id is the address."
+          },
+          "tags": {
+            "type": "string",
+            "description": "Comma-separated tags."
+          },
+          "eager": {
+            "type": "string",
+            "description": "Pipe-separated transformation chain to apply eagerly (e.g. \"c_fill,w_300,h_200\"). Useful for pre-baking thumbnails."
+          },
+          "context": {
+            "type": "string",
+            "description": "Pipe-separated key=value pairs for contextual metadata."
+          },
+          "upload_preset": {
+            "type": "string",
+            "description": "Pre-configured preset name. With Basic auth + API secret you can omit this; required only for unsigned uploads."
+          }
+        },
+        "required": ["file", "resource_type"]
+      }
+    },
+    {
+      "name": "explicit",
+      "description": "Apply transformations to an already-uploaded asset and (optionally) eagerly produce derived versions. Use this for post-upload trim/resize/transcode/crop/concat. The `eager` parameter is the heavy hitter: pass an array of transformation strings and Cloudinary produces each derivative + returns the URLs in the response.",
+      "method": "POST",
+      "path": "/v1_1/{{cloud_name}}/{resource_type}/explicit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "enum": ["image", "video", "raw"],
+            "description": "Path segment. Use `image` for stills, `video` for clips/audio."
+          },
+          "public_id": {
+            "type": "string",
+            "description": "Identifier of the asset to transform."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["upload", "private", "authenticated", "fetch"],
+            "default": "upload"
+          },
+          "eager": {
+            "type": "string",
+            "description": "Pipe-separated list of transformation strings, each one is `<param>,<param>,...`. Cheat-sheet for the 7 ffmpeg-equivalents:\n  - trim:           so_<startSec>,du_<durationSec>\n  - resize:         c_scale,w_<W>,h_<H>          (or c_limit / c_fill)\n  - transcode:      f_<format>                    (e.g. f_mp4, f_webm)\n  - crop:           c_crop,w_<W>,h_<H>,x_<X>,y_<Y>\n  - extract_frame:  so_<sec>,f_jpg                 (image:explicit on a video)\n  - audio_extract:  af_<format>                    (e.g. af_mp3) + f_<format>\n  - concat:         fl_splice,l_video:<other_id>   (overlay-style splice)\nMultiple transformation chains: pipe-separate them."
+          },
+          "eager_async": {
+            "type": "boolean",
+            "description": "When true, derivatives are produced async and you'll be notified via eager_notification_url. Default false (sync, response includes finished URLs)."
+          },
+          "eager_notification_url": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "string"
+          },
+          "invalidate": {
+            "type": "boolean",
+            "description": "Invalidate CDN cache for the asset + its derivatives."
+          }
+        },
+        "required": ["resource_type", "public_id", "type"]
+      }
+    },
+    {
+      "name": "destroy",
+      "description": "Delete an uploaded asset and its CDN cache. Permanent.",
+      "method": "POST",
+      "path": "/v1_1/{{cloud_name}}/{resource_type}/destroy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "enum": ["image", "video", "raw"]
+          },
+          "public_id": {
+            "type": "string"
+          },
+          "invalidate": {
+            "type": "boolean",
+            "description": "Invalidate CDN cache. Recommended when re-uploading under the same public_id."
+          }
+        },
+        "required": ["resource_type", "public_id"]
+      }
+    },
+    {
+      "name": "list_resources",
+      "description": "Admin API: list assets in this account, optionally filtered by prefix / tag / context. Returns metadata (no bytes) for browsing or sync.",
+      "method": "GET",
+      "path": "/v1_1/{{cloud_name}}/resources/{resource_type}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "resource_type": {
+            "type": "string",
+            "enum": ["image", "video", "raw"]
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to public_ids starting with this prefix. Cheap way to scope to a folder."
+          },
+          "tags": {
+            "type": "boolean",
+            "description": "Include tags in the response. Default false."
+          },
+          "context": {
+            "type": "boolean"
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 50
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": ["resource_type"]
+      }
+    }
+  ]
+}

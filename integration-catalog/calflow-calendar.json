@@ -1,0 +1,706 @@
+{
+  "slug": "calflow-calendar",
+  "name": "CalFlow",
+  "description": "MCP server for comprehensive calendar and event management with scheduling, reminders, and collaboration features",
+  "logo": "https://www.google.com/s2/favicons?domain=calendar.google.com&sz=128",
+  "categories": [
+    "calendar",
+    "scheduling",
+    "events",
+    "time-management",
+    "productivity"
+  ],
+  "base_url": "https://api.calflow.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_calendar",
+      "description": "Create new calendars with customizable settings and visibility options",
+      "method": "POST",
+      "path": "/create-calendar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Calendar name",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "description": "Calendar description"
+          },
+          "color": {
+            "type": "string",
+            "description": "Calendar color (hex code)",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "default": "#007bff"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Calendar timezone",
+            "default": "UTC"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public",
+              "shared"
+            ],
+            "description": "Calendar visibility",
+            "default": "private"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Set as default calendar for user",
+            "default": false
+          },
+          "settings": {
+            "type": "object",
+            "description": "Calendar settings (working hours, notifications, etc.)",
+            "properties": {
+              "working_hours": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "string",
+                    "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+                  },
+                  "end": {
+                    "type": "string",
+                    "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+                  }
+                }
+              },
+              "working_days": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "monday",
+                    "tuesday",
+                    "wednesday",
+                    "thursday",
+                    "friday",
+                    "saturday",
+                    "sunday"
+                  ]
+                }
+              },
+              "default_event_duration": {
+                "type": "integer",
+                "description": "Default event duration in minutes",
+                "default": 60
+              }
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_calendar",
+      "description": "Update existing calendar properties and settings",
+      "method": "PUT",
+      "path": "/update-calendar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "integer",
+            "description": "Calendar ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Calendar name",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "description": "Calendar description"
+          },
+          "color": {
+            "type": "string",
+            "description": "Calendar color (hex code)",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Calendar timezone"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public",
+              "shared"
+            ],
+            "description": "Calendar visibility"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Set as default calendar for user"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Calendar settings",
+            "properties": {
+              "working_hours": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "string",
+                    "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+                  },
+                  "end": {
+                    "type": "string",
+                    "pattern": "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+                  }
+                }
+              },
+              "working_days": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "monday",
+                    "tuesday",
+                    "wednesday",
+                    "thursday",
+                    "friday",
+                    "saturday",
+                    "sunday"
+                  ]
+                }
+              },
+              "default_event_duration": {
+                "type": "integer",
+                "description": "Default event duration in minutes"
+              }
+            }
+          }
+        },
+        "required": [
+          "calendar_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_calendar",
+      "description": "Delete calendars (owner only) with soft or hard delete options",
+      "method": "DELETE",
+      "path": "/delete-calendar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "integer",
+            "description": "Calendar ID to delete"
+          },
+          "hard_delete": {
+            "type": "boolean",
+            "description": "Permanently delete calendar (default: false for soft delete)",
+            "default": false
+          }
+        },
+        "required": [
+          "calendar_id"
+        ]
+      }
+    },
+    {
+      "name": "get_calendar",
+      "description": "Retrieve calendar details with permissions and sharing info",
+      "method": "GET",
+      "path": "/get-calendar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "integer",
+            "description": "Calendar ID to retrieve"
+          }
+        },
+        "required": [
+          "calendar_id"
+        ]
+      }
+    },
+    {
+      "name": "list_calendars",
+      "description": "List user's calendars (owned + shared) with filtering options",
+      "method": "GET",
+      "path": "/list-calendars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "public",
+              "shared"
+            ],
+            "description": "Filter by visibility"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of calendars to return",
+            "default": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of calendars to skip",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create new calendar events with attendees, reminders, and recurrence",
+      "method": "POST",
+      "path": "/create-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "integer",
+            "description": "Calendar ID where event will be created"
+          },
+          "title": {
+            "type": "string",
+            "description": "Event title",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Event start time (ISO 8601 format)",
+            "format": "date-time"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "Event end time (ISO 8601 format)",
+            "format": "date-time"
+          },
+          "all_day": {
+            "type": "boolean",
+            "description": "Is this an all-day event",
+            "default": false
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Event timezone",
+            "default": "UTC"
+          },
+          "location": {
+            "type": "string",
+            "description": "Event location",
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "tentative",
+              "cancelled"
+            ],
+            "description": "Event status",
+            "default": "confirmed"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ],
+            "description": "Event visibility",
+            "default": "default"
+          },
+          "attendees": {
+            "type": "array",
+            "description": "Array of attendee objects",
+            "items": {
+              "type": "object",
+              "properties": {
+                "user_id": {
+                  "type": "integer",
+                  "description": "User ID of attendee"
+                },
+                "email": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Email address of attendee"
+                },
+                "display_name": {
+                  "type": "string",
+                  "description": "Display name of attendee"
+                },
+                "is_required": {
+                  "type": "boolean",
+                  "description": "Is attendance required",
+                  "default": true
+                }
+              }
+            }
+          },
+          "notifications": {
+            "type": "array",
+            "description": "Array of notification objects",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "popup",
+                    "sms"
+                  ],
+                  "description": "Notification type"
+                },
+                "minutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Minutes before event to notify"
+                }
+              },
+              "required": [
+                "type",
+                "minutes"
+              ]
+            }
+          },
+          "recurrence_rule": {
+            "type": "string",
+            "description": "RFC 5545 RRULE format for recurring events"
+          }
+        },
+        "required": [
+          "calendar_id",
+          "title",
+          "start_time",
+          "end_time"
+        ]
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "Update existing calendar event properties",
+      "method": "PUT",
+      "path": "/update-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "description": "Event ID to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "Event title",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Event start time (ISO 8601 format)",
+            "format": "date-time"
+          },
+          "end_time": {
+            "type": "string",
+            "description": "Event end time (ISO 8601 format)",
+            "format": "date-time"
+          },
+          "all_day": {
+            "type": "boolean",
+            "description": "Is this an all-day event"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Event timezone"
+          },
+          "location": {
+            "type": "string",
+            "description": "Event location",
+            "maxLength": 500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "tentative",
+              "cancelled"
+            ],
+            "description": "Event status"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ],
+            "description": "Event visibility"
+          },
+          "notifications": {
+            "type": "array",
+            "description": "Array of notification objects",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "popup",
+                    "sms"
+                  ],
+                  "description": "Notification type"
+                },
+                "minutes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Minutes before event to notify"
+                }
+              },
+              "required": [
+                "type",
+                "minutes"
+              ]
+            }
+          },
+          "recurrence_rule": {
+            "type": "string",
+            "description": "RFC 5545 RRULE format for recurring events"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_event",
+      "description": "Delete calendar events with soft or hard delete options",
+      "method": "DELETE",
+      "path": "/delete-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "description": "Event ID to delete"
+          },
+          "hard_delete": {
+            "type": "boolean",
+            "description": "Permanently delete event (default: false for soft delete)",
+            "default": false
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Retrieve event details with attendees and permissions",
+      "method": "GET",
+      "path": "/get-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "description": "Event ID to retrieve"
+          },
+          "include_attendees": {
+            "type": "boolean",
+            "description": "Include attendee details in response",
+            "default": true
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List calendar events with date range filters and sorting options",
+      "method": "GET",
+      "path": "/list-events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendar_id": {
+            "type": "integer",
+            "description": "Filter events by specific calendar ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date for date range filter (ISO 8601 format)",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date for date range filter (ISO 8601 format)",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "tentative",
+              "cancelled"
+            ],
+            "description": "Filter by event status"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum number of events to return",
+            "default": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of events to skip",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field:direction (e.g., start_time:asc, title:desc)",
+            "default": "start_time:asc"
+          }
+        }
+      }
+    },
+    {
+      "name": "find_free_time",
+      "description": "Find available time slots across calendars for scheduling meetings",
+      "method": "GET",
+      "path": "/find-free-time",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "calendar_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Calendar IDs to check for availability"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date for availability search (ISO 8601)",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date for availability search (ISO 8601)",
+            "format": "date"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "description": "Required duration in minutes"
+          },
+          "working_hours_only": {
+            "type": "boolean",
+            "description": "Only show slots during working hours",
+            "default": true
+          },
+          "buffer_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Buffer time between events",
+            "default": 0
+          }
+        },
+        "required": [
+          "calendar_ids",
+          "start_date",
+          "end_date",
+          "duration_minutes"
+        ]
+      }
+    },
+    {
+      "name": "get_agenda",
+      "description": "Get organized agenda view for specific date ranges",
+      "method": "GET",
+      "path": "/get-agenda",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date for agenda (ISO 8601 format)",
+            "format": "date"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "description": "Agenda view type",
+            "default": "day"
+          },
+          "calendar_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Specific calendar IDs to include (optional)"
+          },
+          "include_all_day": {
+            "type": "boolean",
+            "description": "Include all-day events",
+            "default": true
+          }
+        },
+        "required": [
+          "date"
+        ]
+      }
+    }
+  ]
+}

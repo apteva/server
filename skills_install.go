@@ -35,7 +35,12 @@ func (s *Server) registerAppSkills(
 	if err != nil {
 		ownerID = 0
 	}
-	tx, err := s.store.db.Begin()
+	installation, err := s.appInstallation(installID)
+	if err != nil {
+		return err
+	}
+	namespace := installationMCPName(appName, installation.Key, installID)
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -61,7 +66,16 @@ func (s *Server) registerAppSkills(
 		}
 		// Slug = "<app>:<name>" so user-authored skills never collide
 		// with app-shipped ones (those use "user:<name>").
-		slug := appName + ":" + resolved.Name
+		slug := namespace + ":" + resolved.Name
+		if namespace != appName {
+			if resolved.Command != "" {
+				resolved.Command = fmt.Sprintf("/i%d-%s", installID, strings.TrimPrefix(resolved.Command, "/"))
+				if len(resolved.Command) > 65 {
+					return fmt.Errorf("installation skill command is too long")
+				}
+			}
+			resolved.Body = fmt.Sprintf("Use the %s MCP server for this installation of %s. Its tool names use the %s_ prefix.\n\n", namespace, appName, namespace) + resolved.Body
+		}
 		metaJSON, _ := json.Marshal(coalesceMetadata(resolved.Metadata))
 		res, err := tx.Exec(`
 			INSERT INTO skills (slug, name, description, body, source, install_id, project_id, command, metadata_json)
@@ -134,7 +148,7 @@ func appSkillRefsForInstall(q queryer, installID int64) ([]skillRef, error) {
 
 func (s *Server) appSkillOwnerID(installID int64) (int64, error) {
 	var ownerID int64
-	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by, 0) FROM app_installs WHERE id = ?`, installID).Scan(&ownerID); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COALESCE(installed_by, 0) FROM app_installs WHERE id = ?`, installID).Scan(&ownerID); err != nil {
 		return 0, err
 	}
 	return ownerID, nil
@@ -149,7 +163,7 @@ func (s *Server) deleteAppSkillsForInstall(installID int64, reason string) error
 	for _, ref := range refs {
 		s.sweepSkillFromProject(ownerID, ref.ProjectID, ref.ID, ref.Slug, reason)
 	}
-	_, err = s.store.db.Exec(`DELETE FROM skills WHERE install_id = ?`, installID)
+	_, err = s.store.dbExec(`DELETE FROM skills WHERE install_id = ?`, installID)
 	return err
 }
 

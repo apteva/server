@@ -1,0 +1,138 @@
+{
+  "slug": "miro",
+  "name": "Miro",
+  "description": "MCP server for Miro - boards, items, and team collaboration via the Miro REST API v2",
+  "logo": "https://www.google.com/s2/favicons?domain=miro.com&sz=128",
+  "categories": ["whiteboard", "collaboration", "productivity"],
+  "base_url": "https://api.miro.com/v2",
+  "auth": {
+    "types": ["bearer", "oauth2"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Access Token", "description": "OAuth access token, or developer access token from miro.com/app/settings/user-profile/apps" }
+    ],
+    "oauth2": {
+      "authorize_url": "https://miro.com/oauth/authorize",
+      "token_url": "https://api.miro.com/v1/oauth/token",
+      "scopes": ["boards:read", "boards:write"],
+      "client_id_required": true,
+      "pkce": false,
+      "setup_url": "https://developers.miro.com/docs/getting-started-with-oauth",
+      "setup_steps": [
+        "Create an app at miro.com/app/settings/user-profile/apps",
+        "Add the OAuth redirect URI under App Credentials",
+        "Copy Client ID and Client Secret"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "list_boards",
+      "description": "List boards accessible to the user",
+      "method": "GET",
+      "path": "/boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "query": { "type": "string" },
+          "team_id": { "type": "string" }
+        }
+      },
+      "query_params": ["limit", "offset", "query", "team_id"]
+    },
+    {
+      "name": "get_board",
+      "description": "Get a board by ID",
+      "method": "GET",
+      "path": "/boards/{board_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "board_id": { "type": "string" } },
+        "required": ["board_id"]
+      }
+    },
+    {
+      "name": "create_board",
+      "description": "Create a new board",
+      "method": "POST",
+      "path": "/boards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "policy": { "type": "object" },
+          "teamId": { "type": "string" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "delete_board",
+      "description": "Delete a board",
+      "method": "DELETE",
+      "path": "/boards/{board_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "board_id": { "type": "string" } },
+        "required": ["board_id"]
+      }
+    },
+    {
+      "name": "list_items",
+      "description": "List items on a board (sticky notes, shapes, text, etc.)",
+      "method": "GET",
+      "path": "/boards/{board_id}/items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "limit": { "type": "integer" },
+          "cursor": { "type": "string" },
+          "type": { "type": "string", "description": "Filter by item type, e.g. sticky_note, shape, text, image" }
+        },
+        "required": ["board_id"]
+      },
+      "query_params": ["limit", "cursor", "type"]
+    },
+    {
+      "name": "create_sticky_note",
+      "description": "Create a sticky note on a board",
+      "method": "POST",
+      "path": "/boards/{board_id}/sticky_notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "content": { "type": "string" },
+              "shape": { "type": "string", "enum": ["square", "rectangle"] }
+            },
+            "required": ["content"]
+          },
+          "style": { "type": "object" },
+          "position": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
+        },
+        "required": ["board_id", "data"]
+      }
+    },
+    {
+      "name": "delete_item",
+      "description": "Delete an item from a board",
+      "method": "DELETE",
+      "path": "/boards/{board_id}/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "item_id": { "type": "string" }
+        },
+        "required": ["board_id", "item_id"]
+      }
+    }
+  ]
+}

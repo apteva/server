@@ -1,0 +1,279 @@
+{
+  "slug": "linear",
+  "name": "Linear",
+  "description": "MCP server for Linear issue tracking - issues, projects, cycles",
+  "logo": "https://www.google.com/s2/favicons?domain=linear.app&sz=128",
+  "categories": [
+    "project-management",
+    "issues",
+    "agile",
+    "development"
+  ],
+  "base_url": "https://api.linear.app/graphql",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://linear.app/oauth/authorize",
+      "token_url": "https://api.linear.app/oauth/token",
+      "scopes": [
+        "read",
+        "write",
+        "issues:create",
+        "comments:create",
+        "admin"
+      ],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "create_issue",
+      "description": "Create a new issue",
+      "method": "POST",
+      "path": "/create-issue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Issue description"
+          },
+          "team_id": {
+            "type": "string",
+            "description": "Team ID"
+          },
+          "assignee_id": {
+            "type": "string",
+            "description": "Assignee ID"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority (0-4)"
+          },
+          "state_id": {
+            "type": "string",
+            "description": "State ID"
+          }
+        },
+        "required": [
+          "title",
+          "team_id"
+        ]
+      }
+    },
+    {
+      "name": "update_issue",
+      "description": "Update an existing issue",
+      "method": "PUT",
+      "path": "/update-issue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "description": "Issue ID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Issue description"
+          },
+          "state_id": {
+            "type": "string",
+            "description": "State ID"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority"
+          }
+        },
+        "required": [
+          "issue_id"
+        ]
+      }
+    },
+    {
+      "name": "assign_issue",
+      "description": "Assign an issue to a user",
+      "method": "GET",
+      "path": "/assign-issue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "description": "Issue ID"
+          },
+          "assignee_id": {
+            "type": "string",
+            "description": "Assignee user ID"
+          }
+        },
+        "required": [
+          "issue_id",
+          "assignee_id"
+        ]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment to an issue",
+      "method": "GET",
+      "path": "/add-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_id": {
+            "type": "string",
+            "description": "Issue ID"
+          },
+          "body": {
+            "type": "string",
+            "description": "Comment body"
+          }
+        },
+        "required": [
+          "issue_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a new project",
+      "method": "POST",
+      "path": "/create-project",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Project description"
+          },
+          "team_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Team IDs"
+          }
+        },
+        "required": [
+          "name",
+          "team_ids"
+        ]
+      }
+    },
+    {
+      "name": "manage_cycle",
+      "description": "Create or update a cycle",
+      "method": "GET",
+      "path": "/manage-cycle",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "description": "Team ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Cycle name"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date"
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-linear-signature",
+    "events": [
+      {
+        "name": "issue.created",
+        "description": "New issue created"
+      },
+      {
+        "name": "issue.updated",
+        "description": "Issue fields changed"
+      },
+      {
+        "name": "issue.removed",
+        "description": "Issue deleted"
+      },
+      {
+        "name": "comment.created",
+        "description": "New comment on issue"
+      },
+      {
+        "name": "comment.updated",
+        "description": "Comment edited"
+      },
+      {
+        "name": "project.created",
+        "description": "New project created"
+      },
+      {
+        "name": "project.updated",
+        "description": "Project details changed"
+      },
+      {
+        "name": "cycle.started",
+        "description": "Cycle started"
+      },
+      {
+        "name": "cycle.completed",
+        "description": "Cycle completed"
+      },
+      {
+        "name": "label.created",
+        "description": "New label created"
+      }
+    ]
+  }
+}

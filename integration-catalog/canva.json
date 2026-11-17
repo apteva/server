@@ -1,0 +1,197 @@
+{
+  "slug": "canva",
+  "name": "Canva",
+  "description": "Canva design platform - manage designs, folders, and assets",
+  "logo": "https://www.google.com/s2/favicons?domain=canva.com&sz=128",
+  "categories": [
+    "design",
+    "canva",
+    "creative"
+  ],
+  "base_url": "https://api.canva.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Canva Connect API access token (create at canva.dev)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_designs",
+      "description": "Search and list designs in Canva. Returns designs matching a search query, with support for filtering by ownership and sorting. Use the continuation token from the response to paginate through results.",
+      "method": "GET",
+      "path": "/rest/v1/designs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search term to find designs by name or content (max 255 characters). Omit to list all designs."
+          },
+          "continuation": {
+            "type": "string",
+            "description": "Pagination token from a previous response to retrieve the next page of results"
+          },
+          "ownership": {
+            "type": "string",
+            "description": "Filter by ownership: 'owned' for designs created by the user, 'shared' for designs shared with the user, or 'any' for both",
+            "enum": [
+              "owned",
+              "shared",
+              "any"
+            ]
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort order for results: 'relevance' (default when query is provided), 'modified_descending', 'modified_ascending', 'title_ascending', 'title_descending'",
+            "enum": [
+              "relevance",
+              "modified_descending",
+              "modified_ascending",
+              "title_ascending",
+              "title_descending"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "find_folders",
+      "description": "Get details of a specific folder by its ID. Returns the folder name, creation date, and other metadata. To browse folder contents, use the 'Look Up Assets in Folder' tool instead.",
+      "method": "GET",
+      "path": "/rest/v1/folders/{folderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folderId": {
+            "type": "string",
+            "description": "The ID of the folder to retrieve. Use 'root' to get the top-level Projects folder."
+          }
+        },
+        "required": [
+          "folderId"
+        ]
+      }
+    },
+    {
+      "name": "list_folder_items",
+      "description": "List all items (designs, sub-folders, and image assets) inside a specific Canva folder. Supports filtering by item type and pagination. Note: video assets are not currently returned by this endpoint.",
+      "method": "GET",
+      "path": "/rest/v1/folders/{folderId}/items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folderId": {
+            "type": "string",
+            "description": "The ID of the folder whose items to list. Use 'root' for the top-level Projects folder."
+          },
+          "item_types": {
+            "type": "string",
+            "description": "Comma-separated list of item types to filter by. Available types: 'design', 'folder', 'image'. Example: 'design,folder' to exclude images."
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort order for folder items: 'modified_descending' (default), 'modified_ascending', 'title_ascending', 'title_descending'",
+            "enum": [
+              "modified_descending",
+              "modified_ascending",
+              "title_ascending",
+              "title_descending"
+            ]
+          },
+          "continuation": {
+            "type": "string",
+            "description": "Pagination token from a previous response to retrieve the next page of results"
+          }
+        },
+        "required": [
+          "folderId"
+        ]
+      }
+    },
+    {
+      "name": "find_asset",
+      "description": "Get the metadata for a specific asset by its ID. Returns the asset name, tags, creation date, thumbnail URL, and other details. To search for assets, use 'Look Up Assets in Folder' to browse folder contents or 'Find Design(s)' to search by name.",
+      "method": "GET",
+      "path": "/rest/v1/assets/{assetId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "description": "The ID of the asset to retrieve metadata for"
+          }
+        },
+        "required": [
+          "assetId"
+        ]
+      }
+    },
+    {
+      "name": "upload_asset",
+      "description": "Upload an asset to the user's Canva library from a public URL. Creates an asynchronous upload job. The asset URL must be publicly accessible on the internet. Supported file types include images (PNG, JPG, SVG, etc.) and videos. Image files must be smaller than 50 MB. Returns a job ID that can be used to check the upload status.",
+      "method": "POST",
+      "path": "/rest/v1/asset-uploads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A human-readable name for the asset, displayed in the user's Canva library"
+          },
+          "url": {
+            "type": "string",
+            "description": "The publicly accessible URL of the file to upload to Canva"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags to attach to the asset, allowing users to search for the asset in the Canva UI"
+          },
+          "parent_folder_id": {
+            "type": "string",
+            "description": "The ID of the folder to upload the asset into. If omitted, the asset is uploaded to the user's top-level uploads folder."
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "move_asset",
+      "description": "Move a design, folder, or asset from its current location to a different folder. Use 'root' as the to_folder_id to move the item to the top level of the user's Projects. Note: video assets are not supported, and items that exist in multiple folders cannot be moved via the API.",
+      "method": "POST",
+      "path": "/rest/v1/folders/move",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "description": "The ID of the item (design, folder, or asset) to move"
+          },
+          "to_folder_id": {
+            "type": "string",
+            "description": "The ID of the destination folder. Use 'root' to move the item to the top level of the user's Projects."
+          }
+        },
+        "required": [
+          "item_id",
+          "to_folder_id"
+        ]
+      }
+    }
+  ]
+}

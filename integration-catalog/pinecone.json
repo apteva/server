@@ -1,0 +1,129 @@
+{
+  "slug": "pinecone",
+  "name": "Pinecone",
+  "description": "MCP server for Pinecone vector database - indexes, upsert, query, fetch, delete vectors",
+  "logo": "https://www.google.com/s2/favicons?domain=pinecone.io&sz=128",
+  "categories": ["ai", "vector-database", "embeddings", "search", "rag"],
+  "base_url": "https://api.pinecone.io",
+  "auth": {
+    "types": ["header"],
+    "headers": { "Api-Key": "{{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key" },
+      { "name": "indexHost", "label": "Index Host", "description": "Host URL of your index (e.g. my-index-xxxx.svc.us-west1-gcp.pinecone.io)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_indexes",
+      "description": "List all indexes in the project",
+      "method": "GET",
+      "path": "/indexes",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_index",
+      "description": "Create a new serverless index",
+      "method": "POST",
+      "path": "/indexes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "dimension": { "type": "number" },
+          "metric": { "type": "string", "enum": ["cosine", "euclidean", "dotproduct"] },
+          "spec": { "type": "object" }
+        },
+        "required": ["name", "dimension", "metric", "spec"]
+      }
+    },
+    {
+      "name": "describe_index",
+      "description": "Describe an index",
+      "method": "GET",
+      "path": "/indexes/{index_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "index_name": { "type": "string" } },
+        "required": ["index_name"]
+      }
+    },
+    {
+      "name": "delete_index",
+      "description": "Delete an index",
+      "method": "DELETE",
+      "path": "/indexes/{index_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "index_name": { "type": "string" } },
+        "required": ["index_name"]
+      }
+    },
+    {
+      "name": "upsert_vectors",
+      "description": "Upsert vectors into an index (use indexHost as host)",
+      "method": "POST",
+      "path": "https://{index_host}/vectors/upsert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index_host": { "type": "string" },
+          "vectors": { "type": "array" },
+          "namespace": { "type": "string" }
+        },
+        "required": ["index_host", "vectors"]
+      }
+    },
+    {
+      "name": "query_vectors",
+      "description": "Query the k nearest neighbors",
+      "method": "POST",
+      "path": "https://{index_host}/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index_host": { "type": "string" },
+          "vector": { "type": "array", "items": { "type": "number" } },
+          "topK": { "type": "number" },
+          "namespace": { "type": "string" },
+          "filter": { "type": "object" },
+          "includeMetadata": { "type": "boolean" },
+          "includeValues": { "type": "boolean" }
+        },
+        "required": ["index_host", "vector", "topK"]
+      }
+    },
+    {
+      "name": "fetch_vectors",
+      "description": "Fetch vectors by ID",
+      "method": "GET",
+      "path": "https://{index_host}/vectors/fetch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index_host": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "namespace": { "type": "string" }
+        },
+        "required": ["index_host", "ids"]
+      }
+    },
+    {
+      "name": "delete_vectors",
+      "description": "Delete vectors by ID or filter",
+      "method": "POST",
+      "path": "https://{index_host}/vectors/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "index_host": { "type": "string" },
+          "ids": { "type": "array" },
+          "deleteAll": { "type": "boolean" },
+          "namespace": { "type": "string" },
+          "filter": { "type": "object" }
+        },
+        "required": ["index_host"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,651 @@
+{
+  "slug": "cloudflare",
+  "name": "Cloudflare",
+  "description": "Cloudflare API v4 — DNS records, zones, registrar domains, and cache management. Authenticate with a scoped API token (Zone:Read + DNS:Edit for DNS, plus Domain:Edit for Registrar).",
+  "logo": "https://www.google.com/s2/favicons?domain=cloudflare.com&sz=128",
+  "categories": [
+    "dns",
+    "domains",
+    "registrar",
+    "cdn",
+    "cloudflare",
+    "infrastructure"
+  ],
+  "base_url": "https://api.cloudflare.com/client/v4",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Cloudflare API token (create at dash.cloudflare.com/profile/api-tokens). Recommended template: 'Edit zone DNS' for DNS work; add 'Domain:Edit' permissions for Registrar tools."
+      },
+      {
+        "name": "account_id",
+        "label": "Account ID",
+        "description": "Cloudflare account ID (32-char hex string from the dashboard sidebar). The runner substitutes this into account-scoped paths ({{account_id}}) at execution time, so leaving it blank breaks every Tunnel and Registrar call.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_zones",
+      "description": "List Cloudflare zones (sites) accessible to the API token. Use this to find the zone_id needed for DNS-record and cache operations.",
+      "method": "GET",
+      "path": "/zones",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Filter by exact domain name (e.g. 'example.com')."
+          },
+          "status": {
+            "type": "string",
+            "description": "Zone status filter.",
+            "enum": [
+              "active",
+              "pending",
+              "initializing",
+              "moved",
+              "deleted",
+              "deactivated"
+            ]
+          },
+          "account.id": {
+            "type": "string",
+            "description": "Filter zones by account ID."
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 50)."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_zone",
+      "description": "Get a single zone's details — name servers, plan, status, paused state, owner, original registrar.",
+      "method": "GET",
+      "path": "/zones/{zone_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string",
+            "description": "Zone ID."
+          }
+        },
+        "required": [
+          "zone_id"
+        ]
+      }
+    },
+    {
+      "name": "list_dns_records",
+      "description": "List DNS records in a zone with optional filtering by type, name, content, and proxy status. Returns record IDs needed for update/delete.",
+      "method": "GET",
+      "path": "/zones/{zone_id}/dns_records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string",
+            "description": "Zone ID (from list_zones)."
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter by record type.",
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "MX",
+              "TXT",
+              "NS",
+              "SRV",
+              "CAA",
+              "PTR",
+              "LOC",
+              "NAPTR",
+              "CERT",
+              "DNSKEY",
+              "DS",
+              "SSHFP",
+              "TLSA",
+              "URI",
+              "HTTPS",
+              "SVCB"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by record name (exact match, e.g. 'sub.example.com')."
+          },
+          "content": {
+            "type": "string",
+            "description": "Filter by record content."
+          },
+          "proxied": {
+            "type": "boolean",
+            "description": "Filter by proxy status."
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 50000; default 100)."
+          }
+        },
+        "required": [
+          "zone_id"
+        ]
+      }
+    },
+    {
+      "name": "get_dns_record",
+      "description": "Get a single DNS record by ID.",
+      "method": "GET",
+      "path": "/zones/{zone_id}/dns_records/{record_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string",
+            "description": "DNS record ID (from list_dns_records)."
+          }
+        },
+        "required": [
+          "zone_id",
+          "record_id"
+        ]
+      }
+    },
+    {
+      "name": "create_dns_record",
+      "description": "Create a new DNS record. For MX records also supply 'priority'; for SRV records use the 'data' object instead of 'content' (target/port/priority/weight).",
+      "method": "POST",
+      "path": "/zones/{zone_id}/dns_records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "DNS record type.",
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "MX",
+              "TXT",
+              "NS",
+              "SRV",
+              "CAA",
+              "PTR",
+              "LOC",
+              "DNSKEY",
+              "DS",
+              "HTTPS",
+              "SVCB",
+              "URI",
+              "TLSA",
+              "SSHFP",
+              "CERT",
+              "NAPTR"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Record name (e.g. 'sub.example.com', or '@' / the apex name for root)."
+          },
+          "content": {
+            "type": "string",
+            "description": "Record content (e.g. IPv4 address for A, hostname for CNAME, target for MX). Omit for record types that use 'data' instead."
+          },
+          "data": {
+            "type": "object",
+            "description": "Structured data for record types that need it (SRV, CAA, LOC, etc.). E.g. SRV: { service, proto, name, priority, weight, port, target }."
+          },
+          "ttl": {
+            "type": "integer",
+            "description": "TTL in seconds (60–86400). Use 1 for automatic.",
+            "default": 1
+          },
+          "proxied": {
+            "type": "boolean",
+            "description": "Proxy through Cloudflare (orange cloud). Only for A, AAAA, CNAME.",
+            "default": false
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Priority for MX/URI records (lower = higher priority)."
+          },
+          "comment": {
+            "type": "string",
+            "description": "Optional human-readable comment (max 100 chars)."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Custom tags for grouping records."
+          }
+        },
+        "required": [
+          "zone_id",
+          "type",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_dns_record",
+      "description": "Partially update an existing DNS record (PATCH semantics — unspecified fields are preserved). Use this for routine edits. For full-replace semantics, batch_dns_records supports PUT operations.",
+      "method": "PATCH",
+      "path": "/zones/{zone_id}/dns_records/{record_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "MX",
+              "TXT",
+              "NS",
+              "SRV",
+              "CAA",
+              "PTR",
+              "LOC",
+              "DNSKEY",
+              "DS",
+              "HTTPS",
+              "SVCB",
+              "URI",
+              "TLSA",
+              "SSHFP",
+              "CERT",
+              "NAPTR"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          },
+          "ttl": {
+            "type": "integer"
+          },
+          "proxied": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "zone_id",
+          "record_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_dns_record",
+      "description": "Delete a DNS record. Permanent.",
+      "method": "DELETE",
+      "path": "/zones/{zone_id}/dns_records/{record_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone_id",
+          "record_id"
+        ]
+      }
+    },
+    {
+      "name": "batch_dns_records",
+      "description": "Apply many DNS-record changes in a single transactional API call. Operations are executed in order: deletes → patches → puts → posts. Use for migrations, bulk renames, or any change set you want to roll back atomically on failure.",
+      "method": "POST",
+      "path": "/zones/{zone_id}/dns_records/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          },
+          "deletes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            },
+            "description": "Records to delete (each item: { id })."
+          },
+          "patches": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Partial updates (each item must include 'id' plus the fields to change)."
+          },
+          "puts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Full overwrites (each item must include id + type + name + content; unspecified fields revert to defaults)."
+          },
+          "posts": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "New records to create (id not required; same shape as create_dns_record body)."
+          }
+        },
+        "required": [
+          "zone_id"
+        ]
+      }
+    },
+    {
+      "name": "purge_cache",
+      "description": "Purge cached files from Cloudflare's edge for a zone. Pass purge_everything=true to flush the entire zone, or supply specific URLs / tags / hosts / prefixes to do a targeted purge.",
+      "method": "POST",
+      "path": "/zones/{zone_id}/purge_cache",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone_id": {
+            "type": "string"
+          },
+          "purge_everything": {
+            "type": "boolean",
+            "description": "Flush the entire zone cache. Cannot be combined with the targeted fields below."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "description": "Either a URL string or { url, headers } object for header-aware purging.",
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object"
+                }
+              ]
+            },
+            "description": "Specific URLs to purge (max 30 per call on Free/Pro)."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Cache-Tag values to purge (Enterprise only)."
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hostnames to purge (Enterprise only)."
+          },
+          "prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "URL prefixes to purge (Enterprise only)."
+          }
+        },
+        "required": [
+          "zone_id"
+        ]
+      }
+    },
+    {
+      "name": "list_domains",
+      "description": "List domains registered with Cloudflare Registrar for the configured account. Returns names, expiration dates, auto-renew, transfer-lock and privacy status.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/registrar/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_domain",
+      "description": "Get registrar details for a specific domain — registration status, expiry, name servers, locked / privacy state, transfer status.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/registrar/domains/{domain_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_name": {
+            "type": "string",
+            "description": "Domain name (e.g. 'example.com')."
+          }
+        },
+        "required": [
+          "domain_name"
+        ]
+      }
+    },
+    {
+      "name": "update_domain",
+      "description": "Update registrar settings for a domain — auto-renew, WHOIS privacy, registrar lock, name servers. PUT semantics: include only the fields you want to change; unspecified fields are left as-is.",
+      "method": "PUT",
+      "path": "/accounts/{{account_id}}/registrar/domains/{domain_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_name": {
+            "type": "string",
+            "description": "Domain name to update."
+          },
+          "auto_renew": {
+            "type": "boolean"
+          },
+          "privacy": {
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean",
+            "description": "Registrar transfer lock."
+          },
+          "name_servers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Custom name servers."
+          }
+        },
+        "required": [
+          "domain_name"
+        ]
+      }
+    },
+    {
+      "name": "list_tunnels",
+      "description": "List Cloudflare Tunnels (cfd_tunnel) in an account. Use this to find an existing tunnel by name before creating a duplicate. Filter is_deleted=false to skip soft-deleted tunnels.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/cfd_tunnel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Filter by exact tunnel name."
+          },
+          "is_deleted": {
+            "type": "boolean",
+            "description": "Include soft-deleted tunnels.",
+            "default": false
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_tunnel",
+      "description": "Create a Cloudflare Tunnel. Returns the tunnel id and a connector token (used by 'cloudflared tunnel run --token <token>'). Set config_src=cloudflare to manage ingress through the API (update_tunnel_configuration); use config_src=local if the connector reads ingress from a local config.yml instead.",
+      "method": "POST",
+      "path": "/accounts/{{account_id}}/cfd_tunnel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tunnel name. Must be unique within the account; surfaces in the dashboard and the runs log."
+          },
+          "config_src": {
+            "type": "string",
+            "description": "Where ingress config lives. 'cloudflare' = managed via this API; 'local' = managed via cloudflared's local config.yml.",
+            "enum": [
+              "cloudflare",
+              "local"
+            ],
+            "default": "cloudflare"
+          },
+          "tunnel_secret": {
+            "type": "string",
+            "description": "Optional 32-byte base64 secret for legacy named-tunnel credential JSON. Omit for token-based connectors (the modern path)."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_tunnel_token",
+      "description": "Fetch the connector token for an existing tunnel — needed when adopting a tunnel created earlier (the create_tunnel response only returns the token once). The token is what 'cloudflared tunnel run --token <token>' consumes.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/cfd_tunnel/{tunnel_id}/token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id"
+        ]
+      }
+    },
+    {
+      "name": "update_tunnel_configuration",
+      "description": "Replace the tunnel's ingress configuration. Body must include a 'config' object with an 'ingress' array; the last entry must be a catch-all (e.g. {\"service\": \"http_status:404\"}). This is a full replace, not a merge — include every rule you want to keep.",
+      "method": "PUT",
+      "path": "/accounts/{{account_id}}/cfd_tunnel/{tunnel_id}/configurations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object",
+            "description": "Ingress + warp-routing config. Shape: { ingress: [{hostname?, service, path?, originRequest?}, …], warp-routing?: {enabled: bool} }. Always end ingress with a catch-all {service: 'http_status:404'} rule."
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "config"
+        ]
+      }
+    },
+    {
+      "name": "delete_tunnel",
+      "description": "Delete a Cloudflare Tunnel. The tunnel must have no active connections; stop the connector first. Soft-deleted by default — pass cascade=true to also delete dependent connections.",
+      "method": "DELETE",
+      "path": "/accounts/{{account_id}}/cfd_tunnel/{tunnel_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "cascade": {
+            "type": "boolean",
+            "description": "Also delete dependent connections.",
+            "default": false
+          }
+        },
+        "required": [
+          "tunnel_id"
+        ]
+      }
+    }
+  ]
+}

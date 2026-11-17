@@ -1,0 +1,138 @@
+{
+  "slug": "todoist",
+  "name": "Todoist",
+  "description": "Todoist task and project management platform. Find tasks and sections, add comments to tasks, and move tasks between sections.",
+  "logo": "https://www.google.com/s2/favicons?domain=todoist.com&sz=128",
+  "categories": [
+    "task-management",
+    "todoist",
+    "tasks",
+    "productivity",
+    "projects",
+    "sections",
+    "comments"
+  ],
+  "base_url": "https://api.todoist.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Todoist API token (find at todoist.com/app/settings/integrations/developer)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_tasks",
+      "description": "Retrieve active tasks from Todoist with optional filtering by project, section, label, or a custom filter string. Returns an array of task objects including IDs, content, descriptions, due dates, priorities, labels, and section assignments. Supports comma-separated task IDs for bulk retrieval.",
+      "method": "GET",
+      "path": "/rest/v2/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "section_id": {
+            "type": "string",
+            "description": "Filter tasks by section ID."
+          },
+          "label": {
+            "type": "string",
+            "description": "Filter tasks by label name."
+          },
+          "filter": {
+            "type": "string",
+            "description": "Filter by any supported Todoist filter query (e.g. 'today', 'overdue', 'priority 1')."
+          },
+          "ids": {
+            "type": "string",
+            "description": "A comma-separated list of task IDs to retrieve specific tasks."
+          }
+        }
+      }
+    },
+    {
+      "name": "find_sections",
+      "description": "Retrieve all sections from Todoist, optionally filtered by project ID. Returns an array of section objects including their IDs, names, project IDs, and ordering. Useful for discovering section IDs before moving tasks between sections.",
+      "method": "GET",
+      "path": "/rest/v2/sections",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Create a new comment on a Todoist task or project. Provide the task_id (or project_id) and the comment content. Content supports markdown formatting and hyperlinks. Returns the created comment object with its ID and timestamp.",
+      "method": "POST",
+      "path": "/rest/v2/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The ID of the task to comment on. Either task_id or project_id is required."
+          },
+          "content": {
+            "type": "string",
+            "description": "The comment text content. Supports markdown formatting and hyperlinks."
+          }
+        },
+        "required": [
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "move_task",
+      "description": "Move a task to a different section by updating its section_id. You can also update other task properties at the same time such as content, description, labels, priority, and due date. Returns the updated task object.",
+      "method": "POST",
+      "path": "/rest/v2/tasks/{{param.task_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The ID of the task to move."
+          },
+          "section_id": {
+            "type": "string",
+            "description": "The ID of the target section to move the task into."
+          },
+          "content": {
+            "type": "string",
+            "description": "Optionally update the task content at the same time."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optionally update the task description at the same time."
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optionally update the task labels at the same time."
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Optionally update priority (1 = normal, 4 = urgent)."
+          },
+          "due_string": {
+            "type": "string",
+            "description": "Optionally update the due date using natural language (e.g. 'tomorrow', 'next Monday')."
+          }
+        },
+        "required": [
+          "task_id",
+          "section_id"
+        ]
+      }
+    }
+  ]
+}

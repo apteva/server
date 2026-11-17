@@ -1,0 +1,111 @@
+{
+  "slug": "aircall",
+  "name": "Aircall",
+  "description": "Aircall public API for users, numbers, teams, calls, contacts, messages, and webhook management. Uses API ID + API token over HTTP Basic auth.",
+  "logo": "https://www.google.com/s2/favicons?domain=aircall.io&sz=128",
+  "categories": ["telephony", "voice", "phone", "communications", "crm", "support"],
+  "base_url": "https://api.aircall.io/v1",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "API ID", "description": "Aircall API ID. Used as the HTTP Basic username.", "type": "text" },
+      { "name": "api_secret", "label": "API Token", "description": "Aircall API token. Used as the HTTP Basic password." }
+    ]
+  },
+  "health_check": { "tool": "ping", "input": {} },
+  "tools": [
+    { "name": "ping", "description": "Check Aircall API authentication and availability.", "method": "GET", "path": "/ping", "input_schema": { "type": "object", "properties": {} } },
+    {
+      "name": "list_users",
+      "description": "List Aircall users/agents with pagination.",
+      "method": "GET",
+      "path": "/users",
+      "query_params": ["page", "per_page", "order"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "per_page": { "type": "integer" }, "order": { "type": "string", "enum": ["asc", "desc"] } } }
+    },
+    { "name": "get_user", "description": "Retrieve one Aircall user by ID.", "method": "GET", "path": "/users/{user_id}", "input_schema": { "type": "object", "properties": { "user_id": { "type": "integer" } }, "required": ["user_id"] } },
+    {
+      "name": "list_numbers",
+      "description": "List Aircall phone numbers/lines.",
+      "method": "GET",
+      "path": "/numbers",
+      "query_params": ["page", "per_page", "order"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "per_page": { "type": "integer" }, "order": { "type": "string", "enum": ["asc", "desc"] } } }
+    },
+    { "name": "get_number", "description": "Retrieve one Aircall number/line by ID.", "method": "GET", "path": "/numbers/{number_id}", "input_schema": { "type": "object", "properties": { "number_id": { "type": "integer" } }, "required": ["number_id"] } },
+    {
+      "name": "list_teams",
+      "description": "List Aircall teams.",
+      "method": "GET",
+      "path": "/teams",
+      "query_params": ["page", "per_page", "order"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "per_page": { "type": "integer" }, "order": { "type": "string", "enum": ["asc", "desc"] } } }
+    },
+    { "name": "get_team", "description": "Retrieve one Aircall team by ID.", "method": "GET", "path": "/teams/{team_id}", "input_schema": { "type": "object", "properties": { "team_id": { "type": "integer" } }, "required": ["team_id"] } },
+    {
+      "name": "list_calls",
+      "description": "List calls. Use from/to Unix timestamps and filters to retrieve latest calls efficiently.",
+      "method": "GET",
+      "path": "/calls",
+      "query_params": ["page", "per_page", "order", "from", "to", "user_id", "number_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "order": { "type": "string", "enum": ["asc", "desc"] },
+          "from": { "type": "integer", "description": "Unix timestamp lower bound." },
+          "to": { "type": "integer", "description": "Unix timestamp upper bound." },
+          "user_id": { "type": "integer" },
+          "number_id": { "type": "integer" }
+        }
+      }
+    },
+    { "name": "get_call", "description": "Retrieve one Aircall call by ID, including recording and voicemail links when available.", "method": "GET", "path": "/calls/{call_id}", "input_schema": { "type": "object", "properties": { "call_id": { "type": "integer" } }, "required": ["call_id"] } },
+    {
+      "name": "list_contacts",
+      "description": "List Aircall contacts.",
+      "method": "GET",
+      "path": "/contacts",
+      "query_params": ["page", "per_page", "order", "email", "phone_number"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "per_page": { "type": "integer" }, "order": { "type": "string", "enum": ["asc", "desc"] }, "email": { "type": "string" }, "phone_number": { "type": "string" } } }
+    },
+    { "name": "get_contact", "description": "Retrieve one Aircall contact by ID.", "method": "GET", "path": "/contacts/{contact_id}", "input_schema": { "type": "object", "properties": { "contact_id": { "type": "integer" } }, "required": ["contact_id"] } },
+    {
+      "name": "create_contact",
+      "description": "Create an Aircall contact.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": { "type": "object", "properties": { "first_name": { "type": "string" }, "last_name": { "type": "string" }, "company_name": { "type": "string" }, "information": { "type": "string" }, "phone_numbers": { "type": "array", "items": { "type": "object" }, "description": "Aircall phone number objects." }, "emails": { "type": "array", "items": { "type": "object" } } } }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List Aircall webhooks configured through the API/dashboard.",
+      "method": "GET",
+      "path": "/webhooks",
+      "query_params": ["page", "per_page", "order"],
+      "input_schema": { "type": "object", "properties": { "page": { "type": "integer" }, "per_page": { "type": "integer" }, "order": { "type": "string", "enum": ["asc", "desc"] } } }
+    },
+    { "name": "get_webhook", "description": "Retrieve one Aircall webhook by ID.", "method": "GET", "path": "/webhooks/{webhook_id}", "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" } }, "required": ["webhook_id"] } },
+    {
+      "name": "create_webhook",
+      "description": "Create an Aircall webhook subscription.",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": { "type": "object", "properties": { "url": { "type": "string" }, "custom_name": { "type": "string" }, "events": { "type": "array", "items": { "type": "string" }, "description": "Aircall event names to subscribe to." } }, "required": ["url", "events"] }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update an Aircall webhook URL/name/events.",
+      "method": "PUT",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" }, "url": { "type": "string" }, "custom_name": { "type": "string" }, "events": { "type": "array", "items": { "type": "string" } } }, "required": ["webhook_id"] }
+    },
+    { "name": "delete_webhook", "description": "Delete an Aircall webhook by ID.", "method": "DELETE", "path": "/webhooks/{webhook_id}", "input_schema": { "type": "object", "properties": { "webhook_id": { "type": "integer" } }, "required": ["webhook_id"] } }
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "slug": "google-search-console",
+  "name": "Google Search Console",
+  "description": "Google's official Search Console API — query/click/impression analytics for sites you own, sitemap management, URL inspection. The first-party signal of how Google sees your site.",
+  "logo": "https://www.google.com/s2/favicons?domain=search.google.com&sz=128",
+  "categories": ["seo", "google", "search-analytics", "sitemaps", "url-inspection", "webmaster"],
+  "base_url": "https://searchconsole.googleapis.com",
+  "auth": {
+    "types": ["oauth2", "bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "access_token", "type": "password", "required": false, "source": "oauth", "hidden": true },
+      { "name": "refresh_token", "label": "refresh_token", "type": "password", "required": false, "source": "oauth", "hidden": true },
+      { "name": "expires_in", "label": "expires_in", "required": false, "source": "oauth", "hidden": true },
+      { "name": "expires_at", "label": "expires_at", "required": false, "source": "oauth", "hidden": true },
+      { "name": "token_type", "label": "token_type", "required": false, "source": "oauth", "hidden": true }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": ["https://www.googleapis.com/auth/webmasters"],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent select_account",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_sites",
+      "description": "List sites verified for the authenticated user",
+      "method": "GET",
+      "path": "/webmasters/v3/sites",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_site",
+      "description": "Get a verified site",
+      "method": "GET",
+      "path": "/webmasters/v3/sites/{siteUrl}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "siteUrl": { "type": "string", "description": "URL-encoded property, e.g. sc-domain%3Aexample.com" } },
+        "required": ["siteUrl"]
+      }
+    },
+    {
+      "name": "query_search_analytics",
+      "description": "Query clicks, impressions, CTR, and average position for a verified property. This reports searches that reached sites you own; it is not public keyword market volume. Group with dimensions such as query, page, country, device, date, hour, or searchAppearance. Page through rows with rowLimit and startRow; Google returns top rows rather than guaranteeing every row.",
+      "method": "POST",
+      "path": "/webmasters/v3/sites/{siteUrl}/searchAnalytics/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "startDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "endDate": { "type": "string", "description": "YYYY-MM-DD" },
+          "dimensions": { "type": "array", "description": "Dimensions such as query, page, country, device, date, hour, or searchAppearance.", "items": { "type": "string", "enum": ["query", "page", "country", "device", "date", "hour", "searchAppearance"] } },
+          "type": { "type": "string", "description": "web|image|video|news|discover|googleNews" },
+          "aggregationType": { "type": "string", "enum": ["auto", "byPage", "byProperty", "byNewsShowcasePanel"] },
+          "dataState": { "type": "string", "enum": ["final", "all", "hourly_all"], "description": "Use all for fresh partial data or hourly_all with the hour dimension; default is finalized data." },
+          "rowLimit": { "type": "integer", "minimum": 1, "maximum": 25000, "default": 1000 },
+          "startRow": { "type": "integer", "minimum": 0, "default": 0 },
+          "dimensionFilterGroups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "groupType": { "type": "string", "enum": ["and"] },
+                "filters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "dimension": { "type": "string", "enum": ["query", "page", "country", "device", "searchAppearance"] },
+                      "operator": { "type": "string", "enum": ["equals", "notEquals", "contains", "notContains", "includingRegex", "excludingRegex"] },
+                      "expression": { "type": "string" }
+                    },
+                    "required": ["dimension", "operator", "expression"]
+                  }
+                }
+              },
+              "required": ["filters"]
+            }
+          }
+        },
+        "required": ["siteUrl", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "list_sitemaps",
+      "description": "List sitemaps submitted for a site",
+      "method": "GET",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "sitemapIndex": { "type": "string" }
+        },
+        "required": ["siteUrl"]
+      }
+    },
+    {
+      "name": "get_sitemap",
+      "description": "Get a sitemap submission",
+      "method": "GET",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "feedpath": { "type": "string", "description": "URL-encoded sitemap URL" }
+        },
+        "required": ["siteUrl", "feedpath"]
+      }
+    },
+    {
+      "name": "submit_sitemap",
+      "description": "Submit (or resubmit) a sitemap",
+      "method": "PUT",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "feedpath": { "type": "string" }
+        },
+        "required": ["siteUrl", "feedpath"]
+      }
+    },
+    {
+      "name": "delete_sitemap",
+      "description": "Delete a sitemap submission",
+      "method": "DELETE",
+      "path": "/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siteUrl": { "type": "string" },
+          "feedpath": { "type": "string" }
+        },
+        "required": ["siteUrl", "feedpath"]
+      }
+    },
+    {
+      "name": "inspect_url",
+      "description": "URL Inspection — Google index status, last crawl, mobile usability, AMP, rich results",
+      "method": "POST",
+      "path": "/v1/urlInspection/index:inspect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inspectionUrl": { "type": "string" },
+          "siteUrl": { "type": "string" },
+          "languageCode": { "type": "string" }
+        },
+        "required": ["inspectionUrl", "siteUrl"]
+      }
+    }
+  ]
+}

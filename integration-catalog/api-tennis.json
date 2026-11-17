@@ -1,0 +1,341 @@
+{
+  "slug": "api-tennis",
+  "name": "API Tennis",
+  "description": "Documented tennis JSON API for tournaments, fixtures, livescores, players, standings, head-to-head and odds. API key required. 14-day trial; ongoing access is paid, with endpoint and in-play odds entitlements varying by plan. HTTP request/response tools only. Docs: https://api-tennis.com/documentation",
+  "logo": "https://www.google.com/s2/favicons?domain=api-tennis.com&sz=128",
+  "categories": [
+    "sports",
+    "tennis",
+    "scores",
+    "odds",
+    "head-to-head"
+  ],
+  "base_url": "https://api.api-tennis.com/tennis",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "query_params": {
+      "APIkey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_event_types",
+      "description": "List tennis event types such as ATP and WTA.",
+      "method": "GET",
+      "path": "/?method=get_events",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_tournaments",
+      "description": "List tournaments, optionally by event type.",
+      "method": "GET",
+      "path": "/?method=get_tournaments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_type_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Event type ID."
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_fixtures",
+      "description": "Get tennis fixtures/results within a date range.",
+      "method": "GET",
+      "path": "/?method=get_fixtures",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "date_stop": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "event_type_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tournament_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "player_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, e.g. Europe/Madrid."
+          }
+        },
+        "required": [
+          "date_start",
+          "date_stop"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_livescore",
+      "description": "Get currently live tennis match scores.",
+      "method": "GET",
+      "path": "/?method=get_livescore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_type_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tournament_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "player_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_head_to_head",
+      "description": "Get head-to-head and recent form for two players.",
+      "method": "GET",
+      "path": "/?method=get_H2H",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_player_key": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "second_player_key": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "first_player_key",
+          "second_player_key"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Get ATP or WTA rankings.",
+      "method": "GET",
+      "path": "/?method=get_standings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "ATP",
+              "WTA"
+            ]
+          }
+        },
+        "required": [
+          "event_type"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get a tennis player profile.",
+      "method": "GET",
+      "path": "/?method=get_players",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "player_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Player ID from fixtures or head-to-head."
+          }
+        },
+        "required": [
+          "player_key"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_odds",
+      "description": "Get pre-match bookmaker odds for dates or an event. Requires an entitled plan.",
+      "method": "GET",
+      "path": "/?method=get_odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "date_stop": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "match_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Event key returned by fixtures."
+          }
+        },
+        "required": [
+          "date_start",
+          "date_stop"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          1
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_event_types"
+  }
+}

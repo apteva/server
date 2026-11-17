@@ -1,0 +1,64 @@
+{
+  "slug": "snaprender",
+  "name": "SnapRender",
+  "description": "Website screenshot API tailored for AI agents (Claude, ChatGPT, LangChain). POST a URL and receive the rendered image binary, or JSON with base64 + metadata. Cached responses don't count against quota. Supports PNG/JPEG/WebP/PDF, device emulation, dark mode, ad blocking. $29/mo for 10K screenshots.",
+  "logo": "https://www.google.com/s2/favicons?domain=snap-render.com&sz=128",
+  "categories": ["screenshots", "rendering", "automation", "ai"],
+  "base_url": "https://app.snap-render.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "SnapRender API key (sk_live_...)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "screenshot",
+      "description": "Capture a screenshot of a URL. Returns the image binary directly, or JSON metadata + base64 when `response_type=json`. Cached renders do not consume quota.",
+      "method": "POST",
+      "path": "/v1/screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "format": { "type": "string", "enum": ["png", "jpeg", "webp", "pdf"], "default": "png" },
+          "response_type": { "type": "string", "enum": ["binary", "json"], "default": "binary", "description": "`json` returns metadata + base64 image instead of raw binary" },
+          "full_page": { "type": "boolean", "default": false },
+          "viewport_width": { "type": "integer", "default": 1280 },
+          "viewport_height": { "type": "integer", "default": 800 },
+          "device_scale_factor": { "type": "number", "default": 1, "description": "Pixel density (2 = retina)" },
+          "device": { "type": "string", "description": "Device preset to emulate (e.g. iphone_14, pixel_7)" },
+          "dark_mode": { "type": "boolean", "default": false },
+          "block_ads": { "type": "boolean", "default": false },
+          "block_cookie_banners": { "type": "boolean", "default": false },
+          "wait_until": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle"], "default": "networkidle" },
+          "wait_for_selector": { "type": "string", "description": "CSS selector to wait for before capturing" },
+          "delay_ms": { "type": "integer", "description": "Extra delay in milliseconds before capturing" },
+          "selector": { "type": "string", "description": "Capture only the element matching this CSS selector" },
+          "user_agent": { "type": "string" },
+          "cache": { "type": "boolean", "default": true, "description": "Use cached render if available (doesn't consume quota)" },
+          "cache_ttl": { "type": "integer", "default": 3600 }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "screenshot_info",
+      "description": "Check whether a screenshot for the given URL + params is already cached, without triggering a new render. Useful for cost estimation.",
+      "method": "GET",
+      "path": "/v1/screenshot/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" },
+          "format": { "type": "string", "enum": ["png", "jpeg", "webp", "pdf"], "default": "png" }
+        },
+        "required": ["url"]
+      },
+      "query_params": ["url", "format"]
+    }
+  ]
+}

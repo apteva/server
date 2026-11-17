@@ -1,0 +1,234 @@
+{
+  "slug": "bitstamp",
+  "name": "Bitstamp",
+  "description": "Bitstamp REST API integration for EU-friendly spot market data, balances, order placement/cancellation, open orders, order status, and user transactions. Private tools use Bitstamp X-Auth HMAC authentication.",
+  "logo": "https://www.google.com/s2/favicons?domain=bitstamp.net&sz=128",
+  "categories": ["crypto", "exchange", "trading", "finance", "eu"],
+  "base_url": "https://www.bitstamp.net",
+  "auth": {
+    "types": ["custom"],
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "signers": [{ "name": "bitstamp" }],
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "type": "password", "description": "Bitstamp API key." },
+      { "name": "api_secret", "label": "API Secret", "type": "password", "description": "Bitstamp API secret." },
+      { "name": "subaccount_id", "label": "Subaccount ID", "type": "text", "required": false, "description": "Optional Bitstamp subaccount ID." }
+    ]
+  },
+  "health_check": { "tool": "ticker", "input": { "market_symbol": "btcusd" } },
+  "tools": [
+    {
+      "name": "ticker",
+      "description": "Public: get ticker for a market symbol such as btcusd.",
+      "method": "GET",
+      "path": "/api/v2/ticker/{market_symbol}/",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "market_symbol": { "type": "string" } }, "required": ["market_symbol"] }
+    },
+    {
+      "name": "ticker_hour",
+      "description": "Public: get hourly ticker for a market symbol.",
+      "method": "GET",
+      "path": "/api/v2/ticker_hour/{market_symbol}/",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": { "market_symbol": { "type": "string" } }, "required": ["market_symbol"] }
+    },
+    {
+      "name": "order_book",
+      "description": "Public: get order book for a market symbol.",
+      "method": "GET",
+      "path": "/api/v2/order_book/{market_symbol}/",
+      "signing": { "signers": [] },
+      "query_params": ["group"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "market_symbol": { "type": "string" }, "group": { "type": "integer", "description": "0 or 1." } },
+        "required": ["market_symbol"]
+      }
+    },
+    {
+      "name": "transactions",
+      "description": "Public: get recent public market transactions.",
+      "method": "GET",
+      "path": "/api/v2/transactions/{market_symbol}/",
+      "signing": { "signers": [] },
+      "query_params": ["time", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "market_symbol": { "type": "string" }, "time": { "type": "string" }, "limit": { "type": "integer" } },
+        "required": ["market_symbol"]
+      }
+    },
+    {
+      "name": "trading_pairs_info",
+      "description": "Public: list Bitstamp trading pairs and rules.",
+      "method": "GET",
+      "path": "/api/v2/trading-pairs-info/",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "balance",
+      "description": "Private: get account balance for all currencies.",
+      "method": "POST",
+      "path": "/api/v2/balance/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "balance_for_pair",
+      "description": "Private: get account balance relevant to one trading pair.",
+      "method": "POST",
+      "path": "/api/v2/balance/{market_symbol}/",
+      "input_schema": { "type": "object", "properties": { "market_symbol": { "type": "string" } }, "required": ["market_symbol"] }
+    },
+    {
+      "name": "open_orders",
+      "description": "Private: list open orders across all markets.",
+      "method": "POST",
+      "path": "/api/v2/open_orders/all/",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "open_orders_for_pair",
+      "description": "Private: list open orders for one market.",
+      "method": "POST",
+      "path": "/api/v2/open_orders/{market_symbol}/",
+      "input_schema": { "type": "object", "properties": { "market_symbol": { "type": "string" } }, "required": ["market_symbol"] }
+    },
+    {
+      "name": "order_status",
+      "description": "Private: get order status.",
+      "method": "POST",
+      "path": "/api/v2/order_status/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Bitstamp order ID." },
+          "client_order_id": { "type": "string" },
+          "omit_transactions": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Private: cancel one order.",
+      "method": "POST",
+      "path": "/api/v2/cancel_order/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" }, "client_order_id": { "type": "string" } }
+      }
+    },
+    {
+      "name": "cancel_all_orders",
+      "description": "Private: cancel all open orders, optionally for one market.",
+      "method": "POST",
+      "path": "/api/v2/cancel_all_orders/",
+      "input_schema": { "type": "object", "properties": { "market_symbol": { "type": "string" } } }
+    },
+    {
+      "name": "buy_limit_order",
+      "description": "Private: place a buy limit order.",
+      "method": "POST",
+      "path": "/api/v2/buy/{market_symbol}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market_symbol": { "type": "string" },
+          "amount": { "type": "string" },
+          "price": { "type": "string" },
+          "client_order_id": { "type": "string" },
+          "daily_order": { "type": "boolean" },
+          "ioc_order": { "type": "boolean" },
+          "fok_order": { "type": "boolean" },
+          "moc_order": { "type": "boolean" }
+        },
+        "required": ["market_symbol", "amount", "price"]
+      }
+    },
+    {
+      "name": "sell_limit_order",
+      "description": "Private: place a sell limit order.",
+      "method": "POST",
+      "path": "/api/v2/sell/{market_symbol}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market_symbol": { "type": "string" },
+          "amount": { "type": "string" },
+          "price": { "type": "string" },
+          "client_order_id": { "type": "string" },
+          "daily_order": { "type": "boolean" },
+          "ioc_order": { "type": "boolean" },
+          "fok_order": { "type": "boolean" },
+          "moc_order": { "type": "boolean" }
+        },
+        "required": ["market_symbol", "amount", "price"]
+      }
+    },
+    {
+      "name": "buy_market_order",
+      "description": "Private: place a buy market order.",
+      "method": "POST",
+      "path": "/api/v2/buy/market/{market_symbol}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market_symbol": { "type": "string" },
+          "amount": { "type": "string" },
+          "client_order_id": { "type": "string" }
+        },
+        "required": ["market_symbol", "amount"]
+      }
+    },
+    {
+      "name": "sell_market_order",
+      "description": "Private: place a sell market order.",
+      "method": "POST",
+      "path": "/api/v2/sell/market/{market_symbol}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market_symbol": { "type": "string" },
+          "amount": { "type": "string" },
+          "client_order_id": { "type": "string" }
+        },
+        "required": ["market_symbol", "amount"]
+      }
+    },
+    {
+      "name": "user_transactions",
+      "description": "Private: list account transactions.",
+      "method": "POST",
+      "path": "/api/v2/user_transactions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "sort": { "type": "string", "enum": ["asc", "desc"] },
+          "since_id": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "user_transactions_for_pair",
+      "description": "Private: list account transactions for one market.",
+      "method": "POST",
+      "path": "/api/v2/user_transactions/{market_symbol}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market_symbol": { "type": "string" },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "sort": { "type": "string", "enum": ["asc", "desc"] },
+          "since_id": { "type": "integer" }
+        },
+        "required": ["market_symbol"]
+      }
+    }
+  ]
+}

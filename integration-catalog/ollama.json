@@ -1,0 +1,101 @@
+{
+  "slug": "ollama",
+  "name": "Ollama",
+  "description": "Local LLM inference against an Ollama host. No API key — the host URL is the only required field, and it stays on the machine running Ollama. Serves as an agent runtime backend and as a callable chat integration.",
+  "logo": "https://www.google.com/s2/favicons?domain=ollama.com&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "ollama",
+    "chat",
+    "local",
+    "self-hosted"
+  ],
+  "base_url": "{{host}}",
+  "auth": {
+    "types": [
+      "none"
+    ],
+    "credential_fields": [
+      {
+        "name": "host",
+        "label": "Ollama host",
+        "description": "Base URL of your Ollama server, e.g. http://localhost:11434"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create a chat completion via POST /v1/chat/completions on the Ollama host. OpenAI-compatible request and response shape.",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model name as pulled into Ollama, e.g. llama3.3. Call list_models for what is installed."
+          },
+          "messages": {
+            "type": "array",
+            "description": "Conversation so far, as OpenAI-style {role, content} objects.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "One of system, user, assistant, tool."
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Message text."
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Maximum tokens to generate."
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature, 0–2."
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List models installed on this Ollama host via GET /api/tags.",
+      "method": "GET",
+      "path": "/api/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  },
+  "runtime": {
+    "role": "llm",
+    "provider_key": "ollama",
+    "env": {
+      "OLLAMA_HOST": "{{credentials.host}}",
+      "OLLAMA_MODEL": "{{config.model}}",
+      "OLLAMA_EMBED_MODEL": "{{config.embed_model}}",
+      "OLLAMA_EMBED_DIM": "{{config.embed_dim}}"
+    }
+  }
+}

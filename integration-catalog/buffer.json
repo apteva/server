@@ -1,0 +1,121 @@
+{
+  "slug": "buffer",
+  "name": "Buffer",
+  "description": "MCP server for Buffer - schedule and manage social media posts across profiles via the Buffer Publish API",
+  "logo": "https://www.google.com/s2/favicons?domain=buffer.com&sz=128",
+  "categories": ["social-media", "marketing", "scheduling"],
+  "base_url": "https://api.bufferapp.com/1",
+  "auth": {
+    "types": ["bearer", "oauth2"],
+    "query_params": { "access_token": "{{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Access Token", "description": "OAuth access token, or developer access token from buffer.com/developers/apps" }
+    ],
+    "oauth2": {
+      "authorize_url": "https://bufferapp.com/oauth2/authorize",
+      "token_url": "https://api.bufferapp.com/1/oauth2/token.json",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false,
+      "setup_url": "https://buffer.com/developers/apps/create",
+      "setup_steps": [
+        "Create an app at buffer.com/developers/apps/create",
+        "Set the callback URL to your Apteva OAuth callback",
+        "Copy the Client ID and Client Secret"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "list_profiles",
+      "description": "List the connected social media profiles (Twitter, Facebook, LinkedIn, etc.)",
+      "method": "GET",
+      "path": "/profiles.json",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get a single profile by ID",
+      "method": "GET",
+      "path": "/profiles/{profile_id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "profile_id": { "type": "string" } },
+        "required": ["profile_id"]
+      }
+    },
+    {
+      "name": "list_pending_updates",
+      "description": "List pending (queued) updates for a profile",
+      "method": "GET",
+      "path": "/profiles/{profile_id}/updates/pending.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": { "type": "string" },
+          "page": { "type": "integer" },
+          "count": { "type": "integer" }
+        },
+        "required": ["profile_id"]
+      },
+      "query_params": ["page", "count"]
+    },
+    {
+      "name": "list_sent_updates",
+      "description": "List sent updates for a profile",
+      "method": "GET",
+      "path": "/profiles/{profile_id}/updates/sent.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": { "type": "string" },
+          "page": { "type": "integer" },
+          "count": { "type": "integer" }
+        },
+        "required": ["profile_id"]
+      },
+      "query_params": ["page", "count"]
+    },
+    {
+      "name": "create_update",
+      "description": "Create (queue) a new update across one or more profiles",
+      "method": "POST",
+      "path": "/updates/create.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_ids[]": { "type": "array", "items": { "type": "string" } },
+          "text": { "type": "string" },
+          "shorten": { "type": "boolean" },
+          "now": { "type": "boolean", "description": "Post immediately instead of queuing" },
+          "top": { "type": "boolean", "description": "Add to top of queue" },
+          "scheduled_at": { "type": "integer", "description": "Unix timestamp for custom scheduling" },
+          "media": { "type": "object" }
+        },
+        "required": ["profile_ids[]", "text"]
+      }
+    },
+    {
+      "name": "get_update",
+      "description": "Get a single update by ID",
+      "method": "GET",
+      "path": "/updates/{update_id}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "update_id": { "type": "string" } },
+        "required": ["update_id"]
+      }
+    },
+    {
+      "name": "destroy_update",
+      "description": "Delete a queued or pending update",
+      "method": "POST",
+      "path": "/updates/{update_id}/destroy.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "update_id": { "type": "string" } },
+        "required": ["update_id"]
+      }
+    }
+  ]
+}

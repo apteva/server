@@ -1,0 +1,139 @@
+{
+  "slug": "planetscale",
+  "name": "PlanetScale",
+  "description": "MCP server for PlanetScale - databases, branches, deploy requests, backups",
+  "logo": "https://www.google.com/s2/favicons?domain=planetscale.com&sz=128",
+  "categories": ["database", "mysql", "serverless", "devops"],
+  "base_url": "https://api.planetscale.com/v1",
+  "auth": {
+    "types": ["header"],
+    "headers": { "Authorization": "{{serviceTokenId}}:{{serviceToken}}" },
+    "credential_fields": [
+      { "name": "serviceTokenId", "label": "Service Token ID" },
+      { "name": "serviceToken", "label": "Service Token" },
+      { "name": "organization", "label": "Organization" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_databases",
+      "description": "List databases in an organization",
+      "method": "GET",
+      "path": "/organizations/{organization}/databases",
+      "input_schema": {
+        "type": "object",
+        "properties": { "organization": { "type": "string" } },
+        "required": ["organization"]
+      }
+    },
+    {
+      "name": "create_database",
+      "description": "Create a database",
+      "method": "POST",
+      "path": "/organizations/{organization}/databases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "plan": { "type": "string" }
+        },
+        "required": ["organization", "name"]
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "List branches for a database",
+      "method": "GET",
+      "path": "/organizations/{organization}/databases/{database}/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "database": { "type": "string" }
+        },
+        "required": ["organization", "database"]
+      }
+    },
+    {
+      "name": "create_branch",
+      "description": "Create a branch",
+      "method": "POST",
+      "path": "/organizations/{organization}/databases/{database}/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "database": { "type": "string" },
+          "name": { "type": "string" },
+          "parent_branch": { "type": "string" }
+        },
+        "required": ["organization", "database", "name", "parent_branch"]
+      }
+    },
+    {
+      "name": "list_deploy_requests",
+      "description": "List deploy requests",
+      "method": "GET",
+      "path": "/organizations/{organization}/databases/{database}/deploy-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "database": { "type": "string" }
+        },
+        "required": ["organization", "database"]
+      }
+    },
+    {
+      "name": "create_deploy_request",
+      "description": "Open a deploy request",
+      "method": "POST",
+      "path": "/organizations/{organization}/databases/{database}/deploy-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "database": { "type": "string" },
+          "branch": { "type": "string" },
+          "into_branch": { "type": "string" },
+          "notes": { "type": "string" }
+        },
+        "required": ["organization", "database", "branch", "into_branch"]
+      }
+    },
+    {
+      "name": "deploy_deploy_request",
+      "description": "Deploy a deploy request",
+      "method": "POST",
+      "path": "/organizations/{organization}/databases/{database}/deploy-requests/{number}/deploy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "database": { "type": "string" },
+          "number": { "type": "string" }
+        },
+        "required": ["organization", "database", "number"]
+      }
+    },
+    {
+      "name": "create_password",
+      "description": "Create a branch connection password",
+      "method": "POST",
+      "path": "/organizations/{organization}/databases/{database}/branches/{branch}/passwords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization": { "type": "string" },
+          "database": { "type": "string" },
+          "branch": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" }
+        },
+        "required": ["organization", "database", "branch", "name"]
+      }
+    }
+  ]
+}

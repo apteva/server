@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -128,5 +130,75 @@ func TestNewAgentCreationPinsPreferenceAndPreservesExistingAgents(t *testing.T) 
 	pool := s.GetProviderPool(1, "project-a")
 	if pool[0].Type != "anthropic" {
 		t.Fatalf("pool order changed: %#v", pool)
+	}
+}
+
+func TestAgentConfigPatchPreservesCreationProvider(t *testing.T) {
+	for _, tc := range []struct {
+		name, patch, expected string
+	}{
+		{"partial", `{"unconscious":true}`, "openai-codex"},
+		{"empty", `{}`, "openai-codex"},
+		{"explicit", `{"default_provider":"venice"}`, "venice"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestServer(t)
+			registerAndLogin(t, s)
+			s.secret = testSecret()
+			createProviderSelectionFixture(t, s, 14, "Venice", "project-a", map[string]any{
+				"VENICE_API_KEY": "test", "model_large": "venice-model", "model_medium": "venice-model", "model_small": "venice-model",
+			})
+			createProviderSelectionFixture(t, s, 15, "OpenAI Codex", "project-a", map[string]any{
+				"credentials": map[string]any{"access_token": "test"}, "model_capabilities": map[string]any{},
+				"model_large": "gpt-6.1-sol", "model_medium": "gpt-6.1-sol", "model_small": "gpt-6.1-sol",
+			})
+			if err := s.store.SetSetting(newAgentProviderSettingKey(1, "project-a"), "openai-codex"); err != nil {
+				t.Fatal(err)
+			}
+			config := s.applyNewAgentProviderDefault(1, "project-a", `{"include_channels":false,"unconscious":false}`)
+			agent, err := s.store.CreateAgent(1, "config-patch", "Idle", "cautious", config, "project-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := effectiveProviderDefault(s.GetProviderPool(1, "project-a"), ""); got != "venice" {
+				t.Fatalf("fixture fallback=%q, want a different provider from the creation preference", got)
+			}
+			rec := httptest.NewRecorder()
+			s.handleUpdateConfig(rec, authedRequest(t, http.MethodPut, "/instances/1/config", "", map[string]any{"config": tc.patch}))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
+			}
+			persisted, err := s.store.GetAgentByID(agent.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := configuredAgentDefaultProvider(persisted.Config); got != tc.expected {
+				t.Fatalf("provider=%q want=%q config=%s", got, tc.expected, persisted.Config)
+			}
+			var saved map[string]any
+			if err := json.Unmarshal([]byte(persisted.Config), &saved); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "partial" && saved["unconscious"] != true {
+				t.Fatalf("patch not applied: %s", persisted.Config)
+			}
+			providers := buildAgentCoreProviderConfigs(s.GetProviderPool(1, "project-a"), persisted.Config)
+			if providerConfigByName(t, mapsToAny(providers), tc.expected)["default"] != true {
+				t.Fatalf("startup providers lost selection: %#v", providers)
+			}
+			raw, err := os.ReadFile(filepath.Join(s.agents.instanceDir(agent.ID), "config.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var disk struct {
+				Providers []any `json:"providers"`
+			}
+			if err := json.Unmarshal(raw, &disk); err != nil {
+				t.Fatal(err)
+			}
+			if providerConfigByName(t, disk.Providers, tc.expected)["default"] != true {
+				t.Fatalf("persisted core config lost selection: %s", raw)
+			}
+		})
 	}
 }

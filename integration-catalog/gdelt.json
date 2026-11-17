@@ -1,0 +1,96 @@
+{
+  "slug": "gdelt",
+  "name": "GDELT",
+  "description": "The Global Database of Events, Language, and Tone — every news article from 80,000+ sources worldwide, tagged with location, actors, themes, sentiment, and emotion (since 2015 for v2). Updated every 15 minutes. The most comprehensive free real-time geopolitical signal source — useful for war/treaty/election markets, country-risk assessment, and 'is X happening' sentinel queries. No auth required. Several different APIs under one umbrella: DOC (article search), GEO (geographic distribution), GKG (Global Knowledge Graph), Events.",
+  "logo": "https://www.google.com/s2/favicons?domain=gdeltproject.org&sz=128",
+  "categories": [
+    "news",
+    "geopolitics",
+    "events",
+    "research",
+    "public-data",
+    "sentiment"
+  ],
+  "base_url": "https://api.gdeltproject.org/api/v2",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "User-Agent": "Apteva-Trading-Agent/1.0"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "doc_search",
+      "description": "Full-text article search across GDELT's worldwide corpus. Returns ArtList = list of matching articles (title, url, domain, language, country, date, image, themes, social-image). Powerful query syntax: 'biden AND trump', '\"interest rate\" AND fed', 'sourcecountry:US AND theme:ECON_INTEREST_RATES'. Use mode=ArtList for articles; TimelineVol/TimelineTone/TimelineLang/TimelineSourceCountry for aggregations.",
+      "method": "GET",
+      "path": "/doc/doc",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query":      {"type": "string", "description": "GDELT DOC query. Supports operators: AND/OR/NOT, parens, themes (theme:ECON_INTEREST_RATES), countries (sourcecountry:US), languages (sourcelang:eng), 'image:airplane' for visual themes."},
+          "mode":       {"type": "string", "enum": ["ArtList","ArtGallery","ImageCollage","TimelineVol","TimelineVolRaw","TimelineTone","TimelineLang","TimelineSourceCountry","WordCloudEnglish","WordCloudImageTags"], "default": "ArtList"},
+          "format":     {"type": "string", "enum": ["json","jsonp","csv","html"], "default": "json"},
+          "timespan":   {"type": "string", "description": "Time window for the query. Format: '24h', '7d', '14d', '30d', 'CUSTOM' (then use startdatetime + enddatetime). Max 90d in one call."},
+          "startdatetime": {"type": "string", "description": "YYYYMMDDHHMMSS (UTC). Use with timespan=CUSTOM."},
+          "enddatetime":   {"type": "string", "description": "YYYYMMDDHHMMSS (UTC)."},
+          "maxrecords": {"type": "integer", "description": "Max articles (1-250). Default 75."},
+          "sort":       {"type": "string", "enum": ["DateDesc","DateAsc","ToneDesc","ToneAsc","HybridRel"], "default": "DateDesc"}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "doc_timeline_volume",
+      "description": "Time-series volume of articles matching a query — shows how many sources are covering the topic over time. Spikes correlate with real-world events (elections, market crashes, geopolitical incidents). Convenience wrapper around doc_search with mode=TimelineVol.",
+      "method": "GET",
+      "path": "/doc/doc",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query":    {"type": "string"},
+          "timespan": {"type": "string", "default": "30d"},
+          "format":   {"type": "string", "default": "json"},
+          "mode":     {"type": "string", "default": "TimelineVol"}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "doc_timeline_tone",
+      "description": "Aggregate sentiment-tone timeline (positive vs negative coverage) for articles matching a query. Useful for tracking media sentiment shifts on a topic over time — Fed coverage tone before/after FOMC, geopolitical sentiment before/after announcements.",
+      "method": "GET",
+      "path": "/doc/doc",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query":    {"type": "string"},
+          "timespan": {"type": "string", "default": "30d"},
+          "format":   {"type": "string", "default": "json"},
+          "mode":     {"type": "string", "default": "TimelineTone"}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "geo_distribution",
+      "description": "Geographic distribution of articles matching a query — returns lat/lng points + intensity. Use to see WHERE a story is being covered most heavily, which correlates with where the event is actually happening.",
+      "method": "GET",
+      "path": "/geo/geo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query":    {"type": "string"},
+          "mode":     {"type": "string", "enum": ["PointData","HeatmapData"], "default": "PointData"},
+          "format":   {"type": "string", "default": "json"},
+          "timespan": {"type": "string", "default": "24h"}
+        },
+        "required": ["query"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "doc_search",
+    "args": {"query": "stock market", "timespan": "24h", "maxrecords": 5}
+  }
+}

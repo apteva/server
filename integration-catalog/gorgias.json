@@ -1,0 +1,553 @@
+{
+  "slug": "gorgias",
+  "name": "Gorgias",
+  "description": "Gorgias ecommerce customer support for tickets, messages, customers, users, teams, tags, macros, views, and integrations.",
+  "logo": "https://www.google.com/s2/favicons?domain=gorgias.com&sz=128",
+  "categories": [
+    "customer-support",
+    "helpdesk",
+    "ecommerce",
+    "tickets"
+  ],
+  "base_url": "https://{{subdomain}}.gorgias.com/api",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "subdomain",
+        "label": "Gorgias Subdomain",
+        "type": "text",
+        "description": "The part before .gorgias.com.",
+        "required": true
+      },
+      {
+        "name": "username",
+        "label": "Gorgias Login Email",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Gorgias API Key",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_users"
+  },
+  "tools": [
+    {
+      "name": "list_tickets",
+      "description": "List tickets ordered by creation or update time.",
+      "method": "GET",
+      "path": "/tickets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "order_by": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "view_id": {
+            "type": "integer"
+          },
+          "trashed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ticket",
+      "description": "Get a ticket.",
+      "method": "GET",
+      "path": "/tickets/{ticket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "integer"
+          },
+          "relationships": {
+            "type": "string",
+            "description": "Comma-separated relationships such as custom_fields."
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a ticket with at least one typed message.",
+      "method": "POST",
+      "path": "/tickets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "open or closed."
+          },
+          "priority": {
+            "type": "string",
+            "description": "critical, high, normal, or low."
+          },
+          "channel": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          },
+          "from_agent": {
+            "type": "boolean"
+          },
+          "customer": {
+            "type": "object",
+            "description": "Customer reference such as {email:'...'} or {id:123}."
+          },
+          "assignee_user": {
+            "type": "object"
+          },
+          "assignee_team": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tag objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "messages": {
+            "type": "array",
+            "description": "Message objects including channel, via, from_agent, body_text/body_html and sender/source.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "custom_fields": {
+            "type": "array",
+            "description": "Custom field objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "meta": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "update_ticket",
+      "description": "Update a ticket's status, assignment, priority, tags, or metadata.",
+      "method": "PUT",
+      "path": "/tickets/{ticket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "integer"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string"
+          },
+          "assignee_user": {
+            "type": "object"
+          },
+          "assignee_team": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tag objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "custom_fields": {
+            "type": "array",
+            "description": "Custom fields.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "meta": {
+            "type": "object"
+          },
+          "snooze_datetime": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_ticket",
+      "description": "Delete a ticket.",
+      "method": "DELETE",
+      "path": "/tickets/{ticket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "list_ticket_messages",
+      "description": "List messages belonging to a ticket.",
+      "method": "GET",
+      "path": "/tickets/{ticket_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "order_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "create_ticket_message",
+      "description": "Add an outgoing reply, incoming message, or internal note to a ticket.",
+      "method": "POST",
+      "path": "/tickets/{ticket_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "integer"
+          },
+          "body_text": {
+            "type": "string"
+          },
+          "body_html": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "via": {
+            "type": "string"
+          },
+          "from_agent": {
+            "type": "boolean"
+          },
+          "public": {
+            "type": "boolean"
+          },
+          "sender": {
+            "type": "object"
+          },
+          "receiver": {
+            "type": "object"
+          },
+          "source": {
+            "type": "object"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Attachment objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "meta": {
+            "type": "object"
+          },
+          "mention_ids": {
+            "type": "array",
+            "description": "User IDs to mention.",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "ticket_id",
+          "channel",
+          "via",
+          "from_agent"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "order_by": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Get a customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a customer.",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "description": "Channel objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update a customer.",
+      "method": "PUT",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List support users.",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List support teams.",
+      "method": "GET",
+      "path": "/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_tags",
+      "description": "List ticket tags.",
+      "method": "GET",
+      "path": "/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_macros",
+      "description": "List reply macros.",
+      "method": "GET",
+      "path": "/macros",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_views",
+      "description": "List ticket views.",
+      "method": "GET",
+      "path": "/views",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_integrations",
+      "description": "List configured Gorgias integrations/channels.",
+      "method": "GET",
+      "path": "/integrations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

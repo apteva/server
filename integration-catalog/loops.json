@@ -1,0 +1,20 @@
+{
+  "slug": "loops",
+  "name": "Loops",
+  "description": "Loops email API for SaaS contacts, lifecycle events, transactional email, mailing-list subscriptions, and custom properties.",
+  "logo": "https://www.google.com/s2/favicons?domain=loops.so&sz=128",
+  "categories": ["email", "transactional-email", "marketing", "saas", "automation"],
+  "base_url": "https://app.loops.so/api/v1",
+  "auth": { "types": ["bearer"], "headers": { "Authorization": "Bearer {{token}}", "Accept": "application/json", "Content-Type": "application/json" }, "credential_fields": [{ "name": "token", "label": "API Key", "description": "Loops API key." }] },
+  "tools": [
+    { "name": "create_contact", "description": "Create a contact.", "method": "POST", "path": "/contacts/create", "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "firstName": { "type": "string" }, "lastName": { "type": "string" }, "source": { "type": "string" }, "subscribed": { "type": "boolean" }, "userGroup": { "type": "string" }, "userId": { "type": "string" }, "mailingLists": { "type": "object", "additionalProperties": { "type": "boolean" } } }, "required": ["email"] } },
+    { "name": "update_contact", "description": "Update or create a contact by email or userId. Custom properties can be sent as top-level fields if added to this schema later.", "method": "PUT", "path": "/contacts/update", "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "userId": { "type": "string" }, "firstName": { "type": "string" }, "lastName": { "type": "string" }, "source": { "type": "string" }, "subscribed": { "type": "boolean" }, "userGroup": { "type": "string" }, "mailingLists": { "type": "object", "additionalProperties": { "type": "boolean" } } } } },
+    { "name": "find_contact", "description": "Find contacts by email or userId.", "method": "GET", "path": "/contacts/find", "query_params": ["email", "userId"], "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "userId": { "type": "string" } } } },
+    { "name": "delete_contact", "description": "Delete a contact by email or userId.", "method": "DELETE", "path": "/contacts/delete", "query_params": ["email", "userId"], "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "userId": { "type": "string" } } } },
+    { "name": "send_event", "description": "Send an event to trigger workflows.", "method": "POST", "path": "/events/send", "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "userId": { "type": "string" }, "eventName": { "type": "string" }, "eventProperties": { "type": "object", "additionalProperties": true } }, "required": ["eventName"] } },
+    { "name": "send_transactional_email", "description": "Send a transactional email from a Loops template.", "method": "POST", "path": "/transactional", "input_schema": { "type": "object", "properties": { "transactionalId": { "type": "string" }, "email": { "type": "string" }, "addToAudience": { "type": "boolean" }, "dataVariables": { "type": "object", "additionalProperties": true }, "attachments": { "type": "array", "items": { "type": "object" } } }, "required": ["transactionalId", "email"] } },
+    { "name": "list_transactional_emails", "description": "List transactional email templates.", "method": "GET", "path": "/transactional", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_transactional_email", "description": "Get one transactional email template.", "method": "GET", "path": "/transactional/{transactional_id}", "input_schema": { "type": "object", "properties": { "transactional_id": { "type": "string" } }, "required": ["transactional_id"] } },
+    { "name": "list_mailing_lists", "description": "List mailing lists.", "method": "GET", "path": "/lists", "input_schema": { "type": "object", "properties": {} } }
+  ]
+}

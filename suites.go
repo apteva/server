@@ -154,7 +154,7 @@ func resolveConnectionContextRaw(store *Store, secret []byte, userID int64, app 
 			return nil, fmt.Errorf("master connection %d not found: %v", masterID, err)
 		}
 	} else {
-		err := store.db.QueryRow(
+		err := store.dbQueryRow(
 			"SELECT encrypted_credentials FROM connections WHERE id = ?", masterID,
 		).Scan(&encCreds)
 		if err != nil {

@@ -1,0 +1,1203 @@
+{
+  "slug": "rankbird",
+  "name": "Rankbird",
+  "description": "Rankbird SEO platform — keyword tracking, SERP rankings, backlinks, competitors, AI visibility (GEO), site audits, and reports.",
+  "logo": "https://www.google.com/s2/favicons?domain=rankbird.co&sz=128",
+  "categories": [
+    "seo",
+    "marketing",
+    "analytics",
+    "keywords",
+    "rankings",
+    "backlinks",
+    "ai-visibility",
+    "geo"
+  ],
+  "base_url": "https://api.rankbird.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Rankbird API key (e.g. okt_prod_...)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sites",
+      "description": "List all SEO sites being tracked. Filter by project_id or status.",
+      "method": "GET",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter by status (active, paused, archived)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results to return (default 50)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_site",
+      "description": "Get details for a specific SEO site by ID.",
+      "method": "GET",
+      "path": "/sites/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Site ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_site",
+      "description": "Create a new SEO site to track.",
+      "method": "POST",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Site name"
+          },
+          "url": {
+            "type": "string",
+            "description": "Site URL (e.g. https://example.com)"
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "update_site",
+      "description": "Update an existing SEO site.",
+      "method": "PUT",
+      "path": "/sites/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Site name"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status (active, paused, archived)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_site",
+      "description": "Delete an SEO site.",
+      "method": "DELETE",
+      "path": "/sites/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Site ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_keywords",
+      "description": "List keywords tracked for a site. Filter by status, search engine, or device.",
+      "method": "GET",
+      "path": "/sites/{site_id}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (active, paused)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 50)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_keyword",
+      "description": "Get details for a specific keyword including search volume, difficulty, and CPC.",
+      "method": "GET",
+      "path": "/keywords/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Keyword ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "add_keyword",
+      "description": "Add a keyword to track for a site.",
+      "method": "POST",
+      "path": "/sites/{site_id}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to track"
+          },
+          "search_engine": {
+            "type": "string",
+            "description": "Search engine (default: google)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Location (e.g. United States)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language (e.g. English)"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device type (desktop, mobile)"
+          }
+        },
+        "required": [
+          "site_id",
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "update_keyword",
+      "description": "Update a tracked keyword.",
+      "method": "PUT",
+      "path": "/keywords/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Keyword ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status (active, paused)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_keyword",
+      "description": "Delete a tracked keyword.",
+      "method": "DELETE",
+      "path": "/keywords/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Keyword ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "keyword_rankings",
+      "description": "Get SERP ranking history for a keyword over time.",
+      "method": "GET",
+      "path": "/keywords/{keyword_id}/rankings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword_id": {
+            "type": "string",
+            "description": "Keyword ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keyword_id"
+        ]
+      }
+    },
+    {
+      "name": "keyword_domain_rankings",
+      "description": "Get all domains ranking for a keyword with page data (title, h1, word count, h2 count) and a content brief (target word count, title/h1 examples). Use with rankbird-content-gap: first get keyword opportunities, then call this to see what top pages look like and plan content.",
+      "method": "GET",
+      "path": "/keywords/{keyword_id}/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword_id": {
+            "type": "string",
+            "description": "Keyword ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "keyword_id"
+        ]
+      }
+    },
+    {
+      "name": "keyword_competitor_positions",
+      "description": "Get competitor ranking positions for a keyword on a site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/keywords/{keyword_id}/competitor-positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "keyword_id": {
+            "type": "string",
+            "description": "Keyword ID"
+          }
+        },
+        "required": [
+          "site_id",
+          "keyword_id"
+        ]
+      }
+    },
+    {
+      "name": "explore_keywords",
+      "description": "Explore and discover keyword ideas with search volume, difficulty, and CPC data.",
+      "method": "GET",
+      "path": "/keywords/explore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Seed keyword to explore"
+          },
+          "location": {
+            "type": "string",
+            "description": "Location (e.g. United States)"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language (e.g. English)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_gap",
+      "description": "Find keywords your competitors rank for but you don't. Returns opportunity-scored results with branded keyword detection. Add competitors to a site first, then call this to discover content ideas.",
+      "method": "GET",
+      "path": "/sites/{site_id}/content-gap",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 50)"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Gap mode: 'missing' (not ranking), 'losing' (ranking worse), 'all' (both). Default: missing",
+            "enum": [
+              "missing",
+              "losing",
+              "all"
+            ]
+          },
+          "min_volume": {
+            "type": "integer",
+            "description": "Minimum search volume filter"
+          },
+          "max_difficulty": {
+            "type": "integer",
+            "description": "Maximum keyword difficulty filter (0-100)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field:direction. Default: opportunity_score:desc. Options: opportunity_score, search_volume, difficulty, cpc"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "list_domains",
+      "description": "List all discovered domains in the system.",
+      "method": "GET",
+      "path": "/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_domain",
+      "description": "Get domain details including authority score, backlinks count, and metrics.",
+      "method": "GET",
+      "path": "/domains/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Domain ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "domain_rankings",
+      "description": "Get all keyword rankings for a domain.",
+      "method": "GET",
+      "path": "/domains/{domain_id}/rankings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "Domain ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "domain_id"
+        ]
+      }
+    },
+    {
+      "name": "domain_history",
+      "description": "Get historical metrics for a domain (authority, backlinks, etc. over time).",
+      "method": "GET",
+      "path": "/domains/{domain_id}/history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain_id": {
+            "type": "string",
+            "description": "Domain ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "domain_id"
+        ]
+      }
+    },
+    {
+      "name": "lookup_domain",
+      "description": "Look up a domain by name to find its ID and metrics.",
+      "method": "POST",
+      "path": "/domains/lookup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name (e.g. example.com)"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "list_competitors",
+      "description": "List competitors tracked for a site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/competitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "add_competitor",
+      "description": "Add a competitor domain to track for a site.",
+      "method": "POST",
+      "path": "/sites/{site_id}/competitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Competitor domain (e.g. competitor.com)"
+          }
+        },
+        "required": [
+          "site_id",
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "delete_competitor",
+      "description": "Remove a tracked competitor.",
+      "method": "DELETE",
+      "path": "/competitors/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Competitor ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_backlinks",
+      "description": "List backlinks tracked for a site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/backlinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "backlink_stats",
+      "description": "Get backlink statistics for a site (total, dofollow, nofollow, referring domains).",
+      "method": "GET",
+      "path": "/sites/{site_id}/backlinks/stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "add_backlink",
+      "description": "Add a backlink to track for a site.",
+      "method": "POST",
+      "path": "/sites/{site_id}/backlinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "source_url": {
+            "type": "string",
+            "description": "URL of the page linking to you"
+          },
+          "target_url": {
+            "type": "string",
+            "description": "URL on your site being linked to"
+          }
+        },
+        "required": [
+          "site_id",
+          "source_url",
+          "target_url"
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List tracked pages for a site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Get details for a specific tracked page.",
+      "method": "GET",
+      "path": "/pages/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Page ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "page_keywords",
+      "description": "Get keywords that a specific page ranks for.",
+      "method": "GET",
+      "path": "/pages/{page_id}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_id": {
+            "type": "string",
+            "description": "Page ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "site_domain_rankings",
+      "description": "Get domain ranking summary for a site — which domains appear in SERPs for your keywords.",
+      "method": "GET",
+      "path": "/sites/{site_id}/domain-rankings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "site_page_rankings",
+      "description": "Get page-level ranking summary for a site — which of your pages rank and for how many keywords.",
+      "method": "GET",
+      "path": "/sites/{site_id}/page-rankings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "url_rankings",
+      "description": "Get ranking data for a specific URL across all keywords.",
+      "method": "GET",
+      "path": "/url-rankings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL to check rankings for"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "create_audit",
+      "description": "Trigger a new SEO audit for a site.",
+      "method": "POST",
+      "path": "/sites/{site_id}/audits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_audit",
+      "description": "Get results of a specific SEO audit.",
+      "method": "GET",
+      "path": "/audits/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Audit ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_audits",
+      "description": "List SEO audits for a site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/audits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "create_report",
+      "description": "Generate an SEO report for a site.",
+      "method": "POST",
+      "path": "/sites/{site_id}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_report",
+      "description": "Get a generated SEO report.",
+      "method": "GET",
+      "path": "/reports/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Report ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_reports",
+      "description": "List SEO reports for a site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_platforms",
+      "description": "List all AI platforms tracked for GEO visibility (ChatGPT, Google AIO, Perplexity, etc.).",
+      "method": "GET",
+      "path": "/ai/platforms",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "ai_visibility",
+      "description": "Get AI visibility metrics for a site — mention rate, citation rate, avg position, sentiment breakdown, and per-platform stats.",
+      "method": "GET",
+      "path": "/ai/visibility",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "platform_id": {
+            "type": "string",
+            "description": "Filter to a specific AI platform"
+          },
+          "since": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_sov",
+      "description": "Get AI share of voice — which brands/domains get mentioned most across AI responses for your prompts.",
+      "method": "GET",
+      "path": "/ai/sov",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "platform_id": {
+            "type": "string",
+            "description": "Filter to a specific AI platform"
+          },
+          "since": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_cited_pages",
+      "description": "Get which of your pages are cited most by AI engines, with citation counts and platform breakdown.",
+      "method": "GET",
+      "path": "/ai/cited-pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "platform_id": {
+            "type": "string",
+            "description": "Filter to a specific AI platform"
+          },
+          "since": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 20)"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_list_prompts",
+      "description": "List AI prompts tracked for a site. These are real questions people ask AI engines that mention your brand.",
+      "method": "GET",
+      "path": "/ai/prompts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (active, paused)"
+          },
+          "topic": {
+            "type": "string",
+            "description": "Filter by topic"
+          },
+          "funnel_stage": {
+            "type": "string",
+            "description": "Filter by funnel stage (awareness, consideration, decision)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (default 50)"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "ai_get_prompt",
+      "description": "Get details for a specific AI prompt including its latest check results.",
+      "method": "GET",
+      "path": "/ai/prompts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Prompt ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "ai_create_prompt",
+      "description": "Add a new AI prompt to track for a site.",
+      "method": "POST",
+      "path": "/ai/prompts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Site ID"
+          },
+          "prompt_text": {
+            "type": "string",
+            "description": "The AI prompt/question to track"
+          },
+          "topic": {
+            "type": "string",
+            "description": "Topic category"
+          },
+          "funnel_stage": {
+            "type": "string",
+            "description": "Funnel stage (awareness, consideration, decision)"
+          }
+        },
+        "required": [
+          "site_id",
+          "prompt_text"
+        ]
+      }
+    },
+    {
+      "name": "ai_update_prompt",
+      "description": "Update an existing AI prompt.",
+      "method": "PUT",
+      "path": "/ai/prompts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Prompt ID"
+          },
+          "topic": {
+            "type": "string",
+            "description": "Topic category"
+          },
+          "funnel_stage": {
+            "type": "string",
+            "description": "Funnel stage"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status (active, paused)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "ai_delete_prompt",
+      "description": "Delete an AI prompt and all its check history.",
+      "method": "DELETE",
+      "path": "/ai/prompts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Prompt ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "ai_list_checks",
+      "description": "List AI check results — how your brand appeared in AI responses. Filter by prompt, platform, sentiment, or date range.",
+      "method": "GET",
+      "path": "/ai/checks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Filter by site ID"
+          },
+          "prompt_id": {
+            "type": "string",
+            "description": "Filter by prompt ID"
+          },
+          "platform_id": {
+            "type": "string",
+            "description": "Filter by AI platform"
+          },
+          "brand_mentioned": {
+            "type": "boolean",
+            "description": "Filter by whether brand was mentioned"
+          },
+          "sentiment": {
+            "type": "string",
+            "description": "Filter by sentiment (positive, neutral, negative)"
+          },
+          "since": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "ai_get_check",
+      "description": "Get details for a specific AI check result including the full response, citations, and entities.",
+      "method": "GET",
+      "path": "/ai/checks/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Check ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

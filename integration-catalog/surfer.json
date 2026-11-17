@@ -1,0 +1,511 @@
+{
+  "slug": "surfer",
+  "name": "Surfer",
+  "description": "Surfer SEO API for content editors, SEO guidelines, outlines, audits, SERP analyzer queries, AI detection, and humanizing text. V2 workspace-scoped endpoints are used where available; V1 tools use the default/oldest active workspace unless a default Workspace-Id is saved on the connection.",
+  "logo": "https://www.google.com/s2/favicons?domain=surferseo.com&sz=128",
+  "categories": ["seo", "content-seo", "content", "serp", "ai-writing", "marketing"],
+  "base_url": "https://app.surferseo.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "API-KEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Surfer API key. Most requests require this in the API-KEY header."
+      },
+      {
+        "name": "workspace_id",
+        "label": "Default Workspace ID",
+        "description": "Optional. Used as Workspace-Id for Surfer V1 tools such as audit, SERP analyzer, and humanizer. V2 tools use workspace_id path parameters instead."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_workspaces",
+      "description": "List Surfer workspaces for the authenticated organization. Use an active workspace id for Content Editor workflows.",
+      "method": "GET",
+      "path": "/api/v2/workspaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "description": "Page number, 1-indexed." },
+          "page_size": { "type": "integer", "description": "Results per page, max 100." },
+          "filter_type": { "type": "string", "description": "Filter by workspace type." },
+          "filter_state": { "type": "string", "description": "Filter by workspace state, for example active." },
+          "sort": { "type": "string", "description": "Sort field such as name, inserted_at, or updated_at." },
+          "order": { "type": "string", "enum": ["asc", "desc"], "description": "Sort direction." }
+        }
+      },
+      "query_params": ["page", "page_size", "sort", "order"],
+      "query_param_aliases": {
+        "filter_type": "filter[type]",
+        "filter_state": "filter[state]"
+      }
+    },
+    {
+      "name": "list_locations",
+      "description": "List supported Surfer locations for Content Editors, Audits, and SERP Analyzer inputs. This endpoint is public but works with the same connection.",
+      "method": "GET",
+      "path": "/api/v1/locations",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_content_editors",
+      "description": "List Content Editors across all workspaces. Supports pagination and a 90-day created-at filter window.",
+      "method": "GET",
+      "path": "/api/v2/content_editors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer", "description": "Results per page, max 100." },
+          "sort": { "type": "string" },
+          "order": { "type": "string", "enum": ["asc", "desc"] },
+          "filter_state": { "type": "string", "description": "Filter by state, for example scheduled, executing, completed, failed." },
+          "filter_inserted_after": { "type": "string", "description": "Only editors created after this ISO8601 timestamp." },
+          "filter_inserted_before": { "type": "string", "description": "Only editors created before this ISO8601 timestamp." }
+        }
+      },
+      "query_params": ["page", "page_size", "sort", "order"],
+      "query_param_aliases": {
+        "filter_state": "filter[state]",
+        "filter_inserted_after": "filter[inserted_after]",
+        "filter_inserted_before": "filter[inserted_before]"
+      }
+    },
+    {
+      "name": "list_workspace_content_editors",
+      "description": "List Content Editors in one workspace. Use this to inspect active content SEO projects before opening guidelines or content.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer", "description": "Surfer workspace id." },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer", "description": "Results per page, max 100." },
+          "sort": { "type": "string" },
+          "order": { "type": "string", "enum": ["asc", "desc"] },
+          "filter_state": { "type": "string" },
+          "filter_inserted_after": { "type": "string" },
+          "filter_inserted_before": { "type": "string" }
+        },
+        "required": ["workspace_id"]
+      },
+      "query_params": ["page", "page_size", "sort", "order"],
+      "query_param_aliases": {
+        "filter_state": "filter[state]",
+        "filter_inserted_after": "filter[inserted_after]",
+        "filter_inserted_before": "filter[inserted_before]"
+      }
+    },
+    {
+      "name": "create_content_editor",
+      "description": "Create a new Surfer Content Editor. This consumes one Content Editor credit and starts an asynchronous initialization; poll get_content_editor until state is completed.",
+      "method": "POST",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "main_keyword": { "type": "string", "description": "Primary keyword that drives SERP analysis." },
+          "secondary_keywords": { "type": "array", "description": "Up to 19 secondary keywords.", "items": { "type": "string" } },
+          "location": { "type": "string", "default": "United States" },
+          "device": { "type": "string", "enum": ["mobile", "desktop"], "default": "mobile" },
+          "use_brand_knowledge": { "type": "boolean", "default": true },
+          "notes": { "type": "string" },
+          "custom_voice_id": { "type": ["integer", "null"] },
+          "custom_template_id": { "type": ["integer", "null"] },
+          "custom_instructions": { "type": "string" },
+          "import_content_url": { "type": "string" },
+          "target_word_count": { "type": "integer" },
+          "surfer_template": { "type": ["string", "null"] }
+        },
+        "required": ["workspace_id", "main_keyword"]
+      }
+    },
+    {
+      "name": "get_content_editor",
+      "description": "Get one Content Editor by id, including state, scores, keywords, metadata, permalinks, outline status, and guideline state.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "update_content_editor",
+      "description": "Patch Content Editor metadata such as notes, target word count, template, custom voice, or instructions. For article body content, use update_content_html or update_content_markdown.",
+      "method": "PATCH",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" },
+          "notes": { "type": "string" },
+          "custom_voice_id": { "type": ["integer", "null"] },
+          "custom_template_id": { "type": ["integer", "null"] },
+          "custom_instructions": { "type": "string" },
+          "target_word_count": { "type": "integer" },
+          "surfer_template": { "type": ["string", "null"] }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "delete_content_editor",
+      "description": "Delete a Content Editor from a workspace.",
+      "method": "DELETE",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "get_content_html",
+      "description": "Get the raw Content Editor body as HTML. Requires the editor to be completed.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/content",
+      "headers": { "Accept": "text/html" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "get_content_markdown",
+      "description": "Get the raw Content Editor body as Markdown. Requires the editor to be completed.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/content",
+      "headers": { "Accept": "text/markdown" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "update_content_html",
+      "description": "Replace the Content Editor body with HTML. Surfer sanitizes and reserializes the body, returns 204, then recalculates content scores asynchronously.",
+      "method": "PUT",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/content",
+      "headers": { "Content-Type": "text/html" },
+      "body_root_param": "content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" },
+          "content": { "type": "string", "description": "HTML content body." }
+        },
+        "required": ["workspace_id", "content_editor_id", "content"]
+      }
+    },
+    {
+      "name": "update_content_markdown",
+      "description": "Replace the Content Editor body with Markdown. Surfer sanitizes and reserializes the body, returns 204, then recalculates content scores asynchronously.",
+      "method": "PUT",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/content",
+      "headers": { "Content-Type": "text/markdown" },
+      "body_root_param": "content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" },
+          "content": { "type": "string", "description": "Markdown content body." }
+        },
+        "required": ["workspace_id", "content_editor_id", "content"]
+      }
+    },
+    {
+      "name": "get_seo_guidelines",
+      "description": "Get the full SEO Guidelines for a completed Content Editor: score, structure, terms, competitors, and topics/questions. This can be large; prefer subresources when possible.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "get_seo_guidelines_score",
+      "description": "Get SEO Guidelines score/status for a Content Editor. Poll this after content updates to know when score recalculation completed.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines/score",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "get_seo_guidelines_status",
+      "description": "Get compact SEO Guidelines status including load-more competitor state.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "list_seo_competitors",
+      "description": "List crawled SERP competitor pages that drive Content Editor guideline calculations.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines/competitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "get_seo_structure",
+      "description": "Get structural SEO guidelines such as target word count, headings, paragraphs, images, and character-count factors.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines/structure",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "list_seo_terms",
+      "description": "List Surfer term recommendations with target ranges and included flags.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines/terms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "list_topics_and_questions",
+      "description": "List Surfer topics and questions recommendations for a Content Editor.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/seo_guidelines/topics_and_questions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "get_outline",
+      "description": "Get the generated outline for a Content Editor.",
+      "method": "GET",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/outline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "regenerate_outline",
+      "description": "Retry/regenerate a failed or missing outline for a Content Editor, then poll get_content_editor or get_outline.",
+      "method": "POST",
+      "path": "/api/v2/workspaces/{workspace_id}/content_editors/{content_editor_id}/outline/regenerate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": { "type": "integer" },
+          "content_editor_id": { "type": "integer" }
+        },
+        "required": ["workspace_id", "content_editor_id"]
+      }
+    },
+    {
+      "name": "create_audit",
+      "description": "Create a Surfer Audit query for a URL, keyword, location, and device. This is asynchronous; poll get_audit with the returned id.",
+      "method": "POST",
+      "path": "/api/v1/audits",
+      "headers": { "Workspace-Id": "{{workspace_id}}" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "url": { "type": "string" },
+          "location": { "type": "string", "default": "United States" },
+          "device": { "type": "string", "enum": ["mobile", "desktop"], "default": "mobile" },
+          "cache": { "type": "integer", "description": "Cache duration in seconds." }
+        },
+        "required": ["keyword", "url"]
+      }
+    },
+    {
+      "name": "get_audit",
+      "description": "Get/poll a Surfer Audit query by id.",
+      "method": "GET",
+      "path": "/api/v1/audits/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "create_serp_analyzer",
+      "description": "Create a Surfer SERP Analyzer query for keyword/location/device. This consumes a SERP Analyzer query credit.",
+      "method": "POST",
+      "path": "/api/v1/serp_analyzers",
+      "headers": { "Workspace-Id": "{{workspace_id}}" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": { "type": "string" },
+          "location": { "type": "string", "default": "United States" },
+          "device": { "type": "string", "enum": ["mobile", "desktop"], "default": "mobile" },
+          "analyze_nlp_entity_sentiment": { "type": "boolean" },
+          "screenshot": { "type": "boolean" },
+          "analyze_nlp_sentiment": { "type": "boolean" }
+        },
+        "required": ["keyword"]
+      }
+    },
+    {
+      "name": "batch_create_serp_analyzers",
+      "description": "Create a batch of Surfer SERP Analyzer queries. Body is an array of query objects.",
+      "method": "POST",
+      "path": "/api/v1/serp_analyzers/batch",
+      "headers": { "Workspace-Id": "{{workspace_id}}" },
+      "body_root_param": "queries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "queries": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Array of SERP Analyzer query objects, for example [{\"keyword\":\"SEO\",\"location\":\"United States\",\"device\":\"mobile\"}]."
+          }
+        },
+        "required": ["queries"]
+      }
+    },
+    {
+      "name": "export_serp_analyzer_csv",
+      "description": "Export SERP Analyzer data as CSV.",
+      "method": "GET",
+      "path": "/api/v1/exports/csv/serp_analyzer",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "export_serp_prominent_terms_csv",
+      "description": "Export prominent terms for one SERP Analyzer query as CSV.",
+      "method": "GET",
+      "path": "/api/v1/exports/csv/serp_analyzer/{serp_analyzer_id}/prominent_terms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serp_analyzer_id": { "type": "integer" }
+        },
+        "required": ["serp_analyzer_id"]
+      }
+    },
+    {
+      "name": "export_serp_search_results_csv",
+      "description": "Export search results for one SERP Analyzer query as CSV.",
+      "method": "GET",
+      "path": "/api/v1/exports/csv/serp_analyzer/{serp_analyzer_id}/search_results",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "serp_analyzer_id": { "type": "integer" }
+        },
+        "required": ["serp_analyzer_id"]
+      }
+    },
+    {
+      "name": "detect_ai_content",
+      "description": "Run Surfer AI Detector on text and return chunk-level and overall AI probability.",
+      "method": "POST",
+      "path": "/api/v1/ai_detector/detect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" },
+          "model": { "type": "string", "default": "surfer-ai-detector-v1" },
+          "max_chunk_size": { "type": "integer" },
+          "semantic_chunking": { "type": "boolean" }
+        },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "humanize_text",
+      "description": "Use Surfer Humanizer to paraphrase text so it reads more naturally while keeping the meaning. Uses the connection's default Workspace-Id for V1 if configured.",
+      "method": "POST",
+      "path": "/api/v1/humanizer/humanize",
+      "headers": { "Workspace-Id": "{{workspace_id}}" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" },
+          "model": { "type": "string", "default": "surfer-humanizer-v1" },
+          "stream": { "type": "boolean", "default": false }
+        },
+        "required": ["text"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_workspaces"
+  }
+}

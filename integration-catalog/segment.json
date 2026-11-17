@@ -1,0 +1,104 @@
+{
+  "slug": "segment",
+  "name": "Segment",
+  "description": "MCP server for Segment CDP - track, identify, group, page, screen events",
+  "logo": "https://www.google.com/s2/favicons?domain=segment.com&sz=128",
+  "categories": ["analytics", "cdp", "events", "tracking"],
+  "base_url": "https://api.segment.io/v1",
+  "auth": {
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic}}" },
+    "credential_fields": [
+      { "name": "writeKey", "label": "Write Key", "description": "Segment source write key (use as HTTP Basic username, empty password)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "track",
+      "description": "Record a user action",
+      "method": "POST",
+      "path": "/track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "anonymousId": { "type": "string" },
+          "event": { "type": "string" },
+          "properties": { "type": "object" },
+          "context": { "type": "object" },
+          "timestamp": { "type": "string" }
+        },
+        "required": ["event"]
+      }
+    },
+    {
+      "name": "identify",
+      "description": "Identify a user with traits",
+      "method": "POST",
+      "path": "/identify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "anonymousId": { "type": "string" },
+          "traits": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "group",
+      "description": "Associate a user with a group",
+      "method": "POST",
+      "path": "/group",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "groupId": { "type": "string" },
+          "traits": { "type": "object" }
+        },
+        "required": ["groupId"]
+      }
+    },
+    {
+      "name": "page",
+      "description": "Record a page view",
+      "method": "POST",
+      "path": "/page",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": { "type": "string" },
+          "anonymousId": { "type": "string" },
+          "name": { "type": "string" },
+          "properties": { "type": "object" }
+        }
+      }
+    },
+    {
+      "name": "alias",
+      "description": "Merge two user identities",
+      "method": "POST",
+      "path": "/alias",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "previousId": { "type": "string" },
+          "userId": { "type": "string" }
+        },
+        "required": ["previousId", "userId"]
+      }
+    },
+    {
+      "name": "batch",
+      "description": "Send a batch of events",
+      "method": "POST",
+      "path": "/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": { "batch": { "type": "array" } },
+        "required": ["batch"]
+      }
+    }
+  ]
+}

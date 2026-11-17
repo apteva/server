@@ -1,0 +1,115 @@
+{
+  "slug": "algolia",
+  "name": "Algolia",
+  "description": "MCP server for Algolia - search, indexing, and object management via the Algolia REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=algolia.com&sz=128",
+  "categories": ["search", "database", "developer-tools"],
+  "base_url": "https://{{credential.app_id}}-dsn.algolia.net/1",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Algolia-Application-Id": "{{app_id}}",
+      "X-Algolia-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "app_id", "label": "Application ID", "description": "Application ID from Settings → API Keys", "type": "text" },
+      { "name": "api_key", "label": "Admin API Key", "description": "Admin API Key (write access) or Search-Only API Key (read-only) from Settings → API Keys" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_index",
+      "description": "Search records in an index",
+      "method": "POST",
+      "path": "/indexes/{indexName}/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexName": { "type": "string" },
+          "query": { "type": "string" },
+          "hitsPerPage": { "type": "integer" },
+          "page": { "type": "integer" },
+          "filters": { "type": "string", "description": "Filter expression, e.g. \"category:books AND price < 20\"" },
+          "facets": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["indexName"]
+      }
+    },
+    {
+      "name": "list_indices",
+      "description": "List all indices in the application",
+      "method": "GET",
+      "path": "/indexes",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "save_object",
+      "description": "Add or update an object in an index. Including objectID upserts; omitting it creates a new record.",
+      "method": "POST",
+      "path": "/indexes/{indexName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexName": { "type": "string" },
+          "objectID": { "type": "string" }
+        },
+        "additionalProperties": true,
+        "required": ["indexName"]
+      }
+    },
+    {
+      "name": "get_object",
+      "description": "Retrieve an object by objectID",
+      "method": "GET",
+      "path": "/indexes/{indexName}/{objectID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexName": { "type": "string" },
+          "objectID": { "type": "string" }
+        },
+        "required": ["indexName", "objectID"]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete an object by objectID",
+      "method": "DELETE",
+      "path": "/indexes/{indexName}/{objectID}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexName": { "type": "string" },
+          "objectID": { "type": "string" }
+        },
+        "required": ["indexName", "objectID"]
+      }
+    },
+    {
+      "name": "browse_index",
+      "description": "Browse all records in an index (paginated up to 1000 per call via cursor)",
+      "method": "POST",
+      "path": "/indexes/{indexName}/browse",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexName": { "type": "string" },
+          "cursor": { "type": "string" },
+          "filters": { "type": "string" }
+        },
+        "required": ["indexName"]
+      }
+    },
+    {
+      "name": "clear_index",
+      "description": "Delete all records in an index without removing the index itself",
+      "method": "POST",
+      "path": "/indexes/{indexName}/clear",
+      "input_schema": {
+        "type": "object",
+        "properties": { "indexName": { "type": "string" } },
+        "required": ["indexName"]
+      }
+    }
+  ]
+}

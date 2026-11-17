@@ -1,0 +1,101 @@
+{
+  "slug": "cj-affiliate",
+  "name": "CJ Affiliate",
+  "description": "CJ Affiliate publisher APIs for promotional link search, advertiser/program lookup, product search, and commission detail reporting.",
+  "logo": "https://www.google.com/s2/favicons?domain=cj.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "products", "links", "stats", "marketing"],
+  "base_url": "https://link-search.api.cj.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "CJ personal access token",
+        "description": "Personal access token from developers.cj.com.",
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "links_search",
+      "description": "Search CJ promotional links. Requires at least one search filter and website-id/PID for generated tracking code.",
+      "method": "GET",
+      "path": "/v2/link-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "website-id": { "type": "string", "description": "CJ Website ID / Property ID / PID." },
+          "advertiser-ids": { "type": "string", "description": "Comma-separated advertiser CIDs or joined/notjoined." },
+          "keywords": { "type": "string" },
+          "category": { "type": "string" },
+          "link-type": { "type": "string" },
+          "promotion-type": { "type": "string" },
+          "promotion-start-date": { "type": "string", "description": "MM/DD/YYYY." },
+          "promotion-end-date": { "type": "string", "description": "MM/DD/YYYY or ongoing." },
+          "allow-deep-linking": { "type": "string", "enum": ["true", "false", "yes", "no"] },
+          "page-number": { "type": "integer" },
+          "records-per-page": { "type": "integer" }
+        },
+        "required": ["website-id"]
+      }
+    },
+    {
+      "name": "advertisers_lookup",
+      "description": "Look up CJ advertisers/programs and relationship status.",
+      "method": "GET",
+      "path": "https://advertiser-lookup.api.cj.com/v3/advertiser-lookup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requestor-cid": { "type": "string", "description": "Publisher CID." },
+          "advertiser-ids": { "type": "string", "description": "Comma-separated advertiser CIDs or joined/notjoined." },
+          "keywords": { "type": "string" },
+          "advertiser-name": { "type": "string" },
+          "page-number": { "type": "integer" },
+          "records-per-page": { "type": "integer" }
+        },
+        "required": ["requestor-cid"]
+      }
+    },
+    {
+      "name": "products_search",
+      "description": "Search CJ product catalog links.",
+      "method": "GET",
+      "path": "https://product-search.api.cj.com/v2/product-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "website-id": { "type": "string" },
+          "advertiser-ids": { "type": "string" },
+          "keywords": { "type": "string" },
+          "serviceable-area": { "type": "string" },
+          "low-price": { "type": "number" },
+          "high-price": { "type": "number" },
+          "currency": { "type": "string" },
+          "page-number": { "type": "integer" },
+          "records-per-page": { "type": "integer" }
+        },
+        "required": ["website-id"]
+      }
+    },
+    {
+      "name": "commission_query",
+      "description": "Run a CJ Commission Detail GraphQL query.",
+      "method": "POST",
+      "path": "https://commissions.api.cj.com/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "GraphQL query, for example publisherCommissions(...)." },
+          "variables": { "type": "object" }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

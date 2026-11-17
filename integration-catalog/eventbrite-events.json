@@ -1,0 +1,627 @@
+{
+  "slug": "eventbrite-events",
+  "name": "Eventbrite",
+  "description": "Eventbrite REST API - create and manage events, ticket sales, attendees, orders, venues, and organizations",
+  "logo": "https://www.google.com/s2/favicons?domain=eventbrite.com&sz=128",
+  "categories": [
+    "eventbrite",
+    "events",
+    "tickets",
+    "sales",
+    "registration",
+    "venues"
+  ],
+  "base_url": "https://www.eventbriteapi.com/v3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "apiKey"
+      },
+      {
+        "name": "tokenType",
+        "label": "tokenType"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.eventbrite.com/oauth/authorize",
+      "token_url": "https://www.eventbrite.com/oauth/token",
+      "scopes": [
+        "event:read",
+        "event:write",
+        "user:read",
+        "organization:read",
+        "organization:write",
+        "attendee:read",
+        "order:read",
+        "venue:read",
+        "venue:write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "get_user",
+      "description": "Get the authenticated Eventbrite user's profile including name, email, and linked organizations.",
+      "method": "GET",
+      "path": "/users/me/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_organizations",
+      "description": "List all organizations the authenticated user belongs to. Returns organization IDs needed for creating events, venues, and listing events.",
+      "method": "GET",
+      "path": "/users/me/organizations/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List events for an organization. Use list-organizations first to get the organization_id. Filter by status and control ordering.",
+      "method": "GET",
+      "path": "/organizations/{organization_id}/events/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter: draft, live, started, ended, completed, canceled (comma-separate for multiple)"
+          },
+          "order_by": {
+            "type": "string",
+            "description": "Sort: start_asc, start_desc, created_asc, created_desc",
+            "default": "start_desc"
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Results per page (max 200)",
+            "default": 50
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "search_events",
+      "description": "Search for public Eventbrite events by keyword, location, category, and date range.",
+      "method": "GET",
+      "path": "/events/search/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search keywords"
+          },
+          "address": {
+            "type": "string",
+            "description": "Location (city, address)"
+          },
+          "latitude": {
+            "type": "string",
+            "description": "Latitude"
+          },
+          "longitude": {
+            "type": "string",
+            "description": "Longitude"
+          },
+          "within": {
+            "type": "string",
+            "description": "Search radius with unit (e.g., '10mi', '25km')"
+          },
+          "categories": {
+            "type": "string",
+            "description": "Category IDs (comma-separated). Use list-categories to find IDs."
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Events starting after this date (ISO8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Events starting before this date (ISO8601)"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Get detailed information about a specific Eventbrite event. Use expand to include related data like venue, ticket_classes, organizer.",
+      "method": "GET",
+      "path": "/events/{event_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID"
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated expansions: venue, ticket_classes, organizer, category, subcategory, format"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create a new Eventbrite event under an organization. Pass an event object with nested structure: name.html (string), description.html (string), start.utc (ISO8601), start.timezone (e.g., 'America/New_York'), end.utc (ISO8601), end.timezone, currency (e.g., 'USD'). Optional: online_event (bool), listed (bool), capacity (int), venue_id, category_id, format_id.",
+      "method": "POST",
+      "path": "/organizations/{organization_id}/events/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID (from list-organizations)"
+          },
+          "event": {
+            "type": "object",
+            "description": "Event data. Required: name.html, start.utc, start.timezone, end.utc, end.timezone, currency. Optional: description.html, online_event, listed, capacity, venue_id, category_id, format_id",
+            "properties": {
+              "name": {
+                "type": "object",
+                "properties": {
+                  "html": {
+                    "type": "string"
+                  }
+                }
+              },
+              "description": {
+                "type": "object",
+                "properties": {
+                  "html": {
+                    "type": "string"
+                  }
+                }
+              },
+              "start": {
+                "type": "object",
+                "properties": {
+                  "utc": {
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                }
+              },
+              "end": {
+                "type": "object",
+                "properties": {
+                  "utc": {
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "type": "string"
+                  }
+                }
+              },
+              "currency": {
+                "type": "string"
+              },
+              "online_event": {
+                "type": "boolean"
+              },
+              "listed": {
+                "type": "boolean"
+              },
+              "capacity": {
+                "type": "integer"
+              },
+              "venue_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "organization_id",
+          "event"
+        ]
+      }
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing Eventbrite event. Pass an event object with only the fields to change. Uses same nested structure as create: name.html, description.html, start.utc, start.timezone, end.utc, end.timezone, currency, online_event, listed, capacity, venue_id.",
+      "method": "POST",
+      "path": "/events/{event_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID to update"
+          },
+          "event": {
+            "type": "object",
+            "description": "Event fields to update. Same nested structure as create-event."
+          }
+        },
+        "required": [
+          "event_id",
+          "event"
+        ]
+      }
+    },
+    {
+      "name": "publish_event",
+      "description": "Publish a draft Eventbrite event, making it live and visible to the public. Event must have all required fields (name, dates, at least one ticket class).",
+      "method": "POST",
+      "path": "/events/{event_id}/publish/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID to publish"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "unpublish_event",
+      "description": "Unpublish a live Eventbrite event, reverting it to draft status. The event will no longer be publicly visible.",
+      "method": "POST",
+      "path": "/events/{event_id}/unpublish/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID to unpublish"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_event",
+      "description": "Cancel an Eventbrite event. This notifies attendees and initiates refund processing. Cannot be undone.",
+      "method": "POST",
+      "path": "/events/{event_id}/cancel/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID to cancel"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_event",
+      "description": "Permanently delete an Eventbrite event. Only works on draft or canceled events. This action cannot be undone.",
+      "method": "DELETE",
+      "path": "/events/{event_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID to delete"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "list_attendees",
+      "description": "List attendees for an Eventbrite event. Optionally filter by status (attending, not_attending, unpaid).",
+      "method": "GET",
+      "path": "/events/{event_id}/attendees/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter: attending, not_attending, unpaid"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders (ticket purchases) for an Eventbrite event. Filter by status and changed_since date.",
+      "method": "GET",
+      "path": "/events/{event_id}/orders/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter: active, inactive, both"
+          },
+          "changed_since": {
+            "type": "string",
+            "description": "Only orders changed after this date (ISO8601)"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get details of a specific order including buyer info, ticket details, and payment status.",
+      "method": "GET",
+      "path": "/orders/{order_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          },
+          "expand": {
+            "type": "string",
+            "description": "Comma-separated: attendees, event"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_ticket_classes",
+      "description": "List all ticket types/classes for an event. Returns ticket names, prices, quantities, and sales status.",
+      "method": "GET",
+      "path": "/events/{event_id}/ticket_classes/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "create_ticket_class",
+      "description": "Create a ticket type for an event. Pass a ticket_class object with: name (required), quantity_total (required, integer), free (bool) OR cost (string like 'USD,1500' for $15.00), donation (bool), description, sales_start (ISO8601), sales_end (ISO8601), minimum_quantity, maximum_quantity.",
+      "method": "POST",
+      "path": "/events/{event_id}/ticket_classes/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID"
+          },
+          "ticket_class": {
+            "type": "object",
+            "description": "Ticket class data. Required: name, quantity_total. For paid: cost (e.g., 'USD,1500' = $15). For free: free=true.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "quantity_total": {
+                "type": "integer"
+              },
+              "free": {
+                "type": "boolean"
+              },
+              "cost": {
+                "type": "string",
+                "description": "Price as 'CURRENCY,AMOUNT_IN_CENTS' (e.g., 'USD,1500' = $15.00)"
+              },
+              "donation": {
+                "type": "boolean"
+              },
+              "description": {
+                "type": "string"
+              },
+              "sales_start": {
+                "type": "string"
+              },
+              "sales_end": {
+                "type": "string"
+              },
+              "minimum_quantity": {
+                "type": "integer"
+              },
+              "maximum_quantity": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "quantity_total"
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "ticket_class"
+        ]
+      }
+    },
+    {
+      "name": "update_ticket_class",
+      "description": "Update a ticket type for an event. Pass only the fields to change in the ticket_class object.",
+      "method": "POST",
+      "path": "/events/{event_id}/ticket_classes/{ticket_class_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "description": "Event ID"
+          },
+          "ticket_class_id": {
+            "type": "string",
+            "description": "Ticket class ID to update"
+          },
+          "ticket_class": {
+            "type": "object",
+            "description": "Ticket class fields to update (same structure as create)."
+          }
+        },
+        "required": [
+          "event_id",
+          "ticket_class_id",
+          "ticket_class"
+        ]
+      }
+    },
+    {
+      "name": "list_venues",
+      "description": "List venues for an organization. Returns venue IDs, names, addresses, and capacity info.",
+      "method": "GET",
+      "path": "/organizations/{organization_id}/venues/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID"
+          }
+        },
+        "required": [
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "create_venue",
+      "description": "Create a new venue under an organization. Pass a venue object with: name (required), address.address_1 (required), address.city, address.region, address.postal_code, address.country (2-letter code), capacity (int).",
+      "method": "POST",
+      "path": "/organizations/{organization_id}/venues/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID"
+          },
+          "venue": {
+            "type": "object",
+            "description": "Venue data. Required: name, address.address_1. Optional: address.city, address.region, address.postal_code, address.country, capacity",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "address": {
+                "type": "object",
+                "properties": {
+                  "address_1": {
+                    "type": "string"
+                  },
+                  "address_2": {
+                    "type": "string"
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "region": {
+                    "type": "string"
+                  },
+                  "postal_code": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string",
+                    "description": "2-letter country code (e.g., US, GB)"
+                  }
+                }
+              },
+              "capacity": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "required": [
+          "organization_id",
+          "venue"
+        ]
+      }
+    },
+    {
+      "name": "list_categories",
+      "description": "List all Eventbrite event categories. Returns category IDs and names for use in event creation and search filtering.",
+      "method": "GET",
+      "path": "/categories/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_user"
+  }
+}

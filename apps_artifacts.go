@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +13,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	sdk "github.com/apteva/app-sdk"
@@ -36,16 +36,6 @@ func artifactAppRoot(m *sdk.Manifest, bin string) string {
 		root = filepath.Join(root, filepath.FromSlash(m.Runtime.Source.Entry))
 	}
 	return root
-}
-func applyArtifactResourceEnv(m *sdk.Manifest, bin string, env map[string]string) {
-	if filepath.Base(filepath.Dir(filepath.Dir(bin))) != "artifacts" {
-		return
-	}
-	root := artifactAppRoot(m, bin)
-	env["APTEVA_UI_DIR"] = filepath.Join(root, "ui")
-	if m.DB != nil && m.DB.Migrations != "" {
-		env["APTEVA_MIGRATIONS_DIR"] = filepath.Join(root, m.DB.Migrations)
-	}
 }
 func safeArtifactRelative(name string) bool {
 	return name != "" && !filepath.IsAbs(name) && !strings.Contains(name, "\\") && name != ".." && !strings.HasPrefix(filepath.Clean(name), ".."+string(filepath.Separator))
@@ -128,14 +118,18 @@ func validateAppArtifact(root string, m *sdk.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("artifact manifest: %w", err)
 	}
-	packaged, err := sdk.ParseManifest(raw)
+	packaged, err := parseServerAppManifest(raw)
 	if err != nil {
 		return err
 	}
 	want := *m
 	want.Runtime.Artifacts = nil
 	packaged.Runtime.Artifacts = nil
-	if !reflect.DeepEqual(want, *packaged) {
+	// YAML schema numbers decode as int; stored JSON manifests use float64.
+	// Compare the canonical wire form, as remote package validation already does.
+	wantJSON, wantErr := json.Marshal(want)
+	gotJSON, gotErr := json.Marshal(packaged)
+	if wantErr != nil || gotErr != nil || !bytes.Equal(wantJSON, gotJSON) {
 		return errors.New("artifact manifest does not match requested app version and capabilities")
 	}
 	requireFile := func(rel string) error {
@@ -193,7 +187,11 @@ func validateAppArtifact(root string, m *sdk.Manifest) error {
 // Only absence of a platform artifact permits source fallback. Any selected
 // artifact error propagates, leaving previous runtimes and caches intact.
 func (sup *LocalSupervisor) fetchAppArtifact(m *sdk.Manifest, progress func(string)) (string, error) {
-	a, ok := m.Runtime.Artifacts[localPlatform()]
+	return sup.fetchAppArtifactForPlatform(m, localPlatform(), progress)
+}
+
+func (sup *LocalSupervisor) fetchAppArtifactForPlatform(m *sdk.Manifest, platform string, progress func(string)) (string, error) {
+	a, ok := m.Runtime.Artifacts[platform]
 	if !ok {
 		return "", errors.New("no artifact for this platform")
 	}

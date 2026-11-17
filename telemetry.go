@@ -1,11 +1,11 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"sort"
@@ -18,6 +18,7 @@ import (
 
 // TelemetryBroadcaster fans out events to SSE subscribers.
 type TelemetryBroadcaster struct {
+	replayEpoch string
 	mu          sync.Mutex
 	subscribers map[int64][]chan TelemetryEvent // instanceID → channels
 	nextID      int64
@@ -33,16 +34,14 @@ const telemetryReplayCap = 8192
 func NewTelemetryBroadcaster() *TelemetryBroadcaster {
 	return &TelemetryBroadcaster{
 		subscribers: make(map[int64][]chan TelemetryEvent),
+		replayEpoch: generateID(),
 		replay:      make([]TelemetryEvent, telemetryReplayCap),
 	}
 }
 
 // Subscribe returns a channel that receives events for the given instance.
 func (b *TelemetryBroadcaster) Subscribe(instanceID int64) chan TelemetryEvent {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	ch := make(chan TelemetryEvent, 100)
-	b.subscribers[instanceID] = append(b.subscribers[instanceID], ch)
+	ch, _ := b.SubscribeCursor(instanceID)
 	return ch
 }
 
@@ -65,46 +64,28 @@ func (b *TelemetryBroadcaster) Unsubscribe(instanceID int64, ch chan TelemetryEv
 // Instances list page to render a per-row live activity strip without
 // opening N concurrent SSE connections.
 func (b *TelemetryBroadcaster) SubscribeAll() chan TelemetryEvent {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	ch := make(chan TelemetryEvent, 200)
-	// Use instanceID -1 as the "all" sentinel
-	b.subscribers[-1] = append(b.subscribers[-1], ch)
+	ch, _ := b.SubscribeAllCursor()
 	return ch
 }
 
-// SubscribeAllCursor atomically subscribes and returns the latest sequence.
-// A fresh SSE connection uses the returned cursor as its live starting point;
-// reconnects instead ask ReplaySince for everything after their prior cursor.
+// SubscribeAllCursor atomically attaches to the same subscription registry and
+// returns the live starting sequence, before any eligibility/readiness work.
 func (b *TelemetryBroadcaster) SubscribeAllCursor() (chan TelemetryEvent, uint64) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	ch := make(chan TelemetryEvent, 200)
-	b.subscribers[-1] = append(b.subscribers[-1], ch)
-	return ch, b.nextSeq
+	return b.SubscribeCursor(-1)
 }
-
 func (b *TelemetryBroadcaster) SubscribeCursor(instanceID int64) (chan TelemetryEvent, uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	ch := make(chan TelemetryEvent, 100)
+	capacity := 100
+	if instanceID == -1 {
+		capacity = 200
+	}
+	ch := make(chan TelemetryEvent, capacity)
 	b.subscribers[instanceID] = append(b.subscribers[instanceID], ch)
 	return ch, b.nextSeq
 }
-
-// UnsubscribeAll removes a channel previously returned by SubscribeAll.
-// Mirrors Unsubscribe but with the -1 sentinel key.
 func (b *TelemetryBroadcaster) UnsubscribeAll(ch chan TelemetryEvent) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	subs := b.subscribers[-1]
-	for i, s := range subs {
-		if s == ch {
-			b.subscribers[-1] = append(subs[:i], subs[i+1:]...)
-			close(ch)
-			return
-		}
-	}
+	b.Unsubscribe(-1, ch)
 }
 
 // Broadcast sends events to all subscribers for the given instance,
@@ -116,6 +97,9 @@ func (b *TelemetryBroadcaster) Broadcast(events []TelemetryEvent) {
 		b.nextSeq++
 		ev := input
 		ev.Seq = b.nextSeq
+		if ev.ID == "" {
+			ev.ID = fmt.Sprintf("live:%s:%d", b.replayEpoch, ev.Seq)
+		}
 		b.replay[b.replayHead] = ev
 		b.replayHead = (b.replayHead + 1) % telemetryReplayCap
 		if b.replaySize < telemetryReplayCap {
@@ -151,27 +135,12 @@ func (b *TelemetryBroadcaster) recordDrop(ev TelemetryEvent, lane string) {
 // reset is true when the cursor belongs to an older server process or fell
 // behind the bounded ring; callers should tell clients that only the retained
 // suffix can be replayed. since=0 intentionally means "live from subscribe".
-func (b *TelemetryBroadcaster) ReplaySince(since uint64) (events []TelemetryEvent, reset bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if since == 0 || b.replaySize == 0 {
-		return nil, since > b.nextSeq
+func (b *TelemetryBroadcaster) ReplaySince(since uint64) ([]TelemetryEvent, bool) {
+	if since == 0 {
+		return nil, false
 	}
-	start := 0
-	if b.replaySize == telemetryReplayCap {
-		start = b.replayHead
-	}
-	oldest := b.replay[start].Seq
-	if since > b.nextSeq || since+1 < oldest {
-		reset = true
-	}
-	for i := 0; i < b.replaySize; i++ {
-		ev := b.replay[(start+i)%telemetryReplayCap]
-		if reset || ev.Seq > since {
-			events = append(events, ev)
-		}
-	}
-	return events, reset
+	events, _, _, reason := b.replayTelemetry(b.replayEpoch, since)
+	return events, reason != ""
 }
 
 // TelemetryEvent is the unified event format.
@@ -246,7 +215,7 @@ func generateID() string {
 // --- Store methods ---
 
 func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -281,61 +250,14 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 }
 
 func (s *Store) QueryTelemetry(instanceID int64, eventType string, since time.Time, limit int, threadID ...string) ([]TelemetryEvent, error) {
-	query := "SELECT id, agent_id, thread_id, type, time, data FROM telemetry WHERE agent_id = ?"
-	args := []any{instanceID}
-
-	if len(threadID) > 0 && threadID[0] != "" {
-		query += " AND thread_id = ?"
-		args = append(args, threadID[0])
-	}
-
-	if eventType != "" {
-		// Support prefix matching: "llm" matches "llm.start", "llm.done", etc.
-		if strings.Contains(eventType, ".") {
-			query += " AND type = ?"
-			args = append(args, eventType)
-		} else {
-			query += " AND type LIKE ?"
-			args = append(args, eventType+".%")
-		}
-	}
-
-	if !since.IsZero() {
-		query += " AND time >= ?"
-		args = append(args, since.UTC().Format(time.RFC3339))
-	}
-
-	query += " ORDER BY time DESC"
-
-	if limit <= 0 || limit > 1000 {
-		limit = 100
-	}
-	query += " LIMIT ?"
-	args = append(args, limit)
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var events []TelemetryEvent
-	for rows.Next() {
-		var e TelemetryEvent
-		var timeStr, dataStr string
-		rows.Scan(&e.ID, &e.AgentID, &e.ThreadID, &e.Type, &timeStr, &dataStr)
-		e.Time, _ = parseTime(timeStr)
-		e.Data = json.RawMessage(dataStr)
-		events = append(events, e)
-	}
-	return events, nil
+	return s.QueryTelemetryContext(context.Background(), instanceID, eventType, since, limit, threadID...)
 }
 
 func (s *Store) DeleteTelemetryAfter(instanceID int64, cutoff time.Time) error {
 	if instanceID == 0 || cutoff.IsZero() {
 		return nil
 	}
-	_, err := s.db.Exec(
+	_, err := s.dbExec(
 		"DELETE FROM telemetry WHERE agent_id=? AND time>?",
 		instanceID, cutoff.UTC().Format(time.RFC3339Nano),
 	)
@@ -367,7 +289,7 @@ func (s *Store) QueryChatHistory(instanceID int64, limit int) ([]ChatHistoryMess
 	//   tool.call (channels_respond) → agent messages
 	//   tool.call (other, main thread) → tool indicators
 	//   tool.result (other, main thread) → tool completion
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id, thread_id, type, time, data FROM telemetry
 		WHERE agent_id = ?
 		  AND thread_id IN ('main', '')
@@ -513,7 +435,7 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-maxAge).UTC().Format(time.RFC3339)
 	var total int64
 	for {
-		result, err := s.db.Exec(`DELETE FROM telemetry WHERE id IN (
+		result, err := s.dbExec(`DELETE FROM telemetry WHERE id IN (
  SELECT id FROM telemetry WHERE time < ? AND NOT EXISTS
  (SELECT 1 FROM agent_event_deliveries d WHERE d.telemetry_id=telemetry.id AND delivered_at IS NULL) LIMIT 1000)`, cutoff)
 		if err != nil {
@@ -529,7 +451,7 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 }
 
 func (s *Store) WipeTelemetry() (int64, error) {
-	result, err := s.db.Exec("DELETE FROM telemetry")
+	result, err := s.dbExec("DELETE FROM telemetry")
 	if err != nil {
 		return 0, err
 	}
@@ -600,7 +522,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 				New string `json:"new"`
 			}
 			if json.Unmarshal(ev.Data, &data) == nil && data.New != "" {
-				if _, err := s.store.db.Exec("UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID); err == nil {
+				if _, err := s.store.dbExecContext(r.Context(), "UPDATE agents SET directive=? WHERE id=?", data.New, ev.AgentID); err == nil {
 					// Do not make Core's telemetry ingestion wait on re-entrant
 					// per-thread HTTP updates. Persistence is complete; each thread's
 					// next delivery also performs the same drift check defensively.
@@ -780,228 +702,22 @@ func (s *Server) enrichCostInPlace(events []TelemetryEvent) {
 	}
 }
 
-// GET /telemetry/stream
-//
-// Two modes:
-//
-//  1. ?agent_id=N — SSE for one specific instance. Used by per-instance
-//     panels that need every event from a single core. The caller must own
-//     the instance (verified against the session user).
-//
-//  2. ?all=1[&project_id=…] — SSE for every running instance the caller
-//     owns, in the (optional) given project. Used by the Instances list
-//     page to render a live activity strip per row without N concurrent
-//     connections. Filtering happens inside this handler — the broadcaster
-//     itself fans every event to every "all" subscriber.
-//
-// Both modes require authentication. Auth is handled by the route's
-// authMiddleware wrapper in main.go; we extract the user id and use it
-// to scope which events are forwarded.
+// The dashboard/API endpoint and app callback share one telemetry SSE engine.
 func (s *Server) handleTelemetryStream(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	userID := getUserID(r)
-	q := r.URL.Query()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	since, _ := strconv.ParseUint(r.URL.Query().Get("since"), 10, 64)
-	if since == 0 {
-		since, _ = strconv.ParseUint(r.Header.Get("Last-Event-ID"), 10, 64)
-	}
-
-	// Mode 2: all-instances stream, scoped to the caller's agents.
-	if q.Get("all") == "1" {
-		projectID := q.Get("project_id")
-		allowed, err := s.store.ListTelemetryAgentIDs(userID, projectID)
-		if err != nil {
-			http.Error(w, "failed to list telemetry agents: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		ch, liveCursor := s.broadcaster.SubscribeAllCursor()
-		defer s.broadcaster.UnsubscribeAll(ch)
-		lastSeq := since
-		if lastSeq == 0 {
-			lastSeq = liveCursor
-		}
-
-		writeAvailable := func() {
-			replay, reset := s.broadcaster.ReplaySince(lastSeq)
-			if reset {
-				fmt.Fprintf(w, "event: reset\ndata: {\"reason\":\"cursor_expired\"}\n\n")
-				lastSeq = 0
-			}
-			for _, ev := range replay {
-				if ev.Seq <= lastSeq {
-					continue
-				}
-				lastSeq = ev.Seq
-				if !allowed[ev.AgentID] {
-					if refreshed, err := s.store.ListTelemetryAgentIDs(userID, projectID); err == nil {
-						allowed = refreshed
-					}
-					if !allowed[ev.AgentID] {
-						continue
-					}
-				}
-				writeTelemetrySSE(w, ev)
-			}
-			flusher.Flush()
-		}
-		if since > 0 {
-			writeAvailable()
-		}
-		// Commit the SSE response immediately even when the project is quiet.
-		// Without an initial frame, proxies and browsers may leave EventSource
-		// in CONNECTING until the first telemetry event or heartbeat arrives.
-		fmt.Fprint(w, ": connected\n\n")
-		flusher.Flush()
-
-		// Heartbeat so browsers / proxies don't time the stream out
-		// when traffic is sparse. SSE comments (`: ping`) are ignored
-		// by EventSource.
-		ticker := time.NewTicker(20 * time.Second)
-		defer ticker.Stop()
-
-		ctx := r.Context()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				// A slow writer may overflow its live channel. The replay ring is
-				// authoritative for short gaps, so every heartbeat reconciles it.
-				writeAvailable()
-				fmt.Fprintf(w, ": ping\n\n")
-				flusher.Flush()
-			case ev := <-ch:
-				if ev.Seq <= lastSeq {
-					continue
-				}
-				if lastSeq > 0 && ev.Seq > lastSeq+1 {
-					writeAvailable()
-					if ev.Seq <= lastSeq {
-						continue
-					}
-				}
-				lastSeq = ev.Seq
-				if !allowed[ev.AgentID] {
-					// New instance created mid-stream — refresh allowed
-					// set lazily before dropping. This catches "user starts
-					// instance after page load" without polling.
-					if refreshed, err := s.store.ListTelemetryAgentIDs(userID, projectID); err == nil {
-						allowed = refreshed
-					}
-					if !allowed[ev.AgentID] {
-						continue
-					}
-				}
-				writeTelemetrySSE(w, ev)
-				flusher.Flush()
-			}
-		}
-	}
-
-	// Mode 1: single-instance stream.
-	instanceID, _ := strconv.ParseInt(q.Get("instance_id"), 10, 64)
-	if instanceID == 0 {
+	if r.URL.Query().Get("format") != "delivery" && r.URL.Query().Get("all") != "1" && r.URL.Query().Get("agent_id") == "" && r.URL.Query().Get("instance_id") == "" {
 		http.Error(w, "agent_id required (or ?all=1 for all-instances stream)", http.StatusBadRequest)
 		return
 	}
-	// Verify the caller owns this instance.
-	if _, err := s.store.GetAgent(userID, instanceID); err != nil {
-		http.Error(w, "instance not found", http.StatusNotFound)
-		return
-	}
-
-	ch, liveCursor := s.broadcaster.SubscribeCursor(instanceID)
-	defer s.broadcaster.Unsubscribe(instanceID, ch)
-	lastSeq := since
-	if lastSeq == 0 {
-		lastSeq = liveCursor
-	}
-	writeAvailable := func() {
-		replay, reset := s.broadcaster.ReplaySince(lastSeq)
-		if reset {
-			fmt.Fprintf(w, "event: reset\ndata: {\"reason\":\"cursor_expired\"}\n\n")
-			lastSeq = 0
-		}
-		for _, ev := range replay {
-			if ev.Seq <= lastSeq {
-				continue
-			}
-			lastSeq = ev.Seq
-			if ev.AgentID != instanceID {
-				continue
-			}
-			writeTelemetrySSE(w, ev)
-		}
-		flusher.Flush()
-	}
-	if since > 0 {
-		writeAvailable()
-	}
-	fmt.Fprint(w, ": connected\n\n")
-	flusher.Flush()
-
-	// Track CLI channel connection so the agent knows a user is listening.
-	if ic := s.agents.GetChannels(instanceID); ic != nil && ic.cli != nil {
-		ic.cli.Connect()
-		defer ic.cli.Disconnect()
-	}
-
-	ticker := time.NewTicker(20 * time.Second)
-	defer ticker.Stop()
-
-	ctx := r.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			writeAvailable()
-			fmt.Fprintf(w, ": ping\n\n")
-			flusher.Flush()
-		case ev := <-ch:
-			if ev.Seq <= lastSeq {
-				continue
-			}
-			if lastSeq > 0 && ev.Seq > lastSeq+1 {
-				writeAvailable()
-				if ev.Seq <= lastSeq {
-					continue
-				}
-			}
-			lastSeq = ev.Seq
-			writeTelemetrySSE(w, ev)
-			flusher.Flush()
-		}
-	}
-}
-
-func writeTelemetrySSE(w io.Writer, ev TelemetryEvent) {
-	data, _ := json.Marshal(ev)
-	if ev.Seq > 0 {
-		fmt.Fprintf(w, "id: %d\n", ev.Seq)
-	}
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	s.handleTelemetryRead(w, r, 0, "/stream")
 }
 
 // GET /telemetry?agent_id=1&type=llm.done&since=...&limit=100
 func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("format") == "page" {
+		s.handleTelemetryRead(w, r, 0, "/history")
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
@@ -1028,13 +744,13 @@ func (s *Server) handleQueryTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, _ := strconv.Atoi(q.Get("limit"))
 
-	events, err := s.store.QueryTelemetry(instanceID, eventType, since, limit, threadID)
-	if err != nil {
-		http.Error(w, "query failed", http.StatusInternalServerError)
-		return
+	if limit <= 0 || limit > 1000 {
+		limit = 100
 	}
-	if events == nil {
-		events = []TelemetryEvent{}
+	events, err := s.queryPublicTelemetry(r.Context(), instanceID, eventType, since, limit, threadID)
+	if err != nil {
+		http.Error(w, "query failed", 500)
+		return
 	}
 	writeJSON(w, events)
 }
@@ -1194,7 +910,7 @@ func (s *Server) handleTelemetryProjectTools(w http.ResponseWriter, r *http.Requ
 	args := append([]any{}, ids...)
 	args = append(args, since.UTC().Format(time.RFC3339))
 
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQueryContext(r.Context(),
 		fmt.Sprintf(
 			"SELECT agent_id, type, data FROM telemetry "+
 				"WHERE agent_id IN (%s) AND time >= ? "+

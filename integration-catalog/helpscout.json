@@ -1,0 +1,717 @@
+{
+  "slug": "helpscout",
+  "name": "Help Scout",
+  "description": "Customer support platform. Manage conversations, customers, mailboxes, and support tickets.",
+  "logo": "https://www.google.com/s2/favicons?domain=helpscout.com&sz=128",
+  "categories": [
+    "support",
+    "helpdesk",
+    "customer-service",
+    "tickets",
+    "email"
+  ],
+  "base_url": "https://api.helpscout.net/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_token",
+        "label": "Access Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_conversations",
+      "description": "List support conversations/tickets from Help Scout mailboxes with filtering options.",
+      "method": "GET",
+      "path": "/list-conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mailbox_id": {
+            "type": "integer",
+            "description": "Filter by mailbox ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "all",
+              "closed",
+              "open",
+              "pending",
+              "spam"
+            ],
+            "description": "Filter by status"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by tag"
+          },
+          "assigned_to": {
+            "type": "integer",
+            "description": "Filter by assignee user ID"
+          },
+          "modified_since": {
+            "type": "string",
+            "description": "ISO date string"
+          },
+          "sort_field": {
+            "type": "string",
+            "default": "modifiedAt"
+          },
+          "sort_order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 25
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Get a specific conversation with all message threads.",
+      "method": "GET",
+      "path": "/get-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer",
+            "description": "Conversation ID"
+          },
+          "include_threads": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "create_conversation",
+      "description": "Create a new support conversation/ticket.",
+      "method": "POST",
+      "path": "/create-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mailbox_id": {
+            "type": "integer",
+            "description": "Target mailbox ID"
+          },
+          "customer_email": {
+            "type": "string",
+            "description": "Customer email"
+          },
+          "customer_id": {
+            "type": "integer",
+            "description": "Existing customer ID"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Conversation subject"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "email",
+              "chat",
+              "phone"
+            ],
+            "default": "email"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed",
+              "open",
+              "pending",
+              "spam"
+            ],
+            "default": "active"
+          },
+          "text": {
+            "type": "string",
+            "description": "Initial message content"
+          },
+          "assignee_id": {
+            "type": "integer",
+            "description": "Assign to user ID"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "auto_reply": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "mailbox_id",
+          "subject"
+        ]
+      }
+    },
+    {
+      "name": "reply_conversation",
+      "description": "Add a reply or internal note to a conversation.",
+      "method": "GET",
+      "path": "/reply-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "reply",
+              "note"
+            ],
+            "default": "reply",
+            "description": "reply sends to customer, note is internal"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message content (HTML supported)"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Agent user ID for replies"
+          },
+          "draft": {
+            "type": "boolean",
+            "default": false
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "conversation_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "update_conversation",
+      "description": "Update conversation status, assignee, tags, or subject.",
+      "method": "PUT",
+      "path": "/update-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "assign",
+              "unassign",
+              "change_status",
+              "add_tags",
+              "update_subject"
+            ]
+          },
+          "assignee_id": {
+            "type": "integer",
+            "description": "For assign operation"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "closed",
+              "open",
+              "pending",
+              "spam"
+            ],
+            "description": "For change_status"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For add_tags"
+          },
+          "subject": {
+            "type": "string",
+            "description": "For update_subject"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "operation"
+        ]
+      }
+    },
+    {
+      "name": "search_conversations",
+      "description": "Search conversations using Help Scout query syntax.",
+      "method": "GET",
+      "path": "/search-conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (e.g., 'subject:billing status:open')"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 25
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers with optional filtering.",
+      "method": "GET",
+      "path": "/list-customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mailbox_id": {
+            "type": "integer"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by email"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "modified_since": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 25
+          }
+        }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Get customer profile with emails, phones, and properties.",
+      "method": "GET",
+      "path": "/get-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a new customer profile.",
+      "method": "POST",
+      "path": "/create-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "job_title": {
+            "type": "string"
+          },
+          "organization": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "background": {
+            "type": "string",
+            "description": "Notes about the customer"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update an existing customer's profile.",
+      "method": "PUT",
+      "path": "/update-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "integer"
+          },
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "job_title": {
+            "type": "string"
+          },
+          "organization": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "background": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_mailboxes",
+      "description": "List all mailboxes (inboxes) in your Help Scout account.",
+      "method": "GET",
+      "path": "/list-mailboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 25
+          }
+        }
+      }
+    },
+    {
+      "name": "get_mailbox",
+      "description": "Get mailbox details including folders and custom fields.",
+      "method": "GET",
+      "path": "/get-mailbox",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mailbox_id": {
+            "type": "integer"
+          },
+          "include_folders": {
+            "type": "boolean",
+            "default": true
+          },
+          "include_fields": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "mailbox_id"
+        ]
+      }
+    },
+    {
+      "name": "list_users",
+      "description": "List all agents/users in Help Scout.",
+      "method": "GET",
+      "path": "/list-users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mailbox_id": {
+            "type": "integer",
+            "description": "Filter by mailbox access"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 25
+          }
+        }
+      }
+    },
+    {
+      "name": "list_tags",
+      "description": "List all available tags.",
+      "method": "GET",
+      "path": "/list-tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List all webhooks configured in your Help Scout account.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "_confirm": {
+            "type": "boolean",
+            "description": "Set to true to confirm execution",
+            "default": true
+          }
+        },
+        "required": [
+          "_confirm"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get a specific webhook by ID.",
+      "method": "GET",
+      "path": "/webhooks/{{param.webhook_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "integer",
+            "description": "The webhook ID"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a new webhook to receive notifications for Help Scout events.",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The webhook URL to receive notifications"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Events: convo.created, convo.deleted, convo.moved, convo.status, convo.assigned, convo.tags, convo.customer.reply.created, convo.agent.reply.created, convo.note.created, customer.created, customer.updated, satisfaction.ratings"
+          },
+          "secret": {
+            "type": "string",
+            "description": "Secret key for HMAC signature verification"
+          },
+          "payload_version": {
+            "type": "string",
+            "enum": [
+              "V1",
+              "V2"
+            ],
+            "default": "V2",
+            "description": "Payload format version"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "disabled"
+            ],
+            "default": "enabled"
+          }
+        },
+        "required": [
+          "url",
+          "events",
+          "secret"
+        ]
+      }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update an existing webhook.",
+      "method": "PUT",
+      "path": "/webhooks/{{param.webhook_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "integer",
+            "description": "The webhook ID to update"
+          },
+          "url": {
+            "type": "string",
+            "description": "New webhook URL"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Updated events list"
+          },
+          "secret": {
+            "type": "string",
+            "description": "New secret key"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "disabled"
+            ],
+            "description": "Enable or disable the webhook"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook.",
+      "method": "DELETE",
+      "path": "/webhooks/{{param.webhook_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "integer",
+            "description": "The webhook ID to delete"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-helpscout-signature",
+    "events": [
+      {
+        "name": "convo.created",
+        "description": "A new conversation was created in Help Scout"
+      },
+      {
+        "name": "convo.deleted",
+        "description": "A conversation was deleted from Help Scout"
+      },
+      {
+        "name": "convo.moved",
+        "description": "A conversation was moved to a different mailbox"
+      },
+      {
+        "name": "convo.status",
+        "description": "A conversation's status was changed (active, closed, pending, spam)"
+      },
+      {
+        "name": "convo.assigned",
+        "description": "A conversation was assigned to a user or team"
+      },
+      {
+        "name": "convo.tags",
+        "description": "Tags were added or removed from a conversation"
+      },
+      {
+        "name": "convo.customer.reply.created",
+        "description": "A customer replied to a conversation"
+      },
+      {
+        "name": "convo.agent.reply.created",
+        "description": "An agent replied to a conversation"
+      },
+      {
+        "name": "convo.note.created",
+        "description": "An internal note was added to a conversation"
+      },
+      {
+        "name": "customer.created",
+        "description": "A new customer was created in Help Scout"
+      },
+      {
+        "name": "customer.updated",
+        "description": "A customer's profile was updated"
+      },
+      {
+        "name": "satisfaction.ratings",
+        "description": "A customer submitted a satisfaction rating"
+      }
+    ]
+  }
+}

@@ -1,0 +1,663 @@
+{
+  "slug": "polymarket",
+  "name": "Polymarket",
+  "description": "Full Polymarket prediction market toolkit. Browse events and markets, get real-time prices and orderbooks, and trade (place/cancel orders) on the CLOB.",
+  "logo": "https://www.google.com/s2/favicons?domain=polymarket.com&sz=128",
+  "categories": [
+    "polymarket",
+    "prediction-markets",
+    "trading",
+    "events",
+    "crypto"
+  ],
+  "base_url": "https://gamma-api.polymarket.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Polymarket CLOB API Key (from deriveApiKey)"
+      },
+      {
+        "name": "secret",
+        "label": "Secret",
+        "description": "Polymarket CLOB API Secret (base64-encoded, for HMAC signing)"
+      },
+      {
+        "name": "passphrase",
+        "label": "Passphrase",
+        "description": "Polymarket CLOB API Passphrase"
+      },
+      {
+        "name": "private_key",
+        "label": "Private_key",
+        "description": "Polygon wallet private key (hex, for EIP-712 order signing)"
+      },
+      {
+        "name": "address",
+        "label": "Address",
+        "description": "Polygon wallet address (0x...)"
+      },
+      {
+        "name": "signature_type",
+        "label": "Signature_type",
+        "description": "0 = EOA wallet (default), 1 = Polymarket proxy, 2 = Gnosis Safe"
+      },
+      {
+        "name": "funder_address",
+        "label": "Funder_address",
+        "description": "Address that funds trades (defaults to wallet address)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_events",
+      "description": "Get active prediction market events from the Gamma API. Events group related markets (e.g., 'US Election 2024' contains markets for each candidate). Returns titles, slugs, and nested market data.",
+      "method": "GET",
+      "path": "/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "closed": {
+            "type": "boolean",
+            "description": "Include closed events (default: false)",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max events to return (default: 50, max: 100)",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Get a specific event by its URL slug. Returns full event details including all associated markets with their condition_ids and token_ids.",
+      "method": "GET",
+      "path": "/events/slug/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Event slug (e.g., 'fed-decision-in-october')"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "list_markets",
+      "description": "Get prediction markets from the Gamma API. Markets are individual YES/NO outcomes. Returns condition_id (for CLOB lookup) and clobTokenIds (for trading).",
+      "method": "GET",
+      "path": "/markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "closed": {
+            "type": "boolean",
+            "description": "Include closed markets (default: false)",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max markets to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_market",
+      "description": "Get a specific market by slug. Returns prices, volume, condition_id, and clobTokenIds needed for trading.",
+      "method": "GET",
+      "path": "/markets/slug/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Market slug (e.g., 'will-trump-win-the-2024-election')"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "list_tags",
+      "description": "Get all available tags/categories for filtering markets (e.g., Politics, Sports, Crypto). Use tag IDs with polymarket-markets-by-tag.",
+      "method": "GET",
+      "path": "/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "markets_by_tag",
+      "description": "Get markets filtered by tag/category ID. Use polymarket-list-tags first to find tag IDs.",
+      "method": "GET",
+      "path": "/markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tag_id": {
+            "type": "integer",
+            "description": "Tag ID (from polymarket-list-tags)"
+          },
+          "closed": {
+            "type": "boolean",
+            "description": "Include closed markets",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        },
+        "required": [
+          "tag_id"
+        ]
+      }
+    },
+    {
+      "name": "get_sports",
+      "description": "Get sports-related metadata including tag IDs, images, and series info for sports prediction markets.",
+      "method": "GET",
+      "path": "/sports",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_price",
+      "description": "Get the current best available price for a token on the CLOB. Returns the best bid (BUY) or ask (SELL) price.",
+      "method": "GET",
+      "path": "/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID (clobTokenId from market data)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "BUY for best ask, SELL for best bid"
+          }
+        },
+        "required": [
+          "token_id",
+          "side"
+        ]
+      }
+    },
+    {
+      "name": "get_midpoint",
+      "description": "Get the midpoint price for a token (average of best bid and best ask). Good for estimating fair value.",
+      "method": "GET",
+      "path": "/midpoint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID"
+          }
+        },
+        "required": [
+          "token_id"
+        ]
+      }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Get the full order book for a token showing all bids and asks with sizes. Essential for understanding market depth before placing orders.",
+      "method": "GET",
+      "path": "/book",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID"
+          }
+        },
+        "required": [
+          "token_id"
+        ]
+      }
+    },
+    {
+      "name": "get_spread",
+      "description": "Get the bid-ask spread for a token. Lower spread = more liquid market.",
+      "method": "GET",
+      "path": "/spread",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID"
+          }
+        },
+        "required": [
+          "token_id"
+        ]
+      }
+    },
+    {
+      "name": "get_tick_size",
+      "description": "Get the minimum price increment for a token. Orders must use prices that are multiples of the tick size (0.1, 0.01, 0.001, or 0.0001).",
+      "method": "GET",
+      "path": "/tick_size",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID"
+          }
+        },
+        "required": [
+          "token_id"
+        ]
+      }
+    },
+    {
+      "name": "get_last_trade_price",
+      "description": "Get the price of the most recent trade for a token.",
+      "method": "GET",
+      "path": "/last_trade_price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID"
+          }
+        },
+        "required": [
+          "token_id"
+        ]
+      }
+    },
+    {
+      "name": "get_clob_market",
+      "description": "Get CLOB market details by condition ID. Returns token IDs, tick size, min order size, and neg_risk flag needed for trading.",
+      "method": "GET",
+      "path": "/market/{condition_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "description": "Market condition ID (from Gamma API market data)"
+          }
+        },
+        "required": [
+          "condition_id"
+        ]
+      }
+    },
+    {
+      "name": "list_clob_markets",
+      "description": "List all tradeable markets on the CLOB with pagination via cursor.",
+      "method": "GET",
+      "path": "/markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "next_cursor": {
+            "type": "string",
+            "description": "Pagination cursor from previous response (omit for first page)",
+            "default": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "get_prices_history",
+      "description": "Get historical price data for a market. Use for charting and analysis.",
+      "method": "GET",
+      "path": "/prices-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "description": "Market condition ID"
+          },
+          "interval": {
+            "type": "string",
+            "enum": [
+              "1m",
+              "5m",
+              "1h",
+              "6h",
+              "1d",
+              "1w"
+            ],
+            "description": "Time interval between data points",
+            "default": "1d"
+          },
+          "fidelity": {
+            "type": "integer",
+            "description": "Data point density (higher = more points)",
+            "default": 100
+          },
+          "startTs": {
+            "type": "integer",
+            "description": "Start timestamp (Unix seconds)"
+          },
+          "endTs": {
+            "type": "integer",
+            "description": "End timestamp (Unix seconds)"
+          }
+        },
+        "required": [
+          "condition_id"
+        ]
+      }
+    },
+    {
+      "name": "get_market_trades",
+      "description": "Get recent trade events for a specific market. Shows who traded, what price, and what size.",
+      "method": "GET",
+      "path": "/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "condition_id": {
+            "type": "string",
+            "description": "Market condition ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max trades to return",
+            "default": 50
+          },
+          "before": {
+            "type": "string",
+            "description": "Cursor for pagination (from previous response)"
+          }
+        },
+        "required": [
+          "condition_id"
+        ]
+      }
+    },
+    {
+      "name": "get_server_time",
+      "description": "Get the CLOB server time. Useful for verifying clock synchronization before trading.",
+      "method": "GET",
+      "path": "/time",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get your USDC balance and trading allowances on Polymarket. Requires authentication.",
+      "method": "GET",
+      "path": "/balance-allowance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_type": {
+            "type": "string",
+            "enum": [
+              "USDC",
+              "CONDITIONAL"
+            ],
+            "description": "Asset type to check",
+            "default": "USDC"
+          },
+          "token_id": {
+            "type": "string",
+            "description": "Token ID (required for CONDITIONAL asset type)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_open_orders",
+      "description": "Get all your open (live) orders. Optionally filter by market. Requires authentication.",
+      "method": "GET",
+      "path": "/data/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "description": "Filter by condition_id (optional)"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Filter by token_id (optional)"
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get details of a specific order by its ID. Returns status, fill amount, and trade details. Requires authentication.",
+      "method": "GET",
+      "path": "/data/order/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID to look up"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "get_trades",
+      "description": "Get your trade history (filled orders). Requires authentication.",
+      "method": "GET",
+      "path": "/data/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "description": "Filter by condition_id (optional)"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Filter by token_id (optional)"
+          },
+          "next_cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel a specific open order by its ID. Requires authentication.",
+      "method": "DELETE",
+      "path": "/order/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID to cancel"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_all_orders",
+      "description": "Cancel ALL your open orders on Polymarket. Use with caution. Requires authentication.",
+      "method": "DELETE",
+      "path": "/cancel-all",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "cancel_market_orders",
+      "description": "Cancel all your open orders for a specific market. Requires authentication.",
+      "method": "DELETE",
+      "path": "/cancel-market-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "description": "Condition ID of the market to cancel orders for"
+          }
+        },
+        "required": [
+          "market"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Place a limit order on Polymarket. The order is cryptographically signed (EIP-712) and submitted to the CLOB. Price is between 0 and 1 (probability). Use polymarket-get-orderbook first to check liquidity. Requires credentials with private_key for signing.",
+      "method": "POST",
+      "path": "/create-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID to trade (clobTokenId from market data — use polymarket-get-clob-market)"
+          },
+          "price": {
+            "type": "number",
+            "description": "Limit price between 0 and 1 (e.g., 0.65 = 65 cents per share = 65% probability)"
+          },
+          "size": {
+            "type": "number",
+            "description": "Number of shares to buy or sell"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "BUY to go long (bet YES), SELL to go short (bet NO)"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "GTC",
+              "GTD",
+              "FOK"
+            ],
+            "description": "GTC=Good-Till-Cancel (default), GTD=Good-Till-Date, FOK=Fill-Or-Kill",
+            "default": "GTC"
+          },
+          "expiration": {
+            "type": "integer",
+            "description": "Unix timestamp for GTD order expiration (must be > now + 60s)"
+          },
+          "neg_risk": {
+            "type": "boolean",
+            "description": "Set true for markets with 3+ outcomes. Auto-detected if omitted."
+          }
+        },
+        "required": [
+          "token_id",
+          "price",
+          "size",
+          "side"
+        ]
+      }
+    },
+    {
+      "name": "create_market_order",
+      "description": "Place a market order that executes immediately at the best available price. For BUY: amount is in USDC. For SELL: amount is in shares. Use worst_price as a slippage limit. Requires credentials with private_key for signing.",
+      "method": "POST",
+      "path": "/create-market-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token_id": {
+            "type": "string",
+            "description": "Token ID to trade"
+          },
+          "amount": {
+            "type": "number",
+            "description": "USDC amount for BUY orders, share count for SELL orders"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "BUY or SELL"
+          },
+          "worst_price": {
+            "type": "number",
+            "description": "Maximum price willing to pay (slippage protection, 0-1)"
+          },
+          "neg_risk": {
+            "type": "boolean",
+            "description": "Set true for markets with 3+ outcomes. Auto-detected if omitted."
+          }
+        },
+        "required": [
+          "token_id",
+          "amount",
+          "side"
+        ]
+      }
+    }
+  ]
+}

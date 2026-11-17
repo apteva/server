@@ -1,0 +1,340 @@
+{
+  "slug": "pdf",
+  "name": "PDF Tools",
+  "description": "PDF manipulation tools - edit PDFs, fill forms, add text/images, merge, generate from templates, and more",
+  "logo": "https://www.google.com/s2/favicons?domain=adobe.com&sz=128",
+  "categories": [
+    "pdf",
+    "documents",
+    "forms",
+    "editing",
+    "generation"
+  ],
+  "base_url": "https://api.pdf.co/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "edit",
+      "description": "Edit PDF documents - fill forms, add text, add images/signatures, rotate pages, delete pages, merge pages from other PDFs",
+      "method": "PUT",
+      "path": "/edit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the PDF file to edit"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64 encoded PDF data (alternative to file_url)"
+          },
+          "operations": {
+            "type": "array",
+            "description": "Array of operations to perform",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "fill_fields",
+                    "add_text",
+                    "add_image",
+                    "rotate_pages",
+                    "delete_pages",
+                    "add_pages"
+                  ],
+                  "description": "Operation type"
+                },
+                "fields": {
+                  "type": "object",
+                  "description": "For fill_fields: field name to value mapping"
+                },
+                "page": {
+                  "type": [
+                    "integer",
+                    "string",
+                    "array"
+                  ],
+                  "description": "Page number(s) or 'all'"
+                },
+                "x": {
+                  "type": "number",
+                  "description": "X position"
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Y position"
+                },
+                "text": {
+                  "type": "string",
+                  "description": "Text to add"
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Image URL"
+                },
+                "width": {
+                  "type": "number",
+                  "description": "Width"
+                },
+                "height": {
+                  "type": "number",
+                  "description": "Height"
+                },
+                "fontSize": {
+                  "type": "number",
+                  "description": "Font size"
+                },
+                "color": {
+                  "type": "string",
+                  "description": "Color in hex format"
+                },
+                "opacity": {
+                  "type": "number",
+                  "description": "Opacity 0-1"
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation in degrees"
+                },
+                "pages": {
+                  "type": "array",
+                  "description": "Page numbers for rotate/delete"
+                }
+              }
+            }
+          },
+          "flatten": {
+            "type": "boolean",
+            "description": "Flatten form fields after filling",
+            "default": false
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "edited.pdf"
+          }
+        },
+        "required": [
+          "operations"
+        ]
+      }
+    },
+    {
+      "name": "fill_form",
+      "description": "Fill form fields in a PDF document. Can also list available form fields.",
+      "method": "GET",
+      "path": "/fill-form",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the PDF form to fill"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64 encoded PDF data (alternative to file_url)"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Object mapping field names to values"
+          },
+          "flatten": {
+            "type": "boolean",
+            "description": "Flatten form fields after filling (makes non-editable)",
+            "default": true
+          },
+          "list_fields": {
+            "type": "boolean",
+            "description": "If true, returns list of available form fields instead of filling",
+            "default": false
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "filled-form.pdf"
+          }
+        }
+      }
+    },
+    {
+      "name": "merge",
+      "description": "Merge multiple PDF documents into a single PDF",
+      "method": "GET",
+      "path": "/merge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "description": "Array of PDF files to merge (URLs or base64 data)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "PDF URL"
+                },
+                "data": {
+                  "type": "string",
+                  "description": "Base64 PDF data"
+                },
+                "pages": {
+                  "type": "array",
+                  "description": "Specific pages to include"
+                }
+              }
+            }
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "merged.pdf"
+          }
+        },
+        "required": [
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "add_watermark",
+      "description": "Add a text or image watermark to PDF pages",
+      "method": "GET",
+      "path": "/add-watermark",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_url": {
+            "type": "string",
+            "description": "URL of the PDF"
+          },
+          "file_data": {
+            "type": "string",
+            "description": "Base64 encoded PDF data"
+          },
+          "text": {
+            "type": "string",
+            "description": "Watermark text"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Watermark image URL"
+          },
+          "opacity": {
+            "type": "number",
+            "description": "Watermark opacity 0-1",
+            "default": 0.3
+          },
+          "rotation": {
+            "type": "number",
+            "description": "Rotation in degrees",
+            "default": 45
+          },
+          "pages": {
+            "type": [
+              "string",
+              "array"
+            ],
+            "description": "Pages to watermark ('all' or array of page numbers)",
+            "default": "all"
+          }
+        }
+      }
+    },
+    {
+      "name": "generate",
+      "description": "Generate a PDF from a template with dynamic data",
+      "method": "GET",
+      "path": "/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "integer",
+            "description": "Template ID to use"
+          },
+          "template_slug": {
+            "type": "string",
+            "description": "Template slug (alternative to template_id)"
+          },
+          "data": {
+            "type": "object",
+            "description": "Data to populate the template",
+            "required": true
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "document.pdf"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "generate_html",
+      "description": "Generate a PDF from HTML content",
+      "method": "GET",
+      "path": "/generate-html",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "description": "HTML content to convert to PDF",
+            "required": true
+          },
+          "options": {
+            "type": "object",
+            "description": "PDF generation options",
+            "properties": {
+              "format": {
+                "type": "string",
+                "enum": [
+                  "A4",
+                  "Letter",
+                  "Legal"
+                ],
+                "default": "A4"
+              },
+              "landscape": {
+                "type": "boolean",
+                "default": false
+              },
+              "margin": {
+                "type": "object"
+              }
+            }
+          },
+          "output_name": {
+            "type": "string",
+            "description": "Output filename",
+            "default": "document.pdf"
+          }
+        },
+        "required": [
+          "html"
+        ]
+      }
+    }
+  ]
+}

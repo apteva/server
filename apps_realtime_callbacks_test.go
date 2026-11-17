@@ -63,7 +63,9 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	resolver := &serverResolver{srv: s}
 
 	spawned, err := resolver.SpawnRealtimeThread(inst, sdk.RealtimeSpawnRequest{
-		AgentID: 42, ThreadID: "voice", Directive: "answer calls", Voice: "marin",
+		AgentID: 42, ThreadID: "voice", Directive: "answer calls", Voice: "brise",
+		RealtimeMedia: &sdk.RealtimeMediaConfig{Transport: "webrtc", Format: "g711_ulaw"},
+		Provider:      "openai", Model: "large", RealtimeExecution: &sdk.RealtimeExecutionConfig{Mode: "provider", Provider: "openai", Model: "medium"},
 		CallContext: &sdk.RealtimeCallContext{
 			CallID: "call-1", Direction: "inbound", FromNumber: "+12025550100",
 		},
@@ -73,12 +75,19 @@ func TestRealtimeResolverForwardsLifecycleContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	media := spawnBody["realtime_output"].(map[string]any)["media"].(map[string]any)
+	if media["transport"] != "webrtc" || media["format"] != "g711_ulaw" {
+		t.Fatal("media contract lost", media)
+	}
 	if spawned.AudioToken != "first" {
 		t.Fatalf("spawn token = %q", spawned.AudioToken)
 	}
 	if spawned.CapabilitiesVerified || spawned.Capabilities == nil || !spawned.Capabilities.GrantsVerified || strings.Join(spawned.Capabilities.GrantedTools, ",") != "pace,send" ||
 		strings.Join(spawned.Capabilities.GrantedMCP, ",") != "bookings" {
 		t.Fatalf("spawn capabilities = %#v", spawned)
+	}
+	if spawnBody["model"] != "large" || spawnBody["provider"] != "openai" || spawnBody["realtime_execution"].(map[string]any)["mode"] != "provider" {
+		t.Fatalf("voice execution overrides lost: %#v", spawnBody)
 	}
 	if spawnBody["ephemeral"] != true || spawnBody["initial_message"] != "Greet the caller." || spawnBody["bridge_disconnect_ttl_seconds"] != float64(30) {
 		t.Fatalf("spawn lifecycle body = %#v", spawnBody)
@@ -407,7 +416,7 @@ func TestCallbackRealtimeAudioBaseURLUsesRuntimeGatewayForEnvironmentInstall(t *
 	if got := s.callbackRealtimeAudioBaseURL(request, installID, agentID); got != "http://127.0.0.1:5280" {
 		t.Fatalf("runtime bridge base=%q", got)
 	}
-	if got := s.callbackRealtimeAudioBaseURL(request, installID+1, agentID); got != "https://stale-public.example" {
+	if got := s.callbackRealtimeAudioBaseURL(request, installID+1, agentID); got != "http://127.0.0.1:5280" {
 		t.Fatalf("normal bridge base=%q", got)
 	}
 }

@@ -1,0 +1,80 @@
+{
+  "slug": "buildjet",
+  "name": "BuildJet",
+  "description": "Faster + cheaper GitHub Actions runners (~$0.004/min for 2 vCPU/8 GB). Drop-in replacement: change `runs-on` to a buildjet-* label. The BuildJet API is account-management only (organizations, billing, runner usage); the actual build dispatch happens through GitHub Actions. Use github + buildjet together.",
+  "logo": "https://www.google.com/s2/favicons?domain=buildjet.com&sz=128",
+  "categories": ["build", "ci", "github-actions", "runners", "devops"],
+  "base_url": "https://api.buildjet.com/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Personal or organization API token from BuildJet dashboard", "required": true, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_organizations",
+      "description": "List BuildJet organizations the token has access to.",
+      "method": "GET",
+      "path": "/organizations",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get runner usage / billing minutes for an organization. Args: org_id, period? (current_month|last_month|YYYY-MM).",
+      "method": "GET",
+      "path": "/organizations/{org_id}/usage?period={period}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "period": { "type": "string" }
+        },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "list_runs",
+      "description": "List recent workflow runs that used BuildJet runners. Args: org_id, limit?.",
+      "method": "GET",
+      "path": "/organizations/{org_id}/runs?limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "list_caches",
+      "description": "List cache entries (BuildJet provides drop-in replacement for actions/cache). Args: org_id, repository?.",
+      "method": "GET",
+      "path": "/organizations/{org_id}/caches?repo={repository}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "repository": { "type": "string" }
+        },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "delete_cache",
+      "description": "Evict a cache entry by key. Args: org_id, cache_id.",
+      "method": "DELETE",
+      "path": "/organizations/{org_id}/caches/{cache_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "cache_id": { "type": "string" }
+        },
+        "required": ["org_id", "cache_id"]
+      }
+    }
+  ]
+}

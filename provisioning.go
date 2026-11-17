@@ -69,7 +69,7 @@ func (s *Server) handleProvisioningApply(w http.ResponseWriter, r *http.Request)
 	}
 	for _, grantID := range body.RevokedGrantIDs {
 		externalID := "managed:" + body.TenantID + ":" + grantID
-		if _, err := s.store.db.Exec(`UPDATE connections SET status='failed' WHERE external_id=? AND credential_management='controller'`, externalID); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `UPDATE connections SET status='failed' WHERE external_id=? AND credential_management='controller'`, externalID); err != nil {
 			s.failManagedProvisioning(body.RequestID, err)
 			http.Error(w, "revoke grant "+grantID+": "+err.Error(), http.StatusInternalServerError)
 			return
@@ -182,7 +182,7 @@ func (s *Server) claimManagedProvisioning(body sdk.ManagedProvisioningApplyReque
 		bundleID, revision = body.Bundle.BundleID, body.Bundle.Revision
 	}
 	var storedHash, status, responseJSON string
-	err := s.store.db.QueryRow(`SELECT request_hash,status,response_json FROM managed_provisioning_requests WHERE request_id=?`, body.RequestID).
+	err := s.store.dbQueryRow(`SELECT request_hash,status,response_json FROM managed_provisioning_requests WHERE request_id=?`, body.RequestID).
 		Scan(&storedHash, &status, &responseJSON)
 	if err == nil {
 		if storedHash != requestHash {
@@ -200,13 +200,13 @@ func (s *Server) claimManagedProvisioning(body sdk.ManagedProvisioningApplyReque
 		default:
 			if bundleID != "" {
 				var latest int64
-				_ = s.store.db.QueryRow(`SELECT COALESCE(MAX(revision),0) FROM managed_provisioning_requests
+				_ = s.store.dbQueryRow(`SELECT COALESCE(MAX(revision),0) FROM managed_provisioning_requests
 					WHERE tenant_id=? AND bundle_id=? AND status='applied'`, body.TenantID, bundleID).Scan(&latest)
 				if latest > revision {
 					return nil, false, fmt.Errorf("%w: bundle revision %d is older than applied revision %d", errManagedProvisioningConflict, revision, latest)
 				}
 			}
-			result, err := s.store.db.Exec(`UPDATE managed_provisioning_requests SET status='applying',last_error='',updated_at=CURRENT_TIMESTAMP WHERE request_id=? AND status=?`, body.RequestID, status)
+			result, err := s.store.dbExec(`UPDATE managed_provisioning_requests SET status='applying',last_error='',updated_at=CURRENT_TIMESTAMP WHERE request_id=? AND status=?`, body.RequestID, status)
 			if err != nil {
 				return nil, false, err
 			}
@@ -222,7 +222,7 @@ func (s *Server) claimManagedProvisioning(body sdk.ManagedProvisioningApplyReque
 	}
 	if bundleID != "" {
 		var previousID, previousHash, previousStatus, previousResponse string
-		err = s.store.db.QueryRow(`SELECT request_id,request_hash,status,response_json FROM managed_provisioning_requests
+		err = s.store.dbQueryRow(`SELECT request_id,request_hash,status,response_json FROM managed_provisioning_requests
 			WHERE tenant_id=? AND bundle_id=? AND revision=?`, body.TenantID, bundleID, revision).
 			Scan(&previousID, &previousHash, &previousStatus, &previousResponse)
 		if err == nil {
@@ -242,13 +242,13 @@ func (s *Server) claimManagedProvisioning(body sdk.ManagedProvisioningApplyReque
 			return nil, false, err
 		}
 		var latest int64
-		_ = s.store.db.QueryRow(`SELECT COALESCE(MAX(revision),0) FROM managed_provisioning_requests
+		_ = s.store.dbQueryRow(`SELECT COALESCE(MAX(revision),0) FROM managed_provisioning_requests
 			WHERE tenant_id=? AND bundle_id=? AND status='applied'`, body.TenantID, bundleID).Scan(&latest)
 		if latest > revision {
 			return nil, false, fmt.Errorf("%w: bundle revision %d is older than applied revision %d", errManagedProvisioningConflict, revision, latest)
 		}
 	}
-	_, err = s.store.db.Exec(`INSERT INTO managed_provisioning_requests
+	_, err = s.store.dbExec(`INSERT INTO managed_provisioning_requests
 		(request_id,tenant_id,bundle_id,revision,request_hash,status) VALUES(?,?,?,?,?,'applying')`,
 		body.RequestID, body.TenantID, bundleID, revision, requestHash)
 	if err != nil {
@@ -258,7 +258,7 @@ func (s *Server) claimManagedProvisioning(body sdk.ManagedProvisioningApplyReque
 }
 
 func (s *Server) failManagedProvisioning(requestID string, applyErr error) {
-	_, _ = s.store.db.Exec(`UPDATE managed_provisioning_requests SET status='error',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE request_id=?`, truncate(applyErr.Error(), 2000), requestID)
+	_, _ = s.store.dbExec(`UPDATE managed_provisioning_requests SET status='error',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE request_id=?`, truncate(applyErr.Error(), 2000), requestID)
 }
 
 func (s *Server) completeManagedProvisioning(requestID string, result sdk.ManagedProvisioningApplyResult) error {
@@ -266,6 +266,6 @@ func (s *Server) completeManagedProvisioning(requestID string, result sdk.Manage
 	if err != nil {
 		return err
 	}
-	_, err = s.store.db.Exec(`UPDATE managed_provisioning_requests SET status='applied',response_json=?,last_error='',updated_at=CURRENT_TIMESTAMP WHERE request_id=?`, string(raw), requestID)
+	_, err = s.store.dbExec(`UPDATE managed_provisioning_requests SET status='applied',response_json=?,last_error='',updated_at=CURRENT_TIMESTAMP WHERE request_id=?`, string(raw), requestID)
 	return err
 }

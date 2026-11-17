@@ -1,0 +1,200 @@
+{
+  "slug": "playht",
+  "name": "Play.ht",
+  "description": "AI voice generator with ultra-realistic text-to-speech, voice cloning, and multi-engine support",
+  "logo": "https://www.google.com/s2/favicons?domain=play.ht&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "tts",
+    "audio",
+    "voice-cloning"
+  ],
+  "base_url": "https://play.ht/api/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{api_key}}",
+      "X-User-ID": "{{user_id}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      },
+      {
+        "name": "user_id",
+        "label": "User Id"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_speech",
+      "description": "Convert text to ultra-realistic speech with AI voices, multiple quality presets, and customizable speed",
+      "method": "POST",
+      "path": "/convert",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Play.ht API secret key (required)"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Play.ht User ID (required)"
+          },
+          "voice": {
+            "type": "string",
+            "description": "Voice ID for synthesis (required). Use list-voices to find available voices."
+          },
+          "content": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of text paragraphs to convert (required unless using ssml)"
+          },
+          "ssml": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of SSML-formatted paragraphs (alternative to content)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Name for the file in your dashboard"
+          },
+          "speed": {
+            "type": "string",
+            "default": "1.0",
+            "description": "Speaking rate from 0.5 to 1.5"
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "real-time",
+              "balanced",
+              "low-latency",
+              "high-quality"
+            ],
+            "description": "Quality preset for audio generation"
+          },
+          "narrationStyle": {
+            "type": "string",
+            "description": "Tone/accent style supported by the selected voice"
+          },
+          "globalSpeed": {
+            "type": "string",
+            "description": "Speed percentage 20-200% (for Standard/Premium voices)"
+          },
+          "pronunciations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "Word to replace"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Phonetic replacement"
+                }
+              }
+            },
+            "description": "Custom pronunciation overrides"
+          },
+          "trimSilence": {
+            "type": "boolean",
+            "description": "Remove silence from end of audio"
+          }
+        },
+        "required": [
+          "apiKey",
+          "userId",
+          "voice"
+        ]
+      }
+    },
+    {
+      "name": "get_status",
+      "description": "Check the status and get download URL for a text-to-speech conversion job",
+      "method": "GET",
+      "path": "/articleStatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Play.ht API secret key (required)"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Play.ht User ID (required)"
+          },
+          "transcriptionId": {
+            "type": "string",
+            "description": "Transcription ID returned from generate-speech (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "userId",
+          "transcriptionId"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "Get available ultra-realistic AI voices with gender, accent, and language info",
+      "method": "GET",
+      "path": "/getVoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Play.ht API secret key (required)"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Play.ht User ID (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "list_cloned_voices",
+      "description": "Get your custom cloned voices",
+      "method": "GET",
+      "path": "/getClonedVoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "Play.ht API secret key (required)"
+          },
+          "userId": {
+            "type": "string",
+            "description": "Play.ht User ID (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "userId"
+        ]
+      }
+    }
+  ]
+}

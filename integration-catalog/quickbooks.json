@@ -1,0 +1,246 @@
+{
+  "slug": "quickbooks",
+  "name": "QuickBooks",
+  "description": "MCP server for QuickBooks accounting - invoices, expenses, customers, reports",
+  "logo": "https://www.google.com/s2/favicons?domain=quickbooks.intuit.com&sz=128",
+  "categories": [
+    "accounting",
+    "finance",
+    "invoicing",
+    "bookkeeping"
+  ],
+  "base_url": "https://quickbooks.api.intuit.com/v3",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "realmId",
+        "label": "realmId"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://appcenter.intuit.com/connect/oauth2",
+      "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+      "scopes": [
+        "com.intuit.quickbooks.accounting"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "create_customer",
+      "description": "Create a new customer",
+      "method": "POST",
+      "path": "/create-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Customer display name"
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Phone number"
+          },
+          "billing_address": {
+            "type": "object",
+            "description": "Billing address"
+          }
+        },
+        "required": [
+          "display_name"
+        ]
+      }
+    },
+    {
+      "name": "create_invoice",
+      "description": "Create a new invoice",
+      "method": "POST",
+      "path": "/create-invoice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Invoice line items"
+          },
+          "due_date": {
+            "type": "string",
+            "description": "Due date"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email to send invoice to"
+          }
+        },
+        "required": [
+          "customer_id",
+          "line_items"
+        ]
+      }
+    },
+    {
+      "name": "create_expense",
+      "description": "Record an expense",
+      "method": "POST",
+      "path": "/create-expense",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account ID"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Expense amount"
+          },
+          "vendor_id": {
+            "type": "string",
+            "description": "Vendor ID"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description"
+          },
+          "date": {
+            "type": "string",
+            "description": "Transaction date"
+          }
+        },
+        "required": [
+          "account_id",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "record_payment",
+      "description": "Record a customer payment",
+      "method": "GET",
+      "path": "/record-payment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Customer ID"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Payment amount"
+          },
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID to apply payment"
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Payment method"
+          }
+        },
+        "required": [
+          "customer_id",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "run_report",
+      "description": "Run a financial report",
+      "method": "GET",
+      "path": "/run-report",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "report_type": {
+            "type": "string",
+            "enum": [
+              "ProfitAndLoss",
+              "BalanceSheet",
+              "CashFlow",
+              "AgedReceivables"
+            ],
+            "description": "Report type"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date"
+          }
+        },
+        "required": [
+          "report_type"
+        ]
+      }
+    },
+    {
+      "name": "reconcile_account",
+      "description": "Reconcile a bank account",
+      "method": "GET",
+      "path": "/reconcile-account",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account ID"
+          },
+          "statement_date": {
+            "type": "string",
+            "description": "Statement date"
+          },
+          "ending_balance": {
+            "type": "number",
+            "description": "Statement ending balance"
+          }
+        },
+        "required": [
+          "account_id",
+          "statement_date",
+          "ending_balance"
+        ]
+      }
+    }
+  ]
+}

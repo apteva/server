@@ -1,0 +1,122 @@
+{
+  "slug": "neon",
+  "name": "Neon",
+  "description": "MCP server for Neon - serverless Postgres projects, branches, databases, endpoints",
+  "logo": "https://www.google.com/s2/favicons?domain=neon.tech&sz=128",
+  "categories": ["database", "postgres", "serverless", "devops"],
+  "base_url": "https://console.neon.tech/api/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List projects",
+      "method": "GET",
+      "path": "/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a project",
+      "method": "POST",
+      "path": "/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "object" }
+        },
+        "required": ["project"]
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Get a project",
+      "method": "GET",
+      "path": "/projects/{project_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "delete_project",
+      "description": "Delete a project",
+      "method": "DELETE",
+      "path": "/projects/{project_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "List branches of a project",
+      "method": "GET",
+      "path": "/projects/{project_id}/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "create_branch",
+      "description": "Create a branch",
+      "method": "POST",
+      "path": "/projects/{project_id}/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "branch": { "type": "object" },
+          "endpoints": { "type": "array" }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "list_databases",
+      "description": "List databases in a branch",
+      "method": "GET",
+      "path": "/projects/{project_id}/branches/{branch_id}/databases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "branch_id": { "type": "string" }
+        },
+        "required": ["project_id", "branch_id"]
+      }
+    },
+    {
+      "name": "get_connection_uri",
+      "description": "Get a database connection URI",
+      "method": "GET",
+      "path": "/projects/{project_id}/connection_uri",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "branch_id": { "type": "string" },
+          "database_name": { "type": "string" },
+          "role_name": { "type": "string" },
+          "pooled": { "type": "boolean" }
+        },
+        "required": ["project_id", "database_name", "role_name"]
+      }
+    }
+  ]
+}

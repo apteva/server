@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 )
 
+const maxBase64BinaryBytes = 25 * 1024 * 1024
+
 func buildRequestTransformBody(transform *RequestTransformDef, input map[string]any) (any, bool, error) {
 	if transform == nil {
 		return nil, false, nil
@@ -141,6 +143,43 @@ func buildResponseTransformData(transform *ResponseTransformDef, data any, input
 		return normalizeEmailMessageWithOptions(data, transform, input), true, nil
 	case "email_thread":
 		return normalizeEmailThread(data, transform), true, nil
+	case "base64_to_binary":
+		value, ok := getAnyPath(data, transform.Source).(string)
+		if !ok {
+			return nil, true, fmt.Errorf("binary response is missing encoded file data")
+		}
+		if len(value) > ((maxBase64BinaryBytes+2)/3)*4 {
+			return nil, true, fmt.Errorf("binary response exceeds the file size limit")
+		}
+		codec := base64.StdEncoding
+		switch transform.Encoding {
+		case "", "base64":
+		case "base64url":
+			codec = base64.URLEncoding
+		default:
+			return nil, true, fmt.Errorf("unsupported binary encoding")
+		}
+		if !strings.Contains(value, "=") {
+			codec = codec.WithPadding(base64.NoPadding)
+		}
+		if strings.ContainsAny(value, " \t\r\n") {
+			return nil, true, fmt.Errorf("invalid encoded binary data")
+		}
+		bytes, err := codec.Strict().DecodeString(value)
+		if err != nil {
+			return nil, true, fmt.Errorf("invalid encoded binary data")
+		}
+		if len(bytes) > maxBase64BinaryBytes {
+			return nil, true, fmt.Errorf("binary response exceeds the file size limit")
+		}
+		mime := transform.MimeType
+		if v, ok := input[transform.MimeTypeParam].(string); ok && v != "" {
+			mime = v
+		}
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		return map[string]any{"_binary": true, "base64": base64.StdEncoding.EncodeToString(bytes), "mimeType": mime, "size": len(bytes)}, true, nil
 	case "base64_field_decode":
 		value := getAnyPath(data, transform.Source)
 		decoded := ""
@@ -273,6 +312,9 @@ func responseTransformLocalParams(transform *ResponseTransformDef) map[string]bo
 		if transform.MaxCharsParam != "" {
 			params[transform.MaxCharsParam] = true
 		}
+	}
+	if transform != nil && transform.Type == "base64_to_binary" && transform.MimeTypeParam != "" {
+		params[transform.MimeTypeParam] = true
 	}
 	return params
 }

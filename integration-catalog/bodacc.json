@@ -1,0 +1,84 @@
+{
+  "slug": "bodacc",
+  "name": "BODACC",
+  "description": "Official French Bulletin of Civil and Commercial Announcements. Search incorporations, establishment creations, modifications, removals, business sales, collective proceedings, and account filings through the free public Opendatasoft API. Some records concern natural persons; downstream reuse remains subject to data-protection rules.",
+  "logo": "https://www.google.com/s2/favicons?domain=bodacc.fr&sz=128",
+  "categories": [
+    "france",
+    "companies",
+    "business-registry",
+    "legal-notices",
+    "prospecting",
+    "open-data"
+  ],
+  "base_url": "https://bodacc-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "get_dataset_metadata"
+  },
+  "tools": [
+    {
+      "name": "get_dataset_metadata",
+      "description": "Get current BODACC dataset metadata, field definitions, update times, and API links.",
+      "method": "GET",
+      "path": "/annonces-commerciales",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "search_announcements",
+      "description": "Search BODACC announcements with Opendatasoft SQL-like where expressions. Filter on dateparution, familleavis, typeavis, registre/SIREN, commercant, department, region, city, or keywords; order newest first for lead generation.",
+      "method": "GET",
+      "path": "/annonces-commerciales/records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "select": {"type": "string", "description": "Comma-separated fields or ODS select expression."},
+          "where": {"type": "string", "description": "ODS filter expression, for example `dateparution >= date'2026-08-01' AND familleavis = 'creation'`."},
+          "group_by": {"type": "string", "description": "Optional aggregation grouping expression."},
+          "order_by": {"type": "string", "description": "Sort expression, usually `dateparution DESC`."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 100},
+          "offset": {"type": "integer", "minimum": 0, "default": 0},
+          "refine": {"type": "string", "description": "Facet refinement formatted `field:value`."},
+          "exclude": {"type": "string", "description": "Facet exclusion formatted `field:value`."},
+          "lang": {"type": "string", "default": "fr"}
+        }
+      }
+    },
+    {
+      "name": "get_announcement",
+      "description": "Get one BODACC announcement by its record identifier.",
+      "method": "GET",
+      "path": "/annonces-commerciales/records/{record_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "record_id": {"type": "string", "description": "BODACC record id returned by search_announcements."}
+        },
+        "required": ["record_id"]
+      }
+    },
+    {
+      "name": "facet_announcements",
+      "description": "Return value counts for BODACC fields such as announcement family, department, region, or publication date, optionally constrained by a where expression.",
+      "method": "GET",
+      "path": "/annonces-commerciales/facets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "facet": {"type": "string", "description": "Field to facet, for example familleavis_lib, numerodepartement, or region_nom_officiel."},
+          "where": {"type": "string", "description": "Optional ODS filter expression."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+          "offset": {"type": "integer", "minimum": 0, "default": 0},
+          "lang": {"type": "string", "default": "fr"}
+        },
+        "required": ["facet"]
+      }
+    }
+  ]
+}

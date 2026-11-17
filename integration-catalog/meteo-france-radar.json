@@ -1,0 +1,162 @@
+{
+  "slug": "meteo-france-radar",
+  "name": "Météo-France Radar",
+  "description": "Official real-time Météo-France radar catalog and latest products for mainland and overseas France. Discover operational stations and five-minute station or mosaic observations such as reflectivity and accumulated rainfall. Access is free after self-service portal signup and subscription; the integration automatically obtains short-lived OAuth tokens.",
+  "logo": "https://www.google.com/s2/favicons?domain=meteofrance.fr&sz=128",
+  "categories": [
+    "france",
+    "weather",
+    "radar",
+    "storms",
+    "rain",
+    "open-data"
+  ],
+  "base_url": "https://public-api.meteofrance.fr/public/DPRadar/v1",
+  "auth": {
+    "types": ["custom"],
+    "token_exchange": {
+      "url": "https://portail-api.meteofrance.fr/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "headers": {
+        "Authorization": "Basic {{application_id}}"
+      },
+      "body_params": {
+        "grant_type": "client_credentials"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "application_id",
+        "label": "Météo-France application identifier",
+        "description": "Create an application at portail-api.meteofrance.fr, subscribe it to Données Radar, and copy the APPLICATION_ID used with HTTP Basic authentication.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_operational_stations"
+  },
+  "tools": [
+    {
+      "name": "list_operational_stations",
+      "description": "List radar stations currently operational and available through the API as JSON.",
+      "method": "GET",
+      "path": "/stations",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_station",
+      "description": "Get catalog metadata and links for one operational radar station.",
+      "method": "GET",
+      "path": "/stations/{station_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "station_id": {"type": "string", "description": "Météo-France radar station identifier returned by list_operational_stations."}
+        },
+        "required": ["station_id"]
+      }
+    },
+    {
+      "name": "list_station_observations",
+      "description": "List observation products currently available for one radar station.",
+      "method": "GET",
+      "path": "/stations/{station_id}/observations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "station_id": {"type": "string"}
+        },
+        "required": ["station_id"]
+      }
+    },
+    {
+      "name": "get_station_observation",
+      "description": "Get metadata and validity time for the latest selected station observation, such as REFLECTIVITE, PAM, or PAG.",
+      "method": "GET",
+      "path": "/stations/{station_id}/observations/{observation}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "station_id": {"type": "string"},
+          "observation": {"type": "string", "enum": ["REFLECTIVITE", "PAM", "PAG"]}
+        },
+        "required": ["station_id", "observation"]
+      }
+    },
+    {
+      "name": "download_station_product",
+      "description": "Download the most recent binary product for a station observation. The returned data format is described by get_station_observation.",
+      "method": "GET",
+      "path": "/stations/{station_id}/observations/{observation}/produit",
+      "headers": {"Accept": "*/*"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "station_id": {"type": "string"},
+          "observation": {"type": "string", "enum": ["REFLECTIVITE", "PAM", "PAG"]}
+        },
+        "required": ["station_id", "observation"]
+      }
+    },
+    {
+      "name": "list_mosaics",
+      "description": "List available radar mosaic zones for mainland and overseas France.",
+      "method": "GET",
+      "path": "/mosaiques",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_mosaic_observations",
+      "description": "List current observation products for a radar mosaic zone such as METROPOLE.",
+      "method": "GET",
+      "path": "/mosaiques/{zone}/observations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {"type": "string", "description": "Mosaic zone returned by list_mosaics, commonly METROPOLE."}
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "get_mosaic_observation",
+      "description": "Get metadata and validity time for a current mosaic observation such as reflectivity or accumulated rainfall.",
+      "method": "GET",
+      "path": "/mosaiques/{zone}/observations/{observation}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {"type": "string"},
+          "observation": {"type": "string", "description": "Observation identifier returned by list_mosaic_observations, for example LAME_D_EAU."}
+        },
+        "required": ["zone", "observation"]
+      }
+    },
+    {
+      "name": "download_mosaic_product",
+      "description": "Download the latest binary mosaic product. For supported rainfall mosaics, maille selects grid resolution in metres, for example 500.",
+      "method": "GET",
+      "path": "/mosaiques/{zone}/observations/{observation}/produit",
+      "headers": {"Accept": "*/*"},
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {"type": "string"},
+          "observation": {"type": "string"},
+          "maille": {"type": "integer", "description": "Optional grid size in metres when supported, for example 500."}
+        },
+        "required": ["zone", "observation"]
+      }
+    }
+  ]
+}

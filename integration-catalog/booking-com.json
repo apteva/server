@@ -1,0 +1,144 @@
+{
+  "slug": "booking-com",
+  "name": "Booking.com",
+  "description": "MCP server for Booking.com - hotel search, details, reviews",
+  "logo": "https://www.google.com/s2/favicons?domain=booking.com&sz=128",
+  "categories": [
+    "travel",
+    "hotels",
+    "accommodation",
+    "booking"
+  ],
+  "base_url": "https://booking-com.p.rapidapi.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_locations",
+      "description": "Search for locations",
+      "method": "GET",
+      "path": "/search-locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "search_hotels",
+      "description": "Search for hotels",
+      "method": "GET",
+      "path": "/search-hotels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dest_id": {
+            "type": "string"
+          },
+          "dest_type": {
+            "type": "string"
+          },
+          "checkin_date": {
+            "type": "string"
+          },
+          "checkout_date": {
+            "type": "string"
+          },
+          "adults": {
+            "type": "number"
+          },
+          "rooms": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "dest_id",
+          "checkin_date",
+          "checkout_date",
+          "adults"
+        ]
+      }
+    },
+    {
+      "name": "hotel_details",
+      "description": "Get hotel details",
+      "method": "GET",
+      "path": "/hotel-details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hotel_id": {
+            "type": "string"
+          },
+          "checkin_date": {
+            "type": "string"
+          },
+          "checkout_date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hotel_id"
+        ]
+      }
+    },
+    {
+      "name": "hotel_facilities",
+      "description": "Get hotel facilities",
+      "method": "GET",
+      "path": "/hotel-facilities",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hotel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "hotel_id"
+        ]
+      }
+    },
+    {
+      "name": "hotel_reviews",
+      "description": "Get hotel reviews",
+      "method": "GET",
+      "path": "/hotel-reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hotel_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "hotel_id"
+        ]
+      }
+    }
+  ]
+}

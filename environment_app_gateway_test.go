@@ -24,7 +24,7 @@ func TestEnvironmentAppGateway_BrokersToken(t *testing.T) {
 	s := newEnvironmentTestServer(t)
 
 	environment, err := s.environments.Create(EnvironmentSpec{
-		ID: "gw-w", ProjectID: "gw-w", GatewayURL: s.localGatewayURL(),
+		ID: "gw-w", ProjectID: "gw-w", GatewayURL: s.localGatewayURL(), CreatorUserID: 1,
 		AppSrcDirs: map[string]string{"storage": src}, Mode: EdgeBlock, HealthBudget: 120 * time.Second,
 	})
 	if err != nil {

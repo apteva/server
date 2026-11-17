@@ -222,6 +222,13 @@ func trustedProxyAddress(ip netip.Addr) bool {
 	if ip.IsLoopback() {
 		return true
 	}
+	if prefixes := instanceTrustedHTTPSProxies.Load(); prefixes != nil {
+		for _, prefix := range *prefixes {
+			if prefix.Contains(ip) {
+				return true
+			}
+		}
+	}
 	for _, prefix := range configuredTrustedProxyPrefixes() {
 		if prefix.Contains(ip) {
 			return true

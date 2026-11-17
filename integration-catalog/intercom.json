@@ -1,0 +1,693 @@
+{
+  "slug": "intercom",
+  "name": "Intercom",
+  "description": "MCP server for Intercom customer messaging, contacts, conversations, and companies",
+  "logo": "https://www.google.com/s2/favicons?domain=intercom.com&sz=128",
+  "categories": [
+    "messaging",
+    "customer-support",
+    "crm",
+    "conversations",
+    "contacts"
+  ],
+  "base_url": "https://api.intercom.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Intercom Access Token from your Intercom app settings"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_contacts",
+      "description": "List contacts from Intercom with pagination",
+      "method": "GET",
+      "path": "/list-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "number",
+            "description": "Number of contacts per page (default: 50)"
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Get a single contact by ID",
+      "method": "GET",
+      "path": "/get-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "The Intercom contact ID"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a new contact in Intercom",
+      "method": "POST",
+      "path": "/create-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "lead"
+            ],
+            "description": "Contact role (default: user)"
+          },
+          "external_id": {
+            "type": "string",
+            "description": "External identifier for the contact"
+          },
+          "email": {
+            "type": "string",
+            "description": "Contact email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact phone number"
+          },
+          "name": {
+            "type": "string",
+            "description": "Contact full name"
+          },
+          "custom_attributes": {
+            "type": "object",
+            "description": "Custom attributes for the contact"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_contact",
+      "description": "Update an existing contact",
+      "method": "PUT",
+      "path": "/update-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "The Intercom contact ID"
+          },
+          "email": {
+            "type": "string",
+            "description": "Contact email address"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Contact phone number"
+          },
+          "name": {
+            "type": "string",
+            "description": "Contact full name"
+          },
+          "custom_attributes": {
+            "type": "object",
+            "description": "Custom attributes for the contact"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_contact",
+      "description": "Delete/archive a contact",
+      "method": "DELETE",
+      "path": "/delete-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "The Intercom contact ID"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "search_contacts",
+      "description": "Search contacts by attributes",
+      "method": "GET",
+      "path": "/search-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "description": "Search query object with field, operator, and value"
+          },
+          "pagination": {
+            "type": "object",
+            "description": "Pagination options"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List conversations with pagination",
+      "method": "GET",
+      "path": "/list-conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "number",
+            "description": "Number of conversations per page (default: 20)"
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Get a single conversation with all parts",
+      "method": "GET",
+      "path": "/get-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "The conversation ID"
+          },
+          "display_as": {
+            "type": "string",
+            "description": "Display format (plaintext or html)"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "create_conversation",
+      "description": "Create a new conversation",
+      "method": "POST",
+      "path": "/create-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "object",
+            "description": "The contact initiating the conversation",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "lead",
+                  "contact"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "body": {
+            "type": "string",
+            "description": "The message body"
+          }
+        },
+        "required": [
+          "from",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "reply_conversation",
+      "description": "Reply to an existing conversation",
+      "method": "GET",
+      "path": "/reply-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "The conversation ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "user"
+            ],
+            "description": "Type of reply (admin or user)"
+          },
+          "body": {
+            "type": "string",
+            "description": "The reply message body"
+          },
+          "admin_id": {
+            "type": "string",
+            "description": "Admin ID (required if type is admin)"
+          },
+          "message_type": {
+            "type": "string",
+            "description": "Message type (default: comment)"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "type",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "close_conversation",
+      "description": "Close or snooze a conversation",
+      "method": "GET",
+      "path": "/close-conversation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "description": "The conversation ID"
+          },
+          "admin_id": {
+            "type": "string",
+            "description": "Admin ID performing the action"
+          },
+          "message_type": {
+            "type": "string",
+            "enum": [
+              "close",
+              "snoozed"
+            ],
+            "description": "Action type (default: close)"
+          },
+          "body": {
+            "type": "string",
+            "description": "Optional closing message"
+          },
+          "snoozed_until": {
+            "type": "number",
+            "description": "Unix timestamp to snooze until (if snoozing)"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "admin_id"
+        ]
+      }
+    },
+    {
+      "name": "search_conversations",
+      "description": "Search conversations by attributes",
+      "method": "GET",
+      "path": "/search-conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "description": "Search query object"
+          },
+          "pagination": {
+            "type": "object",
+            "description": "Pagination options"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message via Intercom (inapp, email, SMS, WhatsApp)",
+      "method": "POST",
+      "path": "/send-message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_type": {
+            "type": "string",
+            "enum": [
+              "inapp",
+              "email",
+              "sms",
+              "whatsapp",
+              "facebook"
+            ],
+            "description": "Type of message to send"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Message subject (for email)"
+          },
+          "body": {
+            "type": "string",
+            "description": "Message body content"
+          },
+          "from": {
+            "type": "object",
+            "description": "Sender details",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "admin"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "to": {
+            "type": "object",
+            "description": "Recipient details",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "lead",
+                  "contact"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "create_conversation_without_contact_reply": {
+            "type": "boolean",
+            "description": "Create conversation immediately without waiting for reply"
+          }
+        },
+        "required": [
+          "message_type",
+          "from",
+          "to"
+        ]
+      }
+    },
+    {
+      "name": "list_companies",
+      "description": "List companies with pagination",
+      "method": "GET",
+      "path": "/list-companies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "per_page": {
+            "type": "number",
+            "description": "Number of companies per page (default: 50)"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_company",
+      "description": "Get a single company by ID",
+      "method": "GET",
+      "path": "/get-company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": {
+            "type": "string",
+            "description": "The Intercom company ID"
+          }
+        },
+        "required": [
+          "company_id"
+        ]
+      }
+    },
+    {
+      "name": "create_company",
+      "description": "Create or update a company",
+      "method": "POST",
+      "path": "/create-company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company_id": {
+            "type": "string",
+            "description": "External company identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "plan": {
+            "type": "string",
+            "description": "Company plan name"
+          },
+          "size": {
+            "type": "number",
+            "description": "Number of employees"
+          },
+          "website": {
+            "type": "string",
+            "description": "Company website URL"
+          },
+          "industry": {
+            "type": "string",
+            "description": "Company industry"
+          },
+          "monthly_spend": {
+            "type": "number",
+            "description": "Monthly spend amount"
+          },
+          "custom_attributes": {
+            "type": "object",
+            "description": "Custom attributes"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_company",
+      "description": "Update an existing company",
+      "method": "PUT",
+      "path": "/update-company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The Intercom company ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "plan": {
+            "type": "string",
+            "description": "Company plan name"
+          },
+          "size": {
+            "type": "number",
+            "description": "Number of employees"
+          },
+          "website": {
+            "type": "string",
+            "description": "Company website URL"
+          },
+          "industry": {
+            "type": "string",
+            "description": "Company industry"
+          },
+          "custom_attributes": {
+            "type": "object",
+            "description": "Custom attributes"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "tag_contact",
+      "description": "Add or remove tags on a contact",
+      "method": "GET",
+      "path": "/tag-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "The contact ID"
+          },
+          "tag_id": {
+            "type": "string",
+            "description": "The tag ID"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove"
+            ],
+            "description": "Action to perform (default: add)"
+          }
+        },
+        "required": [
+          "contact_id",
+          "tag_id"
+        ]
+      }
+    },
+    {
+      "name": "add_note",
+      "description": "Add a note to a contact",
+      "method": "GET",
+      "path": "/add-note",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "The contact ID"
+          },
+          "body": {
+            "type": "string",
+            "description": "The note content"
+          },
+          "admin_id": {
+            "type": "string",
+            "description": "Admin ID creating the note"
+          }
+        },
+        "required": [
+          "contact_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "track_event",
+      "description": "Track a custom data event",
+      "method": "GET",
+      "path": "/track-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_name": {
+            "type": "string",
+            "description": "Name of the event"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "External user ID"
+          },
+          "email": {
+            "type": "string",
+            "description": "User email"
+          },
+          "intercom_user_id": {
+            "type": "string",
+            "description": "Intercom user ID"
+          },
+          "created_at": {
+            "type": "number",
+            "description": "Unix timestamp of when event occurred"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional event metadata"
+          }
+        },
+        "required": [
+          "event_name"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-hub-signature",
+    "events": [
+      {
+        "name": "conversation.created",
+        "description": "New conversation started"
+      },
+      {
+        "name": "conversation.replied",
+        "description": "Reply added to conversation"
+      },
+      {
+        "name": "conversation.closed",
+        "description": "Conversation closed"
+      },
+      {
+        "name": "conversation.opened",
+        "description": "Conversation reopened"
+      },
+      {
+        "name": "conversation.assigned",
+        "description": "Conversation assigned to teammate"
+      },
+      {
+        "name": "contact.created",
+        "description": "New contact created"
+      },
+      {
+        "name": "contact.updated",
+        "description": "Contact details changed"
+      },
+      {
+        "name": "contact.deleted",
+        "description": "Contact removed"
+      },
+      {
+        "name": "user.created",
+        "description": "New user identified"
+      },
+      {
+        "name": "contact.tag.created",
+        "description": "Tag added to contact"
+      }
+    ]
+  }
+}

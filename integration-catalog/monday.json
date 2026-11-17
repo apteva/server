@@ -1,0 +1,221 @@
+{
+  "slug": "monday",
+  "name": "Monday.com",
+  "description": "MCP server for Monday.com work management - boards, items, automations",
+  "logo": "https://www.google.com/s2/favicons?domain=monday.com&sz=128",
+  "categories": [
+    "project-management",
+    "work-management",
+    "collaboration"
+  ],
+  "base_url": "https://api.monday.com/v2",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://auth.monday.com/oauth2/authorize",
+      "token_url": "https://auth.monday.com/oauth2/token",
+      "scopes": [
+        "me:read",
+        "boards:read",
+        "boards:write",
+        "updates:read",
+        "updates:write",
+        "assets:read",
+        "teams:read",
+        "users:read",
+        "account:read",
+        "workspaces:read",
+        "workspaces:write",
+        "notifications:write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "create_board",
+      "description": "Create a new board",
+      "method": "POST",
+      "path": "/create-board",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_name": {
+            "type": "string",
+            "description": "Board name"
+          },
+          "board_kind": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private",
+              "share"
+            ],
+            "description": "Board visibility"
+          },
+          "workspace_id": {
+            "type": "number",
+            "description": "Workspace ID"
+          }
+        },
+        "required": [
+          "board_name"
+        ]
+      }
+    },
+    {
+      "name": "create_group",
+      "description": "Create a new group in a board",
+      "method": "POST",
+      "path": "/create-group",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "number",
+            "description": "Board ID"
+          },
+          "group_name": {
+            "type": "string",
+            "description": "Group name"
+          }
+        },
+        "required": [
+          "board_id",
+          "group_name"
+        ]
+      }
+    },
+    {
+      "name": "create_item",
+      "description": "Create a new item in a board",
+      "method": "POST",
+      "path": "/create-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "number",
+            "description": "Board ID"
+          },
+          "item_name": {
+            "type": "string",
+            "description": "Item name"
+          },
+          "group_id": {
+            "type": "string",
+            "description": "Group ID"
+          },
+          "column_values": {
+            "type": "object",
+            "description": "Column values as JSON"
+          }
+        },
+        "required": [
+          "board_id",
+          "item_name"
+        ]
+      }
+    },
+    {
+      "name": "update_column",
+      "description": "Update a column value for an item",
+      "method": "PUT",
+      "path": "/update-column",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "number",
+            "description": "Board ID"
+          },
+          "item_id": {
+            "type": "number",
+            "description": "Item ID"
+          },
+          "column_id": {
+            "type": "string",
+            "description": "Column ID"
+          },
+          "value": {
+            "type": "string",
+            "description": "New value as JSON string"
+          }
+        },
+        "required": [
+          "board_id",
+          "item_id",
+          "column_id",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "add_update",
+      "description": "Add an update/comment to an item",
+      "method": "GET",
+      "path": "/add-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "number",
+            "description": "Item ID"
+          },
+          "body": {
+            "type": "string",
+            "description": "Update body"
+          }
+        },
+        "required": [
+          "item_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "trigger_automation",
+      "description": "Trigger a board automation",
+      "method": "GET",
+      "path": "/trigger-automation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "board_id": {
+            "type": "number",
+            "description": "Board ID"
+          },
+          "automation_id": {
+            "type": "string",
+            "description": "Automation ID"
+          }
+        },
+        "required": [
+          "board_id",
+          "automation_id"
+        ]
+      }
+    }
+  ]
+}

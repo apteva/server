@@ -88,6 +88,9 @@ func (s *Server) enrichAgentThreadsBody(instanceID int64, body []byte, now time.
 	}
 	latest := s.latestLLMDoneByThread(instanceID, len(threads)*2)
 	for _, thread := range threads {
+		if directive, ok := thread["directive"].(string); ok {
+			thread["directive"] = withoutAgentControls(directive)
+		}
 		threadID := sleepStringValue(thread["id"])
 		if threadID == "" {
 			threadID = "main"

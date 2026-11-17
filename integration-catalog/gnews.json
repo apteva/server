@@ -1,0 +1,71 @@
+{
+  "slug": "gnews",
+  "name": "GNews",
+  "description": "Search engine for news articles aggregated from 60,000+ sources globally. Stronger international + non-English coverage than NewsAPI (especially solid for European + Asian sources). Returns title, description, content (truncated), url, image, source, and publishedAt per article. Free tier: 100 requests/day, max 10 articles per request. Sign up at https://gnews.io/register.",
+  "logo": "https://www.google.com/s2/favicons?domain=gnews.io&sz=128",
+  "categories": [
+    "news",
+    "search",
+    "international",
+    "media"
+  ],
+  "base_url": "https://gnews.io/api/v4",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From https://gnews.io/dashboard. Free tier: 100 req/day."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Full-text article search. q supports AND / OR / NOT / quoted phrases. Use for broad news pulls including non-English coverage. Example: q='Fed cut rate', lang='en' returns US Fed coverage; lang='de' for German press takes.",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q":          {"type": "string", "description": "Free-text query."},
+          "lang":       {"type": "string", "description": "ISO 639-1 lang code — en, fr, de, es, it, pt, ja, zh, etc. Default: en."},
+          "country":    {"type": "string", "description": "ISO 3166-1 alpha-2 country code — us, gb, fr, de, jp."},
+          "max":        {"type": "integer", "description": "Articles to return (1-100, free tier max 10)."},
+          "in":         {"type": "string", "description": "Comma-separated fields to match q against: title, description, content. Default: title,description."},
+          "nullable":   {"type": "string", "description": "Comma-separated fields that can be null — image, description, content."},
+          "from":       {"type": "string", "description": "ISO date — articles on/after."},
+          "to":         {"type": "string", "description": "ISO date — articles on/before."},
+          "sortby":     {"type": "string", "enum": ["publishedAt","relevance"], "default": "publishedAt"}
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "top_headlines",
+      "description": "Top news headlines by country + category. Returns the current top stories. Use for daily macro sentiment scans.",
+      "method": "GET",
+      "path": "/top-headlines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": "string", "enum": ["general","world","nation","business","technology","entertainment","sports","science","health"]},
+          "lang":     {"type": "string", "default": "en"},
+          "country":  {"type": "string", "description": "ISO country code, default us."},
+          "max":      {"type": "integer", "description": "1-100, free tier max 10."},
+          "q":        {"type": "string", "description": "Optional keyword filter."},
+          "from":     {"type": "string"},
+          "to":       {"type": "string"}
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "top_headlines",
+    "args": {"category": "business", "lang": "en", "max": 1}
+  }
+}

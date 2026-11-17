@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -116,6 +115,13 @@ func parseRealtimeProxyPingPayload(payload string) (sequence uint64, sentAtUnixM
 }
 
 type realtimeProxyCloseTelemetry struct {
+	ConnectionID      string                         `json:"connection_id"`
+	CallID            string                         `json:"call_id,omitempty"`
+	StartedAt         time.Time                      `json:"started_at"`
+	ObservedAt        time.Time                      `json:"observed_at"`
+	TransportError    string                         `json:"transport_error,omitempty"`
+	RelayError        string                         `json:"relay_error,omitempty"`
+	Directions        []proxyDirectionTelemetry      `json:"directions"`
 	InitiatedBy       string                         `json:"initiated_by"`
 	CloseCode         int                            `json:"close_code"`
 	CloseReason       string                         `json:"close_reason,omitempty"`
@@ -148,7 +154,7 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		http.Error(w, "valid agent_id, thread and token required", http.StatusBadRequest)
 		return
 	}
-	agent, err := s.store.GetAgentByID(agentID)
+	agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
 	if err == nil && !s.capabilityAllowed(agent.UserID, "realtime_voice") {
 		http.Error(w, "realtime voice is disabled", http.StatusForbidden)
 		return
@@ -168,25 +174,69 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	query := coreURL.Query()
 	query.Set("thread", threadID)
 	query.Set("token", token)
+	if r.URL.Query().Get("audio_protocol") == "1" {
+		query.Set("audio_protocol", "1")
+	}
 	coreURL.RawQuery = query.Encode()
+	trace := newWebsocketProxyTrace(s, r, "realtime.proxy", agentID, threadID, websocketProxyMetadata{Proxy: "realtime_audio"})
+	stopWatch := trace.watch(r)
+	defer stopWatch()
 	header := http.Header{"Authorization": []string{"Bearer " + coreKey}}
+	header.Set(proxyConnectionIDHeader, trace.id)
+	w.Header().Set(proxyConnectionIDHeader, trace.id)
+	if trace.callID != "" {
+		header.Set(proxyCallIDHeader, trace.callID)
+	}
 	coreConn, response, err := websocket.DefaultDialer.Dial(coreURL.String(), header)
+	trace.adoptResponse(response)
 	if err != nil {
 		status := http.StatusBadGateway
 		if response != nil && (response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusUnauthorized) {
 			status = http.StatusForbidden
 		}
+		backendStatus := 0
+		if response != nil {
+			backendStatus = response.StatusCode
+			if response.Body != nil {
+				_ = response.Body.Close()
+			}
+		}
+		trace.emit("failed", time.Now(), map[string]any{"stage": "core_handshake", "status_code": status, "backend_status_code": backendStatus, "error": proxyTransportError(err), "category": realtimeProxyErrorCategory(err)})
 		http.Error(w, "audio bridge rejected", status)
 		return
 	}
-	defer coreConn.Close()
+	trace.setCloser("backend", coreConn)
+	defer func() { trace.requestClose("backend", "close", "", ""); _ = coreConn.Close() }()
 
-	clientConn, err := realtimeProxyUpgrader.Upgrade(w, r, nil)
+	responseHeader := http.Header{proxyConnectionIDHeader: {trace.id}}
+	writeBudget := 15 * time.Second
+	if response != nil && r.URL.Query().Get("audio_protocol") == "1" {
+		contract := response.Header.Get("X-Apteva-Audio-Session")
+		if len(contract) > 4096 {
+			http.Error(w, "invalid audio session contract", http.StatusBadGateway)
+			return
+		}
+		if contract != "" {
+			responseHeader.Set("X-Apteva-Audio-Session", contract)
+			writeBudget = 250 * time.Millisecond
+		}
+	}
+	clientConn, err := realtimeProxyUpgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
+		trace.emit("failed", time.Now(), map[string]any{"stage": "client_upgrade", "error": proxyTransportError(err), "category": realtimeProxyErrorCategory(err)})
 		return
 	}
-	defer clientConn.Close()
+	trace.setCloser("client", clientConn)
+	defer func() { trace.requestClose("client", "close", "", ""); _ = clientConn.Close() }()
 	startedAt := time.Now()
+	trace.open()
+	for leg, conn := range map[string]*websocket.Conn{"client": clientConn, "backend": coreConn} {
+		conn.SetCloseHandler(func(code int, reason string) error {
+			trace.observeIO(leg, "read", 0, &websocket.CloseError{Code: code, Text: reason}, 0)
+			trace.requestClose(leg, "close_frame", "peer_close_ack", "")
+			return conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(code, ""), time.Now().Add(time.Second))
+		})
+	}
 	clientConn.SetReadLimit(realtimeProxyMaxMessageBytes)
 	coreConn.SetReadLimit(realtimeProxyMaxMessageBytes)
 	refreshDeadline := func(conn *websocket.Conn) {
@@ -222,6 +272,7 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 						return conn.WriteControl(websocket.PingMessage, payload, deadline)
 					},
 					func(destination string, sequence uint64, err error) {
+						trace.emit("control.error", time.Now(), map[string]any{"operation": "ping", "destination": destination, "sequence": sequence, "error": proxyTransportError(err), "category": realtimeProxyErrorCategory(err)})
 						log.Printf(
 							"[REALTIME-PROXY] agent=%d thread=%q ping_failed destination=%s sequence=%d elapsed=%s err=%v",
 							agentID, threadID, destination, sequence, time.Since(startedAt).Round(time.Millisecond), err,
@@ -238,18 +289,42 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 		peer      *websocket.Conn
 	}
 	copyMessages := func(dst *websocket.Conn, dstSide string, src *websocket.Conn, srcSide string, done chan<- proxyResult) {
+		var bytes, messages int64
+		finish := func(operation, initiator string, err error, peer *websocket.Conn) {
+			trace.recordDirection(srcSide+"_to_"+dstSide, operation, bytes, messages, err)
+			done <- proxyResult{err: err, initiator: initiator, peer: peer}
+		}
 		for {
 			_ = src.SetReadDeadline(time.Now().Add(2 * time.Minute))
+			readStart := time.Now()
 			messageType, payload, err := src.ReadMessage()
+			leg := "client"
+			if srcSide == "core" {
+				leg = "backend"
+			}
+			trace.observeIO(leg, "read", len(payload), err, time.Since(readStart))
 			if err != nil {
-				done <- proxyResult{err: err, initiator: srcSide, peer: dst}
+				finish("read", srcSide, err, dst)
 				return
 			}
-			_ = dst.SetWriteDeadline(time.Now().Add(15 * time.Second))
-			if err := dst.WriteMessage(messageType, payload); err != nil {
-				done <- proxyResult{err: err, initiator: dstSide, peer: src}
+			_ = dst.SetWriteDeadline(time.Now().Add(writeBudget))
+			writeStart := time.Now()
+			err = dst.WriteMessage(messageType, payload)
+			leg = "client"
+			if dstSide == "core" {
+				leg = "backend"
+			}
+			written := len(payload)
+			if err != nil {
+				written = 0
+			}
+			trace.observeIO(leg, "write", written, err, time.Since(writeStart))
+			if err != nil {
+				finish("write", dstSide, err, src)
 				return
 			}
+			bytes += int64(len(payload))
+			messages++
 		}
 	}
 	done := make(chan proxyResult, 2)
@@ -259,6 +334,11 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	first := <-done
 	close(pingDone)
 	code, reason := realtimeProxyCloseDetails(first.err)
+	peerLeg := "client"
+	if first.peer == coreConn {
+		peerLeg = "backend"
+	}
+	trace.requestClose(peerLeg, "close_frame", "other_leg_terminated", "")
 	relayErr := first.peer.WriteControl(
 		websocket.CloseMessage,
 		websocket.FormatCloseMessage(code, reason),
@@ -267,78 +347,17 @@ func (s *Server) handleRealtimeAudioProxy(w http.ResponseWriter, r *http.Request
 	select {
 	case <-done:
 	case <-time.After(time.Second):
+		// A peer may never acknowledge the relayed close. Unblock the other
+		// direction and retain its real termination error before reporting.
+		trace.closeConnections("other_leg_terminated")
+		<-done
 	}
-	var peerClose *websocket.CloseError
-	if errors.As(first.err, &peerClose) {
-		// Close reasons can contain provider/customer detail. Forward them to
-		// the peer, but keep logs limited to structured routing metadata.
-		log.Printf("[REALTIME-PROXY] agent=%d thread=%q initiated_by=%s code=%d relay_err=%v",
-			agentID, threadID, first.initiator, code, relayErr)
-	} else {
-		log.Printf("[REALTIME-PROXY] agent=%d thread=%q initiated_by=%s code=%d transport_err=%v relay_err=%v",
-			agentID, threadID, first.initiator, code, first.err, relayErr)
-	}
-	s.recordRealtimeProxyClose(
-		agentID,
-		threadID,
-		startedAt,
-		time.Now(),
-		first.initiator,
-		code,
-		reason,
-		realtimeProxyErrorCategory(first.err),
-		realtimeProxyErrorCategory(relayErr),
-		keepalive.snapshot(),
-	)
-}
-
-func (s *Server) recordRealtimeProxyClose(
-	agentID int64,
-	threadID string,
-	startedAt time.Time,
-	closedAt time.Time,
-	initiatedBy string,
-	code int,
-	reason string,
-	transportCategory string,
-	relayCategory string,
-	keepalive realtimeProxyKeepaliveSnapshot,
-) {
-	if s == nil || s.store == nil {
-		return
-	}
-	duration := closedAt.Sub(startedAt)
-	if duration < 0 {
-		duration = 0
-	}
-	data, err := json.Marshal(realtimeProxyCloseTelemetry{
-		InitiatedBy:       initiatedBy,
-		CloseCode:         code,
-		CloseReason:       boundedWebSocketCloseReason(reason),
-		DurationMS:        duration.Milliseconds(),
-		TransportCategory: transportCategory,
-		RelayCategory:     relayCategory,
-		Keepalive:         keepalive,
+	trace.emit("closed", time.Now(), map[string]any{
+		"initiated_by": first.initiator, "close_code": code, "close_reason": boundedWebSocketCloseReason(reason),
+		"transport_category": realtimeProxyErrorCategory(first.err), "relay_category": realtimeProxyErrorCategory(relayErr), "keepalive": keepalive.snapshot(),
+		"transport_error": proxyTransportError(first.err), "relay_error": proxyTransportError(relayErr),
+		"directions": trace.directions(), "directions_complete": true,
 	})
-	if err != nil {
-		log.Printf("[REALTIME-PROXY] agent=%d thread=%q telemetry_encode_failed err=%v", agentID, threadID, err)
-		return
-	}
-	event := TelemetryEvent{
-		ID:       generateID(),
-		AgentID:  agentID,
-		ThreadID: threadID,
-		Type:     "realtime.proxy.closed",
-		Time:     closedAt.UTC(),
-		Data:     data,
-	}
-	if err := s.store.InsertTelemetry([]TelemetryEvent{event}); err != nil {
-		log.Printf("[REALTIME-PROXY] agent=%d thread=%q telemetry_persist_failed err=%v", agentID, threadID, err)
-		return
-	}
-	if s.broadcaster != nil {
-		s.broadcaster.Broadcast([]TelemetryEvent{event})
-	}
 }
 
 func realtimeProxyErrorCategory(err error) string {

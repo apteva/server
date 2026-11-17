@@ -1,0 +1,116 @@
+{
+  "slug": "azure-container-apps",
+  "name": "Azure Container Apps",
+  "description": "Microsoft's serverless container platform — Consumption plan bills per-second on vCPU + GB allocated. Useful as a pay-per-use builder or runtime when already on Azure. Authenticates against the Azure Resource Manager (ARM) with a bearer token from Azure AD (service principal client_credentials grant or managed identity).",
+  "logo": "https://www.google.com/s2/favicons?domain=azure.microsoft.com&sz=128",
+  "categories": ["azure", "containers", "serverless", "compute", "build"],
+  "base_url": "https://management.azure.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{access_token}}" },
+    "credential_fields": [
+      { "name": "access_token", "label": "ARM Access Token", "description": "Azure AD access token with audience=https://management.azure.com/. Get with: az account get-access-token --resource https://management.azure.com/ --query accessToken -o tsv", "required": true, "type": "password" },
+      { "name": "subscription_id", "label": "Subscription ID", "description": "Azure subscription UUID", "required": true, "type": "text" },
+      { "name": "resource_group", "label": "Resource Group", "description": "Default resource group for container app operations", "required": true, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_environments",
+      "description": "List Container App Environments in the resource group.",
+      "method": "GET",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/managedEnvironments?api-version=2024-03-01",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_apps",
+      "description": "List container apps in the resource group.",
+      "method": "GET",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/containerApps?api-version=2024-03-01",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_app",
+      "description": "Create or update a container app (Consumption plan). Args: app_name, location, environment_id (full ARM id), image, cpu? (0.25..2 cores), memory? (0.5Gi..4Gi), env? (array of {name, value}), ingress_target_port?.",
+      "method": "PUT",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/containerApps/{app_name}?api-version=2024-03-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "location": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "image": { "type": "string" },
+          "cpu": { "type": "number" },
+          "memory": { "type": "string" },
+          "env": { "type": "array", "items": { "type": "object" } },
+          "ingress_target_port": { "type": "integer" }
+        },
+        "required": ["app_name", "location", "environment_id", "image"]
+      }
+    },
+    {
+      "name": "get_app",
+      "description": "Get a container app. Args: app_name.",
+      "method": "GET",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/containerApps/{app_name}?api-version=2024-03-01",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_name": { "type": "string" } },
+        "required": ["app_name"]
+      }
+    },
+    {
+      "name": "delete_app",
+      "description": "Delete a container app. Args: app_name.",
+      "method": "DELETE",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/containerApps/{app_name}?api-version=2024-03-01",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_name": { "type": "string" } },
+        "required": ["app_name"]
+      }
+    },
+    {
+      "name": "list_revisions",
+      "description": "List revisions for a container app (each PUT creates a new revision). Args: app_name.",
+      "method": "GET",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/containerApps/{app_name}/revisions?api-version=2024-03-01",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_name": { "type": "string" } },
+        "required": ["app_name"]
+      }
+    },
+    {
+      "name": "create_job",
+      "description": "Create a one-shot Container Apps Job (per-second billed, terminates on exit). Useful for builds. Args: job_name, location, environment_id, image, command? (array), cpu?, memory?.",
+      "method": "PUT",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/jobs/{job_name}?api-version=2024-03-01",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_name": { "type": "string" },
+          "location": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "image": { "type": "string" },
+          "command": { "type": "array", "items": { "type": "string" } },
+          "cpu": { "type": "number" },
+          "memory": { "type": "string" }
+        },
+        "required": ["job_name", "location", "environment_id", "image"]
+      }
+    },
+    {
+      "name": "start_job",
+      "description": "Start a job execution. Args: job_name.",
+      "method": "POST",
+      "path": "/subscriptions/{{subscription_id}}/resourceGroups/{{resource_group}}/providers/Microsoft.App/jobs/{job_name}/start?api-version=2024-03-01",
+      "input_schema": {
+        "type": "object",
+        "properties": { "job_name": { "type": "string" } },
+        "required": ["job_name"]
+      }
+    }
+  ]
+}

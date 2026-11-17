@@ -1,0 +1,529 @@
+{
+  "slug": "vimeo",
+  "name": "Vimeo",
+  "description": "Vimeo video hosting API for uploads including pull-from-URL, videos, folders, showcases, privacy, comments, thumbnails, text tracks, and account data.",
+  "logo": "https://www.google.com/s2/favicons?domain=vimeo.com&sz=128",
+  "categories": [
+    "video",
+    "hosting",
+    "media",
+    "streaming"
+  ],
+  "base_url": "https://api.vimeo.com",
+  "auth": {
+    "types": [
+      "oauth2",
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "source": "oauth"
+      },
+      {
+        "name": "refresh_token",
+        "label": "Refresh Token",
+        "type": "password",
+        "source": "oauth",
+        "required": false
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.vimeo.com/oauth/authorize",
+      "token_url": "https://api.vimeo.com/oauth/access_token",
+      "scopes": [
+        "public",
+        "private",
+        "edit",
+        "upload",
+        "delete",
+        "interact",
+        "video_files"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "health_check": {
+    "tool": "get_me"
+  },
+  "tools": [
+    {
+      "name": "get_me",
+      "description": "Get the authenticated Vimeo user and account capabilities.",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_my_videos",
+      "description": "List videos in the authenticated account.",
+      "method": "GET",
+      "path": "/me/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "filter": {
+            "type": "string"
+          },
+          "filter_embeddable": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_video",
+      "description": "Get video metadata, status, privacy, playback, and upload details.",
+      "method": "GET",
+      "path": "/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "create_upload",
+      "description": "Create a Vimeo video using tus, form, or pull-from-URL upload parameters. For a public file URL use upload.approach='pull' and upload.link.",
+      "method": "POST",
+      "path": "/me/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "upload": {
+            "type": "object",
+            "description": "Upload configuration. Use {approach:'pull',link:'https://...'} for URL import, or {approach:'tus',size:<bytes>} for tus.",
+            "properties": {
+              "approach": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "link": {
+                "type": "string"
+              },
+              "redirect_url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "approach"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "object"
+          },
+          "embed": {
+            "type": "object"
+          },
+          "review_page": {
+            "type": "object"
+          },
+          "content_rating": {
+            "type": "array",
+            "description": "Content rating values.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload"
+        ]
+      }
+    },
+    {
+      "name": "update_video",
+      "description": "Update video name, description, privacy, review settings, or embed controls.",
+      "method": "PATCH",
+      "path": "/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "object"
+          },
+          "embed": {
+            "type": "object"
+          },
+          "review_page": {
+            "type": "object"
+          },
+          "content_rating": {
+            "type": "array",
+            "description": "Ratings.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_video",
+      "description": "Permanently delete a Vimeo video.",
+      "method": "DELETE",
+      "path": "/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List Vimeo folders.",
+      "method": "GET",
+      "path": "/me/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a Vimeo folder.",
+      "method": "POST",
+      "path": "/me/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parent_folder_uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "add_video_to_folder",
+      "description": "Add a video to a folder.",
+      "method": "PUT",
+      "path": "/me/folders/{folder_id}/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          },
+          "video_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id",
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "remove_video_from_folder",
+      "description": "Remove a video from a folder without deleting the video.",
+      "method": "DELETE",
+      "path": "/me/folders/{folder_id}/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          },
+          "video_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id",
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_showcases",
+      "description": "List showcases/albums.",
+      "method": "GET",
+      "path": "/me/albums",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_showcase",
+      "description": "Create a showcase.",
+      "method": "POST",
+      "path": "/me/albums",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "privacy": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "string"
+          },
+          "theme": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "add_video_to_showcase",
+      "description": "Add a video to a showcase.",
+      "method": "PUT",
+      "path": "/me/albums/{showcase_id}/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "showcase_id": {
+            "type": "string"
+          },
+          "video_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "showcase_id",
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_video_comments",
+      "description": "List comments on a video.",
+      "method": "GET",
+      "path": "/videos/{video_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "direction": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "create_video_comment",
+      "description": "Create a comment on a video.",
+      "method": "POST",
+      "path": "/videos/{video_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "list_video_pictures",
+      "description": "List thumbnail pictures for a video.",
+      "method": "GET",
+      "path": "/videos/{video_id}/pictures",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_text_tracks",
+      "description": "List subtitles and captions for a video.",
+      "method": "GET",
+      "path": "/videos/{video_id}/texttracks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "create_text_track",
+      "description": "Create a text-track upload resource for captions or subtitles.",
+      "method": "POST",
+      "path": "/videos/{video_id}/texttracks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "captions or subtitles."
+          },
+          "language": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "video_id",
+          "type",
+          "language",
+          "name"
+        ]
+      }
+    }
+  ]
+}

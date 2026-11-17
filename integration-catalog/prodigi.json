@@ -1,0 +1,322 @@
+{
+  "slug": "prodigi",
+  "name": "Prodigi",
+  "description": "Prodigi print-on-demand API for product specifications, delivery quotes, order submission, and fulfillment tracking. Supports both the non-billing sandbox and live production environments.",
+  "logo": "https://www.google.com/s2/favicons?domain=prodigi.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "print-on-demand",
+    "products",
+    "fulfillment"
+  ],
+  "base_url": "https://{{credential.api_host}}",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Prodigi API key for the selected environment. Sandbox and live accounts use different keys.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "api_host",
+        "label": "Environment",
+        "description": "Use sandbox while testing. Sandbox orders are not charged or fulfilled.",
+        "required": true,
+        "type": "select",
+        "options": [
+          "api.sandbox.prodigi.com",
+          "api.prodigi.com"
+        ],
+        "default": "api.sandbox.prodigi.com",
+        "exposure": "public"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_product",
+      "description": "Get a Prodigi product specification by SKU, including available attributes, destination availability, and print areas.",
+      "method": "GET",
+      "path": "/v4.0/products/{sku}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string",
+            "description": "Prodigi product SKU, for example GLOBAL-CAN-10x10."
+          }
+        },
+        "required": [
+          "sku"
+        ]
+      }
+    },
+    {
+      "name": "create_quote",
+      "description": "Quote Prodigi item and shipping costs for a destination before creating an order.",
+      "method": "POST",
+      "path": "/v4.0/quotes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "destinationCountryCode": {
+            "type": "string"
+          },
+          "currencyCode": {
+            "type": "string"
+          },
+          "shippingMethod": {
+            "type": "string",
+            "enum": [
+              "Budget",
+              "Standard",
+              "StandardPlus",
+              "Express",
+              "Overnight"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "destinationCountryCode",
+          "currencyCode",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a Prodigi print order. Use a stable idempotencyKey to prevent duplicate fulfillment.",
+      "method": "POST",
+      "path": "/v4.0/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "merchantReference": {
+            "type": "string"
+          },
+          "shippingMethod": {
+            "type": "string"
+          },
+          "recipient": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "callbackUrl": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "merchantReference",
+          "shippingMethod",
+          "recipient",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get the current state, shipments, and tracking details for a Prodigi order.",
+      "method": "GET",
+      "path": "/v4.0/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List Prodigi orders. Optional filters are passed through to the Prodigi API.",
+      "method": "GET",
+      "path": "/v4.0/orders",
+      "query_params": [
+        "top",
+        "skip",
+        "createdFrom",
+        "createdTo",
+        "status",
+        "orderIds",
+        "merchantReferences"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "top": {
+            "type": "integer"
+          },
+          "skip": {
+            "type": "integer"
+          },
+          "createdFrom": {
+            "type": "string"
+          },
+          "createdTo": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "orderIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "merchantReferences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order_actions",
+      "description": "List actions currently available for a Prodigi order.",
+      "method": "GET",
+      "path": "/v4.0/orders/{order_id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel a Prodigi order when the cancel action is still available.",
+      "method": "POST",
+      "path": "/v4.0/orders/{order_id}/actions/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "update_shipping_method",
+      "description": "Change the shipping method for a Prodigi order while the action remains available.",
+      "method": "POST",
+      "path": "/v4.0/orders/{order_id}/actions/updateShippingMethod",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "shippingMethod": {
+            "type": "string",
+            "enum": [
+              "Budget",
+              "Standard",
+              "StandardPlus",
+              "Express",
+              "Overnight"
+            ]
+          }
+        },
+        "required": [
+          "order_id",
+          "shippingMethod"
+        ]
+      }
+    },
+    {
+      "name": "update_recipient",
+      "description": "Replace the recipient contact and address for a Prodigi order while the action remains available.",
+      "method": "POST",
+      "path": "/v4.0/orders/{order_id}/actions/updateRecipient",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phoneNumber": {
+            "type": "string"
+          },
+          "address": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "order_id",
+          "name",
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "update_metadata",
+      "description": "Replace custom metadata for a Prodigi order while the action remains available.",
+      "method": "POST",
+      "path": "/v4.0/orders/{order_id}/actions/updateMetadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "order_id",
+          "metadata"
+        ]
+      }
+    }
+  ]
+}

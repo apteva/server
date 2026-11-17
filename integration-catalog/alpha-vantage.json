@@ -1,0 +1,169 @@
+{
+  "slug": "alpha-vantage",
+  "name": "Alpha Vantage",
+  "description": "Alpha Vantage market data API focused on News & Sentiment, top gainers/losers, quotes, company overview, earnings, economic indicators, forex, and crypto.",
+  "logo": "https://www.google.com/s2/favicons?domain=alphavantage.co&sz=128",
+  "categories": ["finance", "stocks", "news", "sentiment", "market-data", "macro"],
+  "base_url": "https://www.alphavantage.co",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "apikey": "{{api_key}}" },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "Alpha Vantage API key from https://www.alphavantage.co/support/#api-key"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "news_sentiment",
+    "input": { "limit": 1 }
+  },
+  "tools": [
+    {
+      "name": "news_sentiment",
+      "description": "Live and historical market news with article-level and ticker-level sentiment. Supports stocks, crypto, forex, topics, time ranges, sorting, and limits.",
+      "method": "GET",
+      "path": "/query?function=NEWS_SENTIMENT",
+      "query_params": ["tickers", "topics", "time_from", "time_to", "sort", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tickers": { "type": "string", "description": "Comma-separated symbols, e.g. AAPL,CRYPTO:BTC,FOREX:USD." },
+          "topics": { "type": "string", "description": "Comma-separated topics such as technology,ipo,mergers_and_acquisitions,financial_markets,economy_macro." },
+          "time_from": { "type": "string", "description": "YYYYMMDDTHHMM format." },
+          "time_to": { "type": "string", "description": "YYYYMMDDTHHMM format." },
+          "sort": { "type": "string", "enum": ["LATEST", "EARLIEST", "RELEVANCE"] },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "top_gainers_losers",
+      "description": "Top gainers, losers, and most actively traded US stocks.",
+      "method": "GET",
+      "path": "/query?function=TOP_GAINERS_LOSERS",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "global_quote",
+      "description": "Latest price and volume quote for one symbol.",
+      "method": "GET",
+      "path": "/query?function=GLOBAL_QUOTE",
+      "query_params": ["symbol"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string" }
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "symbol_search",
+      "description": "Search Alpha Vantage symbol metadata by keyword.",
+      "method": "GET",
+      "path": "/query?function=SYMBOL_SEARCH",
+      "query_params": ["keywords"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": { "type": "string" }
+        },
+        "required": ["keywords"]
+      }
+    },
+    {
+      "name": "company_overview",
+      "description": "Company overview, ratios, sector/industry, market cap, dividend, analyst target, and fundamentals summary.",
+      "method": "GET",
+      "path": "/query?function=OVERVIEW",
+      "query_params": ["symbol"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string" }
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "earnings",
+      "description": "Annual and quarterly earnings for a symbol.",
+      "method": "GET",
+      "path": "/query?function=EARNINGS",
+      "query_params": ["symbol"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string" }
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "listing_status",
+      "description": "Active or delisted symbol listing status. CSV response from Alpha Vantage.",
+      "method": "GET",
+      "path": "/query?function=LISTING_STATUS",
+      "query_params": ["date", "state"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "description": "YYYY-MM-DD." },
+          "state": { "type": "string", "enum": ["active", "delisted"] }
+        }
+      }
+    },
+    {
+      "name": "economic_indicator",
+      "description": "Fetch one Alpha Vantage macro series such as REAL_GDP, CPI, INFLATION, UNEMPLOYMENT, FEDERAL_FUNDS_RATE, TREASURY_YIELD, RETAIL_SALES, DURABLES, or NONFARM_PAYROLL.",
+      "method": "GET",
+      "path": "/query",
+      "query_params": ["function", "interval", "maturity", "datatype"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function": { "type": "string", "description": "Macro function name." },
+          "interval": { "type": "string", "description": "daily, weekly, monthly, quarterly, annual depending on the indicator." },
+          "maturity": { "type": "string", "description": "For TREASURY_YIELD, e.g. 10year." },
+          "datatype": { "type": "string", "enum": ["json", "csv"] }
+        },
+        "required": ["function"]
+      }
+    },
+    {
+      "name": "fx_daily",
+      "description": "Daily foreign exchange time series.",
+      "method": "GET",
+      "path": "/query?function=FX_DAILY",
+      "query_params": ["from_symbol", "to_symbol", "outputsize"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from_symbol": { "type": "string" },
+          "to_symbol": { "type": "string" },
+          "outputsize": { "type": "string", "enum": ["compact", "full"] }
+        },
+        "required": ["from_symbol", "to_symbol"]
+      }
+    },
+    {
+      "name": "digital_currency_daily",
+      "description": "Daily digital currency prices in a market currency.",
+      "method": "GET",
+      "path": "/query?function=DIGITAL_CURRENCY_DAILY",
+      "query_params": ["symbol", "market"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string", "description": "Crypto symbol such as BTC." },
+          "market": { "type": "string", "description": "Market currency such as USD." }
+        },
+        "required": ["symbol", "market"]
+      }
+    }
+  ]
+}

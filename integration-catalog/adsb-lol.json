@@ -1,0 +1,144 @@
+{
+  "slug": "adsb-lol",
+  "name": "adsb.lol",
+  "description": "Free, open ADS-B aircraft tracking API for live positions by aircraft hex, callsign, registration, type, squawk, or geographic radius. Data is ODbL licensed; production users should contact adsb.lol because the public API has no SLA and may require feeder authentication in the future.",
+  "logo": "https://www.google.com/s2/favicons?domain=adsb.lol&sz=128",
+  "categories": ["aviation", "flight-tracking", "aircraft", "ads-b", "open-data"],
+  "base_url": "https://api.adsb.lol",
+  "auth": {
+    "types": ["none"],
+    "headers": { "Accept": "application/json" },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "aircraft_near_point",
+    "input": { "lat": 50.0379, "lon": 8.5622, "radius": 1 }
+  },
+  "tools": [
+    {
+      "name": "get_aircraft_by_hex",
+      "description": "Get live ADS-B state for one or more ICAO 24-bit transponder hex identifiers. Separate multiple identifiers with commas.",
+      "method": "GET",
+      "path": "/v2/hex/{icao_hex}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "icao_hex": { "type": "string", "description": "ICAO transponder hex, or comma-separated hex identifiers." } },
+        "required": ["icao_hex"]
+      }
+    },
+    {
+      "name": "get_aircraft_by_callsign",
+      "description": "Get live aircraft matching an exact flight callsign such as JBU1942. Callsigns can differ from passenger-facing flight numbers.",
+      "method": "GET",
+      "path": "/v2/callsign/{callsign}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "callsign": { "type": "string" } },
+        "required": ["callsign"]
+      }
+    },
+    {
+      "name": "get_aircraft_by_registration",
+      "description": "Get live aircraft matching an exact registration/tail number.",
+      "method": "GET",
+      "path": "/v2/reg/{registration}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "registration": { "type": "string" } },
+        "required": ["registration"]
+      }
+    },
+    {
+      "name": "get_aircraft_by_type",
+      "description": "Get live aircraft matching an ICAO aircraft type code such as A320 or B738.",
+      "method": "GET",
+      "path": "/v2/type/{aircraft_type}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "aircraft_type": { "type": "string" } },
+        "required": ["aircraft_type"]
+      }
+    },
+    {
+      "name": "get_aircraft_by_squawk",
+      "description": "Get live aircraft broadcasting a transponder squawk such as 7700.",
+      "method": "GET",
+      "path": "/v2/squawk/{squawk}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "squawk": { "type": "string", "pattern": "^[0-7]{4}$" } },
+        "required": ["squawk"]
+      }
+    },
+    {
+      "name": "aircraft_near_point",
+      "description": "List live aircraft within a radius of a latitude/longitude point. Radius is nautical miles and cannot exceed 250.",
+      "method": "GET",
+      "path": "/v2/point/{lat}/{lon}/{radius}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+          "radius": { "type": "number", "minimum": 0, "maximum": 250, "description": "Search radius in nautical miles." }
+        },
+        "required": ["lat", "lon", "radius"]
+      }
+    },
+    {
+      "name": "closest_aircraft",
+      "description": "Return the single live aircraft closest to a point within the supplied maximum radius.",
+      "method": "GET",
+      "path": "/v2/closest/{lat}/{lon}/{radius}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+          "radius": { "type": "number", "minimum": 0, "maximum": 250 }
+        },
+        "required": ["lat", "lon", "radius"]
+      }
+    },
+    { "name": "list_military_aircraft", "description": "List live aircraft tagged as military.", "method": "GET", "path": "/v2/mil", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_ladd_aircraft", "description": "List live aircraft tagged under Limiting Aircraft Data Displayed (LADD).", "method": "GET", "path": "/v2/ladd", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "list_pia_aircraft", "description": "List live aircraft using Privacy ICAO Address (PIA) identifiers.", "method": "GET", "path": "/v2/pia", "input_schema": { "type": "object", "properties": {} } },
+    {
+      "name": "get_airport",
+      "description": "Get airport metadata by ICAO airport identifier.",
+      "method": "GET",
+      "path": "/api/0/airport/{icao}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "icao": { "type": "string", "description": "Four-letter ICAO airport code, such as EDDF." } },
+        "required": ["icao"]
+      }
+    },
+    {
+      "name": "resolve_routes",
+      "description": "Resolve route metadata for multiple aircraft using callsign and current position.",
+      "method": "POST",
+      "path": "/api/0/routeset",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "planes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "callsign": { "type": "string" },
+                "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+                "lng": { "type": "number", "minimum": -180, "maximum": 180 }
+              },
+              "required": ["callsign", "lat", "lng"]
+            },
+            "maxItems": 100,
+            "description": "Aircraft callsigns and current coordinates to resolve."
+          }
+        },
+        "required": ["planes"]
+      }
+    }
+  ]
+}

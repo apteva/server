@@ -150,7 +150,7 @@ func (s *Server) hasActiveBrowserSession(r *http.Request, userID int64) bool {
 	if token == "" {
 		return false
 	}
-	got, err := s.store.GetSession(token)
+	got, err := s.store.GetSessionContext(r.Context(), token)
 	return err == nil && got == userID
 }
 
@@ -159,7 +159,7 @@ func (s *Server) handleMFAStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	user, err := s.store.GetUserByID(getUserID(r))
+	user, err := s.store.GetUserByIDContext(r.Context(), getUserID(r))
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -194,7 +194,7 @@ func (s *Server) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(getUserID(r))
+	user, err := s.store.GetUserByIDContext(r.Context(), getUserID(r))
 	if err != nil {
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -252,7 +252,7 @@ func (s *Server) handleMFAConfirm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(getUserID(r))
+	user, err := s.store.GetUserByIDContext(r.Context(), getUserID(r))
 	if err != nil || user.MFAType != "totp_pending" {
 		http.Error(w, "TOTP enrollment is not pending", http.StatusConflict)
 		return
@@ -282,6 +282,7 @@ func (s *Server) handleMFAConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	currentToken := sessionToken(r)
 	_ = s.store.DeleteSessionsForUserExcept(user.ID, currentToken)
+	s.closeUserDeviceLinks(user.ID, "account sessions revoked")
 	writeJSON(w, map[string]any{"enabled": true, "recovery_codes": codes})
 }
 
@@ -309,7 +310,7 @@ func (s *Server) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(userID)
+	user, err := s.store.GetUserByIDContext(r.Context(), userID)
 	if err != nil {
 		http.Error(w, "invalid authentication code", http.StatusUnauthorized)
 		return
@@ -346,7 +347,7 @@ func (s *Server) handleMFADisable(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(getUserID(r))
+	user, err := s.store.GetUserByIDContext(r.Context(), getUserID(r))
 	if err != nil || !userMFAEnabled(user) {
 		http.Error(w, "MFA is not enabled", http.StatusConflict)
 		return
@@ -369,6 +370,7 @@ func (s *Server) handleMFADisable(w http.ResponseWriter, r *http.Request) {
 	}
 	currentToken := sessionToken(r)
 	_ = s.store.DeleteSessionsForUserExcept(user.ID, currentToken)
+	s.closeUserDeviceLinks(user.ID, "account sessions revoked")
 	writeJSON(w, map[string]any{"enabled": false})
 }
 
@@ -385,7 +387,7 @@ func (s *Server) handleMFARecoveryCodes(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	user, err := s.store.GetUserByID(getUserID(r))
+	user, err := s.store.GetUserByIDContext(r.Context(), getUserID(r))
 	if err != nil || !userMFAEnabled(user) {
 		http.Error(w, "MFA is not enabled", http.StatusConflict)
 		return

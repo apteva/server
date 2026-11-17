@@ -1,0 +1,239 @@
+{
+  "slug": "se-ranking",
+  "name": "SE Ranking",
+  "description": "SE Ranking API \u2014 keyword rank tracking projects, competitor research, keyword research, backlinks, on-page audits. Self-serve API with mid-tier pricing.",
+  "logo": "https://www.google.com/s2/favicons?domain=seranking.com&sz=128",
+  "categories": [
+    "seo",
+    "rank-tracking",
+    "keywords",
+    "competitors",
+    "backlinks",
+    "audit"
+  ],
+  "base_url": "https://api4.seranking.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Token {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Generate at online.seranking.com (Settings \u2192 API Access)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_account",
+      "description": "Account info, plan, available limits",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List rank-tracking projects",
+      "method": "GET",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a rank-tracking project",
+      "method": "POST",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "subdomain_match": {
+            "type": "boolean"
+          },
+          "exact_url_match": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "site_url",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "list_keywords",
+      "description": "List tracked keywords for a project",
+      "method": "GET",
+      "path": "/sites/{site_id}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "add_keywords",
+      "description": "Add keywords to a project",
+      "method": "POST",
+      "path": "/sites/{site_id}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "keywords": {
+            "type": "array"
+          },
+          "search_engines": {
+            "type": "array"
+          },
+          "groups": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "site_id",
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "get_positions",
+      "description": "Get keyword position history",
+      "method": "GET",
+      "path": "/sites/{site_id}/positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "date_from": {
+            "type": "string"
+          },
+          "date_to": {
+            "type": "string"
+          },
+          "search_engine_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "research_keywords",
+      "description": "Keyword research \u2014 volume, CPC, difficulty, trend",
+      "method": "GET",
+      "path": "/research/{source}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Region database, e.g. us, uk, br"
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "source",
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "research_competitors",
+      "description": "Organic competitors for a domain",
+      "method": "GET",
+      "path": "/research/{source}/competitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "research_overview",
+      "description": "Domain organic overview \u2014 keywords, traffic, traffic cost",
+      "method": "GET",
+      "path": "/research/{source}/overview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_overview",
+      "description": "Backlinks overview for a target",
+      "method": "GET",
+      "path": "/backlinks/overview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_account"
+  }
+}

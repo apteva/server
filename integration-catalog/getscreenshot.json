@@ -1,0 +1,52 @@
+{
+  "slug": "getscreenshot",
+  "name": "GetScreenshot",
+  "description": "Affordable website screenshot API by Rasterwise. Simple GET request; supports synchronous (returns image binary or JSON) and async webhook delivery. From $5/mo for 2,500 screenshots. Integrates with Zapier, n8n, Make.",
+  "logo": "https://www.google.com/s2/favicons?domain=getscreenshotapi.com&sz=128",
+  "categories": ["screenshots", "rendering", "automation"],
+  "base_url": "https://api.rasterwise.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "GetScreenshot API key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_screenshot",
+      "description": "Capture a screenshot of a URL. When `webhook` is provided the call returns immediately and the screenshot is POSTed to that URL as JSON on completion; otherwise returns the screenshot result synchronously.",
+      "method": "GET",
+      "path": "/v1/get-screenshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "webhook": { "type": "string", "description": "Optional webhook URL; the screenshot JSON is POSTed here when ready (async mode)" },
+          "format": { "type": "string", "enum": ["png", "jpeg", "webp", "pdf"], "default": "png" },
+          "full_page": { "type": "boolean", "default": false },
+          "viewport_width": { "type": "integer", "default": 1280 },
+          "viewport_height": { "type": "integer", "default": 800 },
+          "device": { "type": "string", "description": "Device preset to emulate (desktop, mobile, tablet, or specific devices)" },
+          "element": { "type": "string", "description": "CSS selector to capture only that element" },
+          "delay": { "type": "integer", "description": "Extra delay in seconds before capturing" },
+          "wait_for_selector": { "type": "string", "description": "CSS selector to wait for before capturing" },
+          "block_ads": { "type": "boolean", "default": false },
+          "block_cookie_banners": { "type": "boolean", "default": false },
+          "dark_mode": { "type": "boolean", "default": false },
+          "user_agent": { "type": "string" },
+          "fresh": { "type": "boolean", "default": false, "description": "Bypass cache and re-render" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "webhook", "format", "full_page", "viewport_width", "viewport_height",
+        "device", "element", "delay", "wait_for_selector",
+        "block_ads", "block_cookie_banners", "dark_mode", "user_agent", "fresh"
+      ]
+    }
+  ]
+}

@@ -281,9 +281,12 @@
     },
     {
       "name": "download_object",
-      "description": "Download the object body. Note: GCS uses ?alt=media on the same path as get_object_metadata to switch from JSON metadata to raw content.",
+      "description": "Download an object's exact bytes as a binary file handle, including text and JSON files, for uploading to another integration. The media query is fixed automatically; generation optionally selects a specific object version.",
       "method": "GET",
-      "path": "/b/{bucket}/o/{object}",
+      "path": "/b/{bucket}/o/{object}?alt=media",
+      "response_type": "binary",
+      "query_params": ["generation"],
+      "query_param_aliases": { "alt": "" },
       "input_schema": {
         "type": "object",
         "properties": {
@@ -295,7 +298,7 @@
           },
           "alt": {
             "type": "string",
-            "description": "Must be 'media' to download bytes (otherwise you get JSON metadata).",
+            "description": "Compatibility field. Media download is already enforced by this tool; this input is ignored.",
             "enum": [
               "media"
             ],
@@ -307,8 +310,7 @@
         },
         "required": [
           "bucket",
-          "object",
-          "alt"
+          "object"
         ]
       }
     },

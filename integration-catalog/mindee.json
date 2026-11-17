@@ -1,0 +1,246 @@
+{
+  "slug": "mindee",
+  "name": "Mindee",
+  "description": "Mindee document AI / OCR platform. Extract structured fields from invoices, receipts, IDs, passports, driver licenses, resumes, and other document types using pre-built parsers. Returns labeled field-value JSON, not raw text.",
+  "logo": "https://www.google.com/s2/favicons?domain=mindee.com&sz=128",
+  "categories": [
+    "ocr",
+    "document-ai",
+    "data-extraction",
+    "receipts",
+    "invoices",
+    "ids",
+    "ai",
+    "automation"
+  ],
+  "base_url": "https://api.mindee.net/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Token {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Mindee API key from https://platform.mindee.com (Settings > API Keys)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "parse_invoice",
+      "description": "Extract structured fields from an invoice using the Mindee Invoices v4 parser. Returns supplier name/address/VAT, customer info, invoice number, dates, line items, totals (with tax breakdown), currency, and payment details. Send the document as a publicly accessible URL.",
+      "method": "POST",
+      "path": "/products/mindee/invoices/v4/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the invoice (PDF, JPEG, PNG, TIFF, or HEIC). Max 10 MB and 100 pages."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_receipt",
+      "description": "Extract structured fields from an expense receipt using the Mindee Expense Receipts v5 parser. Returns merchant, date, time, total amount + tax + tip, currency, category, line items, and payment method.",
+      "method": "POST",
+      "path": "/products/mindee/expense_receipts/v5/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the receipt image (PDF, JPEG, PNG, TIFF, or HEIC)."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_financial_document",
+      "description": "Auto-detect whether a document is an invoice or a receipt and parse it with the right model. Returns a unified financial-document schema (supplier, customer, dates, totals, line items, taxes). Use this when the document type isn't known up front.",
+      "method": "POST",
+      "path": "/products/mindee/financial_document/v1/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the document."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_passport",
+      "description": "Extract fields from a passport using Mindee Passport v1. Returns surname, given names, country, ID number, MRZ lines, gender, date of birth, place of birth, issuance and expiry dates.",
+      "method": "POST",
+      "path": "/products/mindee/passport/v1/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the passport image."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_us_driver_license",
+      "description": "Extract fields from a US driver license using Mindee US Driver License v1. Returns license number, name, address, date of birth, issue and expiry dates, sex, height, weight, eye color, and class.",
+      "method": "POST",
+      "path": "/products/mindee/us_driver_license/v1/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the driver-license image."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_international_id",
+      "description": "Extract fields from a non-US national ID card or residence permit using Mindee International ID v2. Returns document type, country, ID number, full name, date of birth, sex, address, and MRZ lines.",
+      "method": "POST",
+      "path": "/products/mindee/international_id/v2/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the ID document image."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_resume",
+      "description": "Extract structured fields from a resume / CV using Mindee Resume v1. Returns candidate name and contact info, hard skills, soft skills, languages, education entries, and professional experience entries.",
+      "method": "POST",
+      "path": "/products/mindee/resume/v1/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the resume (PDF or image)."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "parse_bank_check",
+      "description": "Extract fields from a US/EU bank check using Mindee Bank Check v1. Returns payee, amount, date, check number, routing number, and account number.",
+      "method": "POST",
+      "path": "/products/mindee/bank_check/v1/predict",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the check image."
+          }
+        },
+        "required": [
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "predict_async",
+      "description": "Submit a document to any Mindee parser asynchronously. Use for large documents (>5 MB or 10+ pages) or when you want to avoid blocking on parse time. Returns a job with an ID; poll get_async_result with that ID until status is 'completed'. Pass the same product/version path you'd use synchronously.",
+      "method": "POST",
+      "path": "/products/{account}/{product}/v{version}/predict_async",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account that owns the product. Use 'mindee' for built-in parsers, or your own account name for custom-built APIs.",
+            "default": "mindee"
+          },
+          "product": {
+            "type": "string",
+            "description": "Product slug (e.g. 'invoices', 'expense_receipts', 'financial_document', 'passport', 'resume', or your custom API name)."
+          },
+          "version": {
+            "type": "string",
+            "description": "Product version (e.g. '4' for invoices, '5' for expense_receipts, '1' for resume)."
+          },
+          "document": {
+            "type": "string",
+            "description": "Publicly accessible URL of the document."
+          }
+        },
+        "required": [
+          "account",
+          "product",
+          "version",
+          "document"
+        ]
+      }
+    },
+    {
+      "name": "get_async_result",
+      "description": "Poll the status of an async parse job. While the job is in progress, returns status='processing' or 'waiting'. When complete, the response includes the parsed document. Call repeatedly (with small backoff) until status is 'completed' or 'failed'.",
+      "method": "GET",
+      "path": "/products/{account}/{product}/v{version}/documents/queue/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account that owns the product (typically 'mindee').",
+            "default": "mindee"
+          },
+          "product": {
+            "type": "string",
+            "description": "Product slug used in the original predict_async call."
+          },
+          "version": {
+            "type": "string",
+            "description": "Product version used in the original predict_async call."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "Job ID returned by predict_async (response.api_request.url contains it, also at job.id)."
+          }
+        },
+        "required": [
+          "account",
+          "product",
+          "version",
+          "job_id"
+        ]
+      }
+    }
+  ]
+}

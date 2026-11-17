@@ -1,0 +1,159 @@
+{
+  "slug": "filestack",
+  "name": "Filestack",
+  "description": "MCP server for Filestack file handling - upload, process, deliver",
+  "logo": "https://www.google.com/s2/favicons?domain=filestack.com&sz=128",
+  "categories": [
+    "files",
+    "upload",
+    "processing",
+    "storage"
+  ],
+  "base_url": "https://www.filestackapi.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "store_file",
+      "description": "Upload and store a file",
+      "method": "GET",
+      "path": "/store-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Source URL"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "multipart_upload",
+      "description": "Upload large files in parts",
+      "method": "GET",
+      "path": "/multipart-upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "url",
+          "filename",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "process_image",
+      "description": "Apply transformations to an image",
+      "method": "GET",
+      "path": "/process-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string",
+            "description": "Filestack handle"
+          },
+          "transformations": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "handle"
+        ]
+      }
+    },
+    {
+      "name": "file_metadata",
+      "description": "Get file metadata",
+      "method": "GET",
+      "path": "/file-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle"
+        ]
+      }
+    },
+    {
+      "name": "remove_file",
+      "description": "Delete a file",
+      "method": "DELETE",
+      "path": "/remove-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "handle"
+        ]
+      }
+    },
+    {
+      "name": "generate_policy",
+      "description": "Generate upload policy",
+      "method": "GET",
+      "path": "/generate-policy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "expiry": {
+            "type": "number"
+          },
+          "call": {
+            "type": "array"
+          },
+          "handle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expiry"
+        ]
+      }
+    }
+  ]
+}

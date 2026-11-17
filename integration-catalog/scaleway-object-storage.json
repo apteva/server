@@ -1,0 +1,175 @@
+{
+  "slug": "scaleway-object-storage",
+  "name": "Scaleway Object Storage",
+  "description": "Scaleway Object Storage \u2014 S3-compatible object storage from a French/EU sovereign cloud. ~\u20ac7/TB/month storage; 75GB/month egress free, then $10/TB. Bucket-scoped REST with AWS SigV4 against s3.{region}.scw.cloud. Regions: fr-par, nl-ams, pl-waw. Generate API keys at console.scaleway.com \u2192 IAM \u2192 API Keys; the access key + secret pair maps to access_key_id + secret_access_key here.",
+  "logo": "https://www.google.com/s2/favicons?domain=scaleway.com&sz=128",
+  "categories": [
+    "storage",
+    "scaleway",
+    "cloud",
+    "infrastructure",
+    "s3-compatible",
+    "eu-sovereign"
+  ],
+  "base_url": "https://s3.{{region}}.scw.cloud",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "Scaleway region of your bucket \u2014 fr-par (Paris), nl-ams (Amsterdam), or pl-waw (Warsaw).",
+        "required": true,
+        "type": "text",
+        "default": "fr-par"
+      },
+      {
+        "name": "access_key_id",
+        "label": "Scaleway Access Key",
+        "description": "From console.scaleway.com \u2192 IAM \u2192 API Keys \u2192 Generate API key. Scope to an application or IAM group with object-storage permissions.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Scaleway Secret Key",
+        "description": "Returned once at creation alongside the access key. Regenerate if lost.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Scaleway bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to keys starting with this prefix."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "Pagination cursor from a prior IsTruncated response."
+          },
+          "max-keys": {
+            "type": "integer",
+            "description": "Page size (max 1000)."
+          },
+          "list-type": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "continuation-token",
+        "max-keys",
+        "list-type"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass content as 'body'; runner sends verbatim with SigV4 integrity hash. Scaleway caps single PUT at 5GB; use multipart for larger.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key (path inside the bucket)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Object content. Bytes welcome \u2014 the runner sends them verbatim."
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200MB).",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all Scaleway buckets the access key can see. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_buckets",
+    "auth_ok_when_body_contains": [
+      "AccessDenied"
+    ]
+  }
+}

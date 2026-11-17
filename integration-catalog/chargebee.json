@@ -1,0 +1,263 @@
+{
+  "slug": "chargebee",
+  "name": "Chargebee",
+  "description": "Subscription billing and revenue management platform. Manage subscriptions, customers, invoices, and billing operations via the Chargebee API.",
+  "logo": "https://www.google.com/s2/favicons?domain=chargebee.com&sz=128",
+  "categories": [
+    "billing",
+    "subscriptions",
+    "payments",
+    "invoices",
+    "customers",
+    "saas",
+    "revenue"
+  ],
+  "base_url": "https://{{site}}.chargebee.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Chargebee API key (find at Settings > Configure Chargebee > API Keys)"
+      },
+      {
+        "name": "site",
+        "label": "Site",
+        "description": "Chargebee site name (the subdomain, e.g. 'mycompany' from mycompany.chargebee.com)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_subscriptions",
+      "description": "List all subscriptions with optional filtering by status, customer, plan, and date ranges. Supports pagination via offset parameter. Returns subscription details including plan, billing info, and current status.",
+      "method": "GET",
+      "path": "/list-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of subscriptions to return per page (max 100, default 10).",
+            "default": 10
+          },
+          "offset": {
+            "type": "string",
+            "description": "Pagination offset from previous response's next_offset value."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "cancelled",
+              "non_renewing",
+              "future",
+              "in_trial",
+              "paused"
+            ],
+            "description": "Filter by subscription status."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Retrieve details of a specific subscription by its ID. Returns the full subscription object including plan, addons, billing cycles, and current status.",
+      "method": "GET",
+      "path": "/get-subscription",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "The unique identifier of the subscription to retrieve."
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List all customers with optional filtering by email, name, and date ranges. Supports pagination via offset parameter. Returns customer details including billing address and payment info.",
+      "method": "GET",
+      "path": "/list-customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of customers to return per page (max 100, default 10).",
+            "default": 10
+          },
+          "offset": {
+            "type": "string",
+            "description": "Pagination offset from previous response's next_offset value."
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter customers by exact email address."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Retrieve details of a specific customer by their ID. Returns the full customer object including contact info, billing address, payment methods, and associated subscriptions.",
+      "method": "GET",
+      "path": "/get-customer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "The unique identifier of the customer to retrieve."
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_invoices",
+      "description": "List all invoices with optional filtering by status, customer, subscription, and date ranges. Supports pagination via offset parameter. Returns invoice details including line items, amounts, and payment status.",
+      "method": "GET",
+      "path": "/list-invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of invoices to return per page (max 100, default 10).",
+            "default": 10
+          },
+          "offset": {
+            "type": "string",
+            "description": "Pagination offset from previous response's next_offset value."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "paid",
+              "posted",
+              "payment_due",
+              "not_paid",
+              "voided",
+              "pending"
+            ],
+            "description": "Filter by invoice status."
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Filter invoices by customer ID."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a new subscription for a customer. Specify the plan, customer details, and billing configuration. Chargebee uses POST for all write operations with form-encoded parameters.",
+      "method": "POST",
+      "path": "/create-subscription",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "description": "The ID of the plan to subscribe to (required)."
+          },
+          "customer[id]": {
+            "type": "string",
+            "description": "Existing customer ID to create the subscription for."
+          },
+          "customer[email]": {
+            "type": "string",
+            "description": "Email of a new customer to create along with the subscription."
+          },
+          "customer[first_name]": {
+            "type": "string",
+            "description": "First name of the new customer."
+          },
+          "customer[last_name]": {
+            "type": "string",
+            "description": "Last name of the new customer."
+          },
+          "plan_quantity": {
+            "type": "integer",
+            "description": "Quantity of the plan (default 1).",
+            "default": 1
+          },
+          "trial_end": {
+            "type": "integer",
+            "description": "Unix timestamp for when the trial should end. Set to 0 for no trial."
+          },
+          "billing_cycles": {
+            "type": "integer",
+            "description": "Number of billing cycles for the subscription. Leave empty for infinite."
+          },
+          "auto_collection": {
+            "type": "string",
+            "enum": [
+              "on",
+              "off"
+            ],
+            "description": "Whether to automatically collect charges. Defaults to the site setting.",
+            "default": "on"
+          },
+          "coupon_ids[]": {
+            "type": "string",
+            "description": "Coupon ID to apply to the subscription."
+          }
+        },
+        "required": [
+          "plan_id"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-chargebee-signature",
+    "events": [
+      {
+        "name": "subscription_created",
+        "description": "New subscription created"
+      },
+      {
+        "name": "subscription_renewed",
+        "description": "Subscription renewed"
+      },
+      {
+        "name": "subscription_cancelled",
+        "description": "Subscription cancelled"
+      },
+      {
+        "name": "subscription_changed",
+        "description": "Subscription plan changed"
+      },
+      {
+        "name": "payment_succeeded",
+        "description": "Payment successfully processed"
+      },
+      {
+        "name": "payment_failed",
+        "description": "Payment attempt failed"
+      },
+      {
+        "name": "invoice_generated",
+        "description": "New invoice generated"
+      },
+      {
+        "name": "customer_created",
+        "description": "New customer created"
+      }
+    ]
+  }
+}

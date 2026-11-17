@@ -1,0 +1,132 @@
+{
+  "slug": "ebay-partner-network",
+  "name": "eBay Partner Network",
+  "description": "Official eBay Browse API integration for discovering physical products and returning commissionable eBay Partner Network item URLs.",
+  "logo": "https://www.google.com/s2/favicons?domain=ebay.com&sz=128",
+  "categories": ["affiliate", "publisher", "products", "marketplace", "links", "ecommerce"],
+  "base_url": "https://api.ebay.com",
+  "auth": {
+    "types": ["api_key"],
+    "token_exchange": {
+      "url": "https://api.ebay.com/identity/v1/oauth2/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "headers": {
+        "Authorization": "Basic {{basic_auth}}"
+      },
+      "body_params": {
+        "grant_type": "client_credentials",
+        "scope": "https://api.ebay.com/oauth/api_scope"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/json",
+      "X-EBAY-C-MARKETPLACE-ID": "{{marketplace_id}}",
+      "X-EBAY-C-ENDUSERCTX": "affiliateCampaignId={{campaign_id}},contextualLocation=country%3D{{delivery_country}}"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "eBay client ID",
+        "description": "Production App ID from the eBay Developer Program keyset.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "client_secret",
+        "label": "eBay client secret",
+        "description": "Production Cert ID from the same eBay keyset.",
+        "type": "password",
+        "required": true
+      },
+      {
+        "name": "campaign_id",
+        "label": "EPN campaign ID",
+        "description": "The 10-digit campaign ID from eBay Partner Network. It is required for itemAffiliateWebUrl to be returned.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "marketplace_id",
+        "label": "Marketplace ID",
+        "description": "eBay marketplace, for example EBAY_ES, EBAY_DE, EBAY_GB, or EBAY_US.",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "delivery_country",
+        "label": "Delivery country",
+        "description": "Domestic ISO alpha-2 delivery country matching the marketplace, for example ES, DE, GB, or US.",
+        "type": "text",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "products_search",
+    "input": { "q": "phone", "limit": 1 }
+  },
+  "tools": [
+    {
+      "name": "products_search",
+      "description": "Search live fixed-price eBay items that ship domestically in the configured marketplace. Results include itemAffiliateWebUrl when the EPN campaign is valid.",
+      "method": "GET",
+      "path": "/buy/browse/v1/item_summary/search?filter=deliveryCountry%3A%7B{{credential.delivery_country}}%7D%2CbuyingOptions%3A%7BFIXED_PRICE%7D",
+      "query_params": ["q", "category_ids", "gtin", "epid", "aspect_filter", "limit", "offset", "fieldgroups"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Product search keywords." },
+          "category_ids": { "type": "string", "description": "One eBay leaf category ID." },
+          "gtin": { "type": "string", "description": "UPC, EAN, ISBN, or other GTIN." },
+          "epid": { "type": "string", "description": "eBay product ID." },
+          "aspect_filter": { "type": "string", "description": "Browse aspect filter, for example categoryId:9355,Brand:{Apple}." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 },
+          "offset": { "type": "integer", "minimum": 0, "maximum": 9999, "default": 0 },
+          "fieldgroups": { "type": "string", "enum": ["MATCHING_ITEMS", "FULL", "EXTENDED"], "default": "MATCHING_ITEMS" }
+        },
+        "anyOf": [
+          { "required": ["q"] },
+          { "required": ["category_ids"] },
+          { "required": ["gtin"] },
+          { "required": ["epid"] }
+        ]
+      }
+    },
+    {
+      "name": "product_get",
+      "description": "Get complete details for a Browse item ID, including price, availability, images, seller, shipping, return terms, and the EPN affiliate URL.",
+      "method": "GET",
+      "path": "/buy/browse/v1/item/{item_id}",
+      "query_params": ["fieldgroups"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "item_id": { "type": "string", "description": "Browse itemId returned by products_search." },
+          "fieldgroups": { "type": "string", "enum": ["PRODUCT", "COMPACT"], "default": "PRODUCT" }
+        },
+        "required": ["item_id"]
+      }
+    },
+    {
+      "name": "product_get_by_legacy_id",
+      "description": "Resolve a legacy eBay listing ID to current Browse item details and an EPN affiliate URL.",
+      "method": "GET",
+      "path": "/buy/browse/v1/item/get_item_by_legacy_id",
+      "query_params": ["legacy_item_id", "legacy_variation_id", "legacy_variation_sku"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "legacy_item_id": { "type": "string" },
+          "legacy_variation_id": { "type": "string" },
+          "legacy_variation_sku": { "type": "string" }
+        },
+        "required": ["legacy_item_id"]
+      }
+    }
+  ]
+}

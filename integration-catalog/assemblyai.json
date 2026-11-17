@@ -1,0 +1,163 @@
+{
+  "slug": "assemblyai",
+  "name": "AssemblyAI",
+  "description": "AssemblyAI speech-to-text and audio intelligence API. Transcribe audio files, retrieve transcription results, and search within transcripts.",
+  "logo": "https://www.google.com/s2/favicons?domain=assemblyai.com&sz=128",
+  "categories": [
+    "speech-to-text",
+    "transcription",
+    "audio",
+    "ai",
+    "audio-intelligence"
+  ],
+  "base_url": "https://api.assemblyai.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "AssemblyAI API key (find at assemblyai.com/app/account)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_transcript",
+      "description": "Submit an audio file for transcription. Provide a publicly accessible URL to the audio/video file. The transcription is processed asynchronously - use the returned transcript ID to poll for results with the Get Transcript endpoint. Supports optional features like speaker diarization, auto chapters, entity detection, and sentiment analysis.",
+      "method": "POST",
+      "path": "/transcript",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audio_url": {
+            "type": "string",
+            "description": "The publicly accessible URL of the audio or video file to transcribe."
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code for the audio (e.g. 'en', 'es', 'fr'). Defaults to 'en' (English)."
+          },
+          "speaker_labels": {
+            "type": "boolean",
+            "description": "Enable speaker diarization to identify different speakers in the audio."
+          },
+          "auto_chapters": {
+            "type": "boolean",
+            "description": "Enable auto chapters to automatically segment the transcript into chapters with summaries."
+          },
+          "entity_detection": {
+            "type": "boolean",
+            "description": "Enable entity detection to identify and classify entities (people, locations, etc.) in the transcript."
+          },
+          "sentiment_analysis": {
+            "type": "boolean",
+            "description": "Enable sentiment analysis to detect the sentiment of each sentence in the transcript."
+          },
+          "auto_highlights": {
+            "type": "boolean",
+            "description": "Enable auto highlights to automatically extract key phrases from the transcript."
+          },
+          "punctuate": {
+            "type": "boolean",
+            "description": "Enable automatic punctuation. Enabled by default."
+          },
+          "format_text": {
+            "type": "boolean",
+            "description": "Enable text formatting (e.g. numbers, dates). Enabled by default."
+          },
+          "webhook_url": {
+            "type": "string",
+            "description": "URL to receive a webhook notification when the transcript is complete."
+          }
+        },
+        "required": [
+          "audio_url"
+        ]
+      }
+    },
+    {
+      "name": "get_transcript",
+      "description": "Retrieve the status and results of a transcript by its ID. The transcript is ready when the 'status' field is 'completed'. While processing, the status will be 'queued' or 'processing'. If transcription fails, the status will be 'error' with an error message.",
+      "method": "GET",
+      "path": "/transcript/{{param.transcript_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transcript_id": {
+            "type": "string",
+            "description": "The unique ID of the transcript to retrieve."
+          }
+        },
+        "required": [
+          "transcript_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transcripts",
+      "description": "List all transcripts for your account with pagination support. Returns transcript metadata including IDs, status, audio URLs, and creation timestamps. Use limit and cursor parameters to paginate through results.",
+      "method": "GET",
+      "path": "/transcript",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of transcripts to return. Default is 20."
+          },
+          "after_id": {
+            "type": "string",
+            "description": "Return transcripts created after this transcript ID (for forward pagination)."
+          },
+          "before_id": {
+            "type": "string",
+            "description": "Return transcripts created before this transcript ID (for backward pagination)."
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by transcript status.",
+            "enum": [
+              "queued",
+              "processing",
+              "completed",
+              "error"
+            ]
+          },
+          "throttled_only": {
+            "type": "boolean",
+            "description": "Set to true to only return throttled transcripts."
+          }
+        }
+      }
+    },
+    {
+      "name": "word_search",
+      "description": "Search for specific words or phrases within a completed transcript. Returns match counts, positions in the word array, and associated timestamps for each match. Supports individual words, numbers, or phrases containing up to five words.",
+      "method": "GET",
+      "path": "/transcript/{{param.transcript_id}}/word-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transcript_id": {
+            "type": "string",
+            "description": "The ID of the completed transcript to search within."
+          },
+          "words": {
+            "type": "string",
+            "description": "Comma-separated list of words or phrases to search for in the transcript."
+          }
+        },
+        "required": [
+          "transcript_id",
+          "words"
+        ]
+      }
+    }
+  ]
+}

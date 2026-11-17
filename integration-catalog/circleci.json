@@ -1,0 +1,212 @@
+{
+  "slug": "circleci",
+  "name": "CircleCI",
+  "description": "MCP server for CircleCI - pipelines, workflows, jobs, and projects via the CircleCI REST API v2",
+  "logo": "https://www.google.com/s2/favicons?domain=circleci.com&sz=128",
+  "categories": [
+    "ci-cd",
+    "developer-tools",
+    "devops",
+    "build"
+  ],
+  "base_url": "https://circleci.com/api/v2",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Circle-Token": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Personal API Token",
+        "description": "Personal API token from User Settings \u2192 Personal API Tokens"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get the authenticated user's account",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List pipelines for a project. project_slug format: vcs-slug/org-name/repo-name (e.g. gh/octocat/hello-world)",
+      "method": "GET",
+      "path": "/project/{project_slug}/pipeline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_slug": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "page-token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_slug"
+        ]
+      },
+      "query_params": [
+        "branch",
+        "page-token"
+      ]
+    },
+    {
+      "name": "get_pipeline",
+      "description": "Get a pipeline by ID",
+      "method": "GET",
+      "path": "/pipeline/{pipeline_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "trigger_pipeline",
+      "description": "Trigger a new pipeline for a project",
+      "method": "POST",
+      "path": "/project/{project_slug}/pipeline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_slug": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Map of pipeline parameter name \u2192 value"
+          }
+        },
+        "required": [
+          "project_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_pipeline_workflows",
+      "description": "List workflows for a pipeline",
+      "method": "GET",
+      "path": "/pipeline/{pipeline_id}/workflow",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "get_workflow",
+      "description": "Get a workflow by ID",
+      "method": "GET",
+      "path": "/workflow/{workflow_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "list_workflow_jobs",
+      "description": "List jobs in a workflow",
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/job",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_workflow",
+      "description": "Cancel a running workflow",
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "rerun_workflow",
+      "description": "Rerun a workflow, optionally only failed jobs or from-failed",
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/rerun",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string"
+          },
+          "from_failed": {
+            "type": "boolean"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Job IDs to rerun (omit for all)"
+          },
+          "enable_ssh": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_current_user"
+  }
+}

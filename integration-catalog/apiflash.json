@@ -1,0 +1,66 @@
+{
+  "slug": "apiflash",
+  "name": "ApiFlash",
+  "description": "Simple URL-to-image screenshot API. GET request with the access key as a query param returns the rendered image binary. Free tier 100 screenshots/month. Supports full-page, custom viewports, mobile emulation, ad blocking, cookie banner dismissal, scrolls.",
+  "logo": "https://www.google.com/s2/favicons?domain=apiflash.com&sz=128",
+  "categories": ["screenshots", "rendering", "automation"],
+  "base_url": "https://api.apiflash.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "access_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "ApiFlash access key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "url_to_image",
+      "description": "Capture a screenshot of a URL. Returns the rendered image as binary (image/png|jpeg|webp). The access_key query param is appended automatically from the connection credentials.",
+      "method": "GET",
+      "path": "/v1/urltoimage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "format": { "type": "string", "enum": ["jpeg", "png", "webp"], "default": "jpeg" },
+          "width": { "type": "integer", "default": 1920, "description": "Viewport width in CSS pixels" },
+          "height": { "type": "integer", "default": 1080, "description": "Viewport height in CSS pixels" },
+          "quality": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80, "description": "JPEG/WebP quality" },
+          "full_page": { "type": "boolean", "default": false, "description": "Capture the entire scrollable page" },
+          "scroll_page": { "type": "boolean", "default": false, "description": "Scroll through the page before capturing (triggers lazy-loaded images)" },
+          "fresh": { "type": "boolean", "default": false, "description": "Bypass the cache and re-render" },
+          "ttl": { "type": "integer", "default": 86400, "description": "Cache TTL in seconds (max 2592000 = 30 days)" },
+          "delay": { "type": "integer", "minimum": 0, "maximum": 10, "description": "Extra wait time in seconds after page load" },
+          "wait_for": { "type": "string", "description": "CSS selector to wait for before capturing" },
+          "wait_until": {
+            "type": "string",
+            "enum": ["page_loaded", "network_idle"],
+            "default": "page_loaded"
+          },
+          "user_agent": { "type": "string", "description": "Override the user agent string" },
+          "no_ads": { "type": "boolean", "default": false, "description": "Block ad networks" },
+          "no_cookie_banners": { "type": "boolean", "default": false, "description": "Auto-dismiss cookie banners" },
+          "no_tracking": { "type": "boolean", "default": false, "description": "Block tracking scripts" },
+          "thumbnail_width": { "type": "integer", "description": "Resize the output to this width" },
+          "thumbnail_height": { "type": "integer", "description": "Resize the output to this height" },
+          "css": { "type": "string", "description": "Custom CSS to inject" },
+          "js": { "type": "string", "description": "Custom JS to execute" },
+          "extract_html": { "type": "boolean", "default": false, "description": "Return the rendered HTML instead of an image" },
+          "extract_text": { "type": "boolean", "default": false, "description": "Return the page text instead of an image" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "format", "width", "height", "quality",
+        "full_page", "scroll_page", "fresh", "ttl",
+        "delay", "wait_for", "wait_until", "user_agent",
+        "no_ads", "no_cookie_banners", "no_tracking",
+        "thumbnail_width", "thumbnail_height",
+        "css", "js", "extract_html", "extract_text"
+      ]
+    }
+  ]
+}

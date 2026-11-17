@@ -1,0 +1,107 @@
+{
+  "slug": "noaa-swdi",
+  "name": "NOAA Severe Weather Data Inventory",
+  "description": "Official public NOAA/NCEI severe-weather web service. Query radar-derived hail, tornado-vortex, storm-cell, and warning records by UTC date range and US bounding box. Radar signatures indicate probable conditions rather than confirmed property damage, and missing records do not prove that no event occurred.",
+  "logo": "https://www.google.com/s2/favicons?domain=ncei.noaa.gov&sz=128",
+  "categories": [
+    "united-states",
+    "weather",
+    "storms",
+    "hail",
+    "tornadoes",
+    "radar",
+    "open-data"
+  ],
+  "base_url": "https://www.ncei.noaa.gov/swdiws",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/geo+json"
+    },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "get_hail_period_of_record"
+  },
+  "tools": [
+    {
+      "name": "get_hail_period_of_record",
+      "description": "Get the available start and end dates for the NEXRAD Level-3 hail-signature dataset.",
+      "method": "GET",
+      "path": "/json/nx3hail/periodOfRecord",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "search_hail_signatures",
+      "description": "Search NEXRAD Level-3 hail signatures. Use short UTC windows and a bounding box for timely property-area screening; inspect POSH/POH and maximum hail-size fields in the response rather than treating every signature as damage.",
+      "method": "GET",
+      "path": "/geojson/nx3hail/{date_range}/{limit}/{start_row}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_range": {"type": "string", "description": "UTC range `YYYYMMDDHHmm:YYYYMMDDHHmm`; end is exclusive and maximum span is one year."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 10000000, "default": 1000},
+          "start_row": {"type": "integer", "minimum": 1, "default": 1},
+          "bbox": {"type": "string", "description": "WGS84 `west,south,east,north`."},
+          "tile": {"type": "string", "description": "Alternative 0.1-degree tile lookup using `longitude,latitude`."},
+          "filterBy": {"type": "string", "description": "Optional exact attribute filter `COLUMN:VALUE`, for example `SEVPROB:100`."}
+        },
+        "required": ["date_range", "limit", "start_row"]
+      }
+    },
+    {
+      "name": "search_tornado_signatures",
+      "description": "Search NEXRAD Level-3 tornado-vortex signatures by UTC time and area.",
+      "method": "GET",
+      "path": "/geojson/nx3tvs/{date_range}/{limit}/{start_row}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_range": {"type": "string", "description": "UTC date/time range; end exclusive."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 10000000, "default": 1000},
+          "start_row": {"type": "integer", "minimum": 1, "default": 1},
+          "bbox": {"type": "string", "description": "WGS84 `west,south,east,north`."},
+          "tile": {"type": "string"},
+          "filterBy": {"type": "string"}
+        },
+        "required": ["date_range", "limit", "start_row"]
+      }
+    },
+    {
+      "name": "search_storm_cells",
+      "description": "Search NEXRAD Level-3 storm-cell structure records, including reflectivity and cell characteristics.",
+      "method": "GET",
+      "path": "/geojson/nx3structure/{date_range}/{limit}/{start_row}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_range": {"type": "string", "description": "UTC date/time range; end exclusive."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 10000000, "default": 1000},
+          "start_row": {"type": "integer", "minimum": 1, "default": 1},
+          "bbox": {"type": "string", "description": "WGS84 `west,south,east,north`."},
+          "tile": {"type": "string"},
+          "filterBy": {"type": "string"}
+        },
+        "required": ["date_range", "limit", "start_row"]
+      }
+    },
+    {
+      "name": "search_warning_polygons",
+      "description": "Search NWS severe-thunderstorm, tornado, flash-flood, and special-marine warning polygons archived in SWDI.",
+      "method": "GET",
+      "path": "/geojson/warn/{date_range}/{limit}/{start_row}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_range": {"type": "string", "description": "UTC date/time range; end exclusive."},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 10000000, "default": 1000},
+          "start_row": {"type": "integer", "minimum": 1, "default": 1},
+          "bbox": {"type": "string", "description": "WGS84 `west,south,east,north`."},
+          "tile": {"type": "string"},
+          "filterBy": {"type": "string"}
+        },
+        "required": ["date_range", "limit", "start_row"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,359 @@
+{
+  "slug": "hubspot",
+  "name": "HubSpot",
+  "description": "HubSpot CRM via HubSpot's hosted MCP server. OAuth 2.1 + PKCE. Vendor-maintained tool catalog (deals, contacts, companies, notes, tasks, emails, etc.) — no local tool list to drift.",
+  "logo": "https://www.google.com/s2/favicons?domain=hubspot.com&sz=128",
+  "categories": [
+    "crm",
+    "hubspot",
+    "deals",
+    "contacts",
+    "sales",
+    "mcp"
+  ],
+  "kind": "remote_mcp",
+  "base_url": "https://mcp-eu1.hubspot.com",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp-eu1.hubspot.com/",
+    "auth_header": {
+      "name": "Authorization",
+      "value": "Bearer {{token}}"
+    }
+  },
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://mcp-eu1.hubspot.com/oauth/authorize/user",
+      "token_url": "https://mcp-eu1.hubspot.com/oauth/v3/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "ui_components": [
+    {
+      "name": "deal-card",
+      "entry": "/ui/DealCard.mjs",
+      "slots": ["chat.message_attachment", "dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "required": ["deal_id"],
+        "properties": {
+          "deal_id":         { "type": "string",  "description": "HubSpot deal object id" },
+          "dealname":        { "type": "string" },
+          "amount":          { "type": "string",  "description": "Raw HubSpot amount string; component formats USD" },
+          "dealstage":       { "type": "string",  "description": "Internal id, e.g. contractsent" },
+          "dealstage_label": { "type": "string",  "description": "Optional human label override" },
+          "pipeline":        { "type": "string" },
+          "closedate":       { "type": "string",  "description": "ISO date" },
+          "owner_email":     { "type": "string" },
+          "company_name":    { "type": "string" },
+          "company_domain":  { "type": "string" },
+          "portal_id":       { "type": "string",  "description": "HubSpot portal id for canonical URL" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "company-card",
+      "entry": "/ui/CompanyCard.mjs",
+      "slots": ["chat.message_attachment", "dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "required": ["company_id"],
+        "properties": {
+          "company_id":        { "type": "string" },
+          "name":              { "type": "string" },
+          "domain":            { "type": "string" },
+          "industry":          { "type": "string",  "description": "HubSpot enum (SHOUTY_SNAKE_CASE)" },
+          "numberofemployees": { "type": "string" },
+          "city":              { "type": "string" },
+          "country":           { "type": "string" },
+          "lifecyclestage":    { "type": "string" },
+          "open_deal_total":   { "type": "string",  "description": "Pre-aggregated by the agent" },
+          "open_deal_count":   { "type": "integer" },
+          "description":       { "type": "string" },
+          "portal_id":         { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "contact-card",
+      "entry": "/ui/ContactCard.mjs",
+      "slots": ["chat.message_attachment"],
+      "props_schema": {
+        "type": "object",
+        "required": ["contact_id"],
+        "properties": {
+          "contact_id":           { "type": "string" },
+          "firstname":            { "type": "string" },
+          "lastname":             { "type": "string" },
+          "email":                { "type": "string" },
+          "phone":                { "type": "string" },
+          "jobtitle":             { "type": "string" },
+          "lifecyclestage":       { "type": "string" },
+          "company_name":         { "type": "string" },
+          "company_domain":       { "type": "string" },
+          "last_engagement_at":   { "type": "string", "description": "ISO timestamp" },
+          "last_engagement_kind": { "type": "string", "description": "email | call | meeting | note | task" },
+          "portal_id":            { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "ticket-card",
+      "entry": "/ui/TicketCard.mjs",
+      "slots": ["chat.message_attachment", "dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "required": ["ticket_id"],
+        "properties": {
+          "ticket_id":           { "type": "string" },
+          "subject":             { "type": "string" },
+          "content":             { "type": "string" },
+          "hs_ticket_priority":  { "type": "string", "description": "LOW | MEDIUM | HIGH | URGENT" },
+          "hs_pipeline_stage":   { "type": "string", "description": "Pipeline-stage id" },
+          "stage_label":         { "type": "string" },
+          "createdate":          { "type": "string", "description": "ISO timestamp" },
+          "hs_lastmodifieddate": { "type": "string" },
+          "company_name":        { "type": "string" },
+          "company_domain":      { "type": "string" },
+          "comment_count":       { "type": "integer" },
+          "portal_id":           { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "pipeline-strip",
+      "entry": "/ui/PipelineStrip.mjs",
+      "slots": ["dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_label": { "type": "string" },
+          "pipeline":       { "type": "string", "description": "Pipeline id (default: 'default')" },
+          "stages": {
+            "type": "array",
+            "description": "Pre-aggregated count + total per stage",
+            "items": {
+              "type": "object",
+              "required": ["id", "count"],
+              "properties": {
+                "id":    { "type": "string", "description": "Internal HubSpot stage id" },
+                "label": { "type": "string", "description": "Optional human label override" },
+                "count": { "type": "integer" },
+                "total": { "type": ["string", "number"], "description": "Sum of deal amounts in stage" }
+              }
+            }
+          },
+          "portal_id": { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "email-card",
+      "entry": "/ui/EmailCard.mjs",
+      "slots": ["chat.message_attachment"],
+      "props_schema": {
+        "type": "object",
+        "required": ["email_id"],
+        "properties": {
+          "email_id":       { "type": "string", "description": "HubSpot engagement id" },
+          "direction":      { "type": "string", "description": "INCOMING_EMAIL | EMAIL | FORWARDED_EMAIL" },
+          "from_name":      { "type": "string" },
+          "from_email":     { "type": "string" },
+          "to_email":       { "type": "string" },
+          "subject":        { "type": "string" },
+          "body":           { "type": "string" },
+          "sent_at":        { "type": "string", "description": "ISO timestamp" },
+          "thread_length":  { "type": "integer" },
+          "company_name":   { "type": "string" },
+          "company_domain": { "type": "string" },
+          "contact_name":   { "type": "string" },
+          "portal_id":      { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "activity-feed",
+      "entry": "/ui/ActivityFeed.mjs",
+      "slots": ["dashboard.tile", "chat.message_attachment"],
+      "props_schema": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "description": "Pre-merged engagement events (emails, calls, notes, tasks, meetings, record_changes)",
+            "items": {
+              "type": "object",
+              "required": ["id", "kind", "timestamp", "title"],
+              "properties": {
+                "id":            { "type": "string" },
+                "kind":          { "type": "string", "description": "email | call | note | task | meeting | record_change" },
+                "timestamp":     { "type": "string", "description": "ISO timestamp" },
+                "title":         { "type": "string" },
+                "subtitle":      { "type": "string" },
+                "engagement_id": { "type": "string", "description": "HubSpot engagement id for click-through" }
+              }
+            }
+          },
+          "max":       { "type": "integer", "description": "Cap rendered events; default 12" },
+          "portal_id": { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "deal-list",
+      "entry": "/ui/DealList.mjs",
+      "slots": ["chat.message_attachment", "dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["deal_id"],
+              "properties": {
+                "deal_id":         { "type": "string" },
+                "dealname":        { "type": "string" },
+                "amount":          { "type": "string" },
+                "dealstage":       { "type": "string" },
+                "dealstage_label": { "type": "string" },
+                "closedate":       { "type": "string" },
+                "company_name":    { "type": "string" }
+              }
+            }
+          },
+          "title":     { "type": "string" },
+          "subtitle":  { "type": "string" },
+          "max_rows":  { "type": "integer" },
+          "portal_id": { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "ticket-list",
+      "entry": "/ui/TicketList.mjs",
+      "slots": ["chat.message_attachment", "dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["ticket_id"],
+              "properties": {
+                "ticket_id":          { "type": "string" },
+                "subject":            { "type": "string" },
+                "hs_ticket_priority": { "type": "string" },
+                "hs_pipeline_stage":  { "type": "string" },
+                "stage_label":        { "type": "string" },
+                "createdate":         { "type": "string" },
+                "company_name":       { "type": "string" }
+              }
+            }
+          },
+          "title":     { "type": "string" },
+          "subtitle":  { "type": "string" },
+          "max_rows":  { "type": "integer" },
+          "portal_id": { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "contact-list",
+      "entry": "/ui/ContactList.mjs",
+      "slots": ["chat.message_attachment"],
+      "props_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["contact_id"],
+              "properties": {
+                "contact_id":         { "type": "string" },
+                "firstname":          { "type": "string" },
+                "lastname":           { "type": "string" },
+                "email":              { "type": "string" },
+                "jobtitle":           { "type": "string" },
+                "company_name":       { "type": "string" },
+                "last_engagement_at": { "type": "string" }
+              }
+            }
+          },
+          "title":     { "type": "string" },
+          "subtitle":  { "type": "string" },
+          "max_rows":  { "type": "integer" },
+          "portal_id": { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    },
+    {
+      "name": "inbox-strip",
+      "entry": "/ui/InboxStrip.mjs",
+      "slots": ["chat.message_attachment", "dashboard.tile"],
+      "props_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["email_id"],
+              "properties": {
+                "email_id":      { "type": "string" },
+                "from_name":     { "type": "string" },
+                "from_email":    { "type": "string" },
+                "subject":       { "type": "string" },
+                "snippet":       { "type": "string" },
+                "sent_at":       { "type": "string" },
+                "unread":        { "type": "boolean" },
+                "thread_length": { "type": "integer" }
+              }
+            }
+          },
+          "title":     { "type": "string" },
+          "subtitle":  { "type": "string" },
+          "max_rows":  { "type": "integer" },
+          "portal_id": { "type": "string" }
+        }
+      },
+      "preview_props": { "preview": true }
+    }
+  ],
+  "tools": []
+}

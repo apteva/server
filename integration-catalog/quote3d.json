@@ -1,0 +1,515 @@
+{
+  "slug": "quote3d",
+  "name": "Quote3D",
+  "description": "Quote3D v2 API for 3D model uploads, printability checks, asynchronous FDM/SLA/SLS quotes, quote history, analytics, quota monitoring, and signed webhook delivery.",
+  "logo": "https://www.google.com/s2/favicons?domain=quote3d.com&sz=128",
+  "categories": ["3d-printing", "manufacturing", "quoting", "slicing", "quote3d"],
+  "base_url": "https://api.quote3d.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Token",
+        "type": "password",
+        "description": "Quote3D API token generated in account settings."
+      }
+    ]
+  },
+  "health_check": { "tool": "get_user" },
+  "tools": [
+    {
+      "name": "get_user",
+      "description": "Get the authenticated Quote3D account, token identity, and account-level information. This read-only route is also used to verify credentials.",
+      "method": "GET",
+      "path": "/v2/user",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_uploads",
+      "description": "List all 3D files uploaded by the authenticated Quote3D user, ordered newest first. Use returned file ids for printability and quote operations.",
+      "method": "GET",
+      "path": "/v2/user/uploads",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_upload_id",
+      "description": "Create a single-use temporary upload id valid for one hour. Pass it to upload_file_with_id when an upload must be completed without forwarding the API token.",
+      "method": "GET",
+      "path": "/v2/file/upload-id",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "upload_file",
+      "description": "Upload an STL, 3MF, or OBJ model to the authenticated Quote3D account as multipart/form-data. Use the returned file id for check_printability and create_quote.",
+      "method": "POST",
+      "path": "/v2/file",
+      "multipart_form": {
+        "file_fields": { "file": "file" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "Model bytes as a blobref:// handle, base64, data URL, or runtime binary value." },
+          "filename": { "type": "string", "description": "Filename ending in .stl, .3mf, or .obj." }
+        },
+        "required": ["file", "filename"]
+      }
+    },
+    {
+      "name": "upload_file_with_id",
+      "description": "Upload an STL, 3MF, or OBJ model with the single-use upload id from create_upload_id. The Quote3D bearer token is deliberately omitted from this temporary public route.",
+      "method": "POST",
+      "path": "/v2/file/public/{upload_id}",
+      "omit_auth_headers": ["Authorization"],
+      "multipart_form": {
+        "file_fields": { "file": "file" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "upload_id": { "type": "string", "description": "Single-use id returned by create_upload_id; expires after one hour." },
+          "file": { "type": "string", "description": "Model bytes as a blobref:// handle, base64, data URL, or runtime binary value." },
+          "filename": { "type": "string", "description": "Filename ending in .stl, .3mf, or .obj." }
+        },
+        "required": ["upload_id", "file", "filename"]
+      }
+    },
+    {
+      "name": "download_file",
+      "description": "Download the original bytes for one authenticated user's uploaded Quote3D model. The result is returned as binary content rather than model metadata.",
+      "method": "GET",
+      "path": "/v2/file/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "string", "description": "Uploaded Quote3D file id." }
+        },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Permanently delete an uploaded Quote3D model. Inspect list_uploads and any associated quotes first; do not retry after a successful deletion.",
+      "method": "DELETE",
+      "path": "/v2/file/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "string", "description": "Uploaded Quote3D file id." }
+        },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "check_printability",
+      "description": "Analyze whether an uploaded model fits an optional printer bed and return dimensions, orientation optimization, volume, surface area, triangle count, and geometric integrity. Omit x/y/z to use the account's default printer profile.",
+      "method": "POST",
+      "path": "/v2/printability/{file_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "string", "description": "Uploaded Quote3D file id." },
+          "x": { "type": "number", "description": "Optional build volume X in millimeters." },
+          "y": { "type": "number", "description": "Optional build volume Y in millimeters." },
+          "z": { "type": "number", "description": "Optional build volume Z in millimeters." }
+        },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "create_quote",
+      "description": "Start an asynchronous FDM, SLA, or SLS quote for an uploaded model. This returns a job id, not a price; poll get_job every 2-5 seconds until completed/failed or subscribe to quote.completed and quote.failed webhooks. Prefer printer_id plus only necessary overrides.",
+      "method": "POST",
+      "path": "/v2/file/quote/{file_id}",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": { "type": "string", "description": "Uploaded Quote3D file id." },
+          "printer_id": { "type": "string", "description": "Optional Quote3D printer profile id. Omit printer_config unless overriding selected profile values." },
+          "quantity": { "type": "integer", "minimum": 1, "default": 1 },
+          "printer_config": {
+            "type": "object",
+            "description": "Optional printer-profile overrides. Fields not supplied resolve from the selected or default profile.",
+            "properties": {
+              "bed_size_x": { "type": "number" },
+              "bed_size_y": { "type": "number" },
+              "bed_size_z": { "type": "number" },
+              "print_speed": { "type": "number" },
+              "max_print_speed": { "type": "number" },
+              "travel_speed": { "type": "number" },
+              "first_layer_speed": { "type": "number" },
+              "outer_wall_speed": { "type": "number" },
+              "inner_wall_speed": { "type": "number" },
+              "solid_infill_speed": { "type": "number" },
+              "sparse_infill_speed": { "type": "number" },
+              "top_bottom_speed": { "type": "number" },
+              "support_speed": { "type": "number" },
+              "bridge_speed": { "type": "number" },
+              "layer_height": { "type": "number" },
+              "min_layer_height": { "type": "number" },
+              "max_layer_height": { "type": "number" },
+              "perimeters": { "type": "integer" },
+              "top_solid_layers": { "type": "integer" },
+              "bottom_solid_layers": { "type": "integer" },
+              "min_wall_count": { "type": "integer" },
+              "max_wall_count": { "type": "integer" },
+              "fill_density": { "type": "number", "minimum": 0, "maximum": 100 },
+              "infill_pattern": { "type": "string", "description": "Quote3D slicer pattern such as rectilinear, grid, cubic, honeycomb, gyroid, concentric, lightning, or monotonic." },
+              "support_overhang_angle": { "type": "number" },
+              "support_density": { "type": "number", "minimum": 0, "maximum": 100 },
+              "brim_enabled": { "type": "boolean" },
+              "brim_width": { "type": "number", "minimum": 0, "maximum": 20 },
+              "acceleration_print": { "type": "number" },
+              "acceleration_travel": { "type": "number" },
+              "acceleration_retraction": { "type": "number" },
+              "jerk_print": { "type": "number" },
+              "jerk_travel": { "type": "number" },
+              "jerk_retraction": { "type": "number" },
+              "min_hotend_temp": { "type": "integer" },
+              "max_hotend_temp": { "type": "integer" },
+              "min_bed_temp": { "type": "integer" },
+              "max_bed_temp": { "type": "integer" },
+              "hourly_cost": { "type": "number" },
+              "max_volumetric_flow": { "type": "number" },
+              "print_flow_ratio": { "type": "number" },
+              "first_layer_flow_ratio": { "type": "number" },
+              "outer_wall_flow_ratio": { "type": "number" },
+              "inner_wall_flow_ratio": { "type": "number" },
+              "sparse_infill_flow_ratio": { "type": "number" },
+              "internal_solid_infill_flow_ratio": { "type": "number" },
+              "top_solid_infill_flow_ratio": { "type": "number" },
+              "bottom_solid_infill_flow_ratio": { "type": "number" },
+              "bridge_flow_ratio": { "type": "number" },
+              "support_flow_ratio": { "type": "number" },
+              "support_interface_flow_ratio": { "type": "number" },
+              "brim_flow_ratio": { "type": "number" },
+              "fdm_hotend_power": { "type": "number" },
+              "fdm_bed_power": { "type": "number" },
+              "sla_exposure_time": { "type": "number" },
+              "sla_bottom_exposure_time": { "type": "number" },
+              "sla_bottom_layer_count": { "type": "integer" },
+              "sla_lift_distance": { "type": "number" },
+              "sla_lift_speed": { "type": "number" },
+              "sla_retract_speed": { "type": "number" },
+              "sla_cleaning_cost": { "type": "number" },
+              "sla_light_off_delay": { "type": "number" },
+              "sla_transition_layer_count": { "type": "integer" },
+              "sla_lift_distance2": { "type": "number" },
+              "sla_lift_speed2": { "type": "number" },
+              "sla_retract_distance2": { "type": "number" },
+              "sla_retract_speed2": { "type": "number" },
+              "sla_drain_holes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "diameter": { "type": "number" },
+                    "count": { "type": "integer" }
+                  }
+                }
+              },
+              "sla_pad_enabled": { "type": "boolean" },
+              "sla_pad_height": { "type": "number" },
+              "sla_pad_expansion": { "type": "number" },
+              "sla_power": { "type": "number" },
+              "sls_laser_speed": { "type": "number" },
+              "sls_hatch_spacing": { "type": "number" },
+              "sls_layer_thickness": { "type": "number" },
+              "sls_layer_recoat_time": { "type": "number" },
+              "sls_preheat_time": { "type": "number" },
+              "sls_cooling_time": { "type": "number" },
+              "sls_bb_multiplier": { "type": "number" },
+              "sls_power": { "type": "number" },
+              "sls_laser_efficiency": { "type": "number" }
+            }
+          },
+          "material_config": {
+            "type": "object",
+            "description": "Optional material-profile overrides.",
+            "properties": {
+              "filament_type": { "type": "string", "description": "Material such as PLA, ABS, PETG, TPU, ASA, PC, Nylon, PEI, PEEK, PEKK, PPS, PPSU, PSU, or PVDF." },
+              "color": { "type": "string" },
+              "density": { "type": "number" },
+              "diameter": { "type": "number" },
+              "powder_bulk_density": { "type": "number" },
+              "temperature": { "type": "integer" },
+              "print_temp_min": { "type": "integer" },
+              "print_temp_max": { "type": "integer" },
+              "bed_temperature": { "type": "integer" },
+              "bed_temp_min": { "type": "integer" },
+              "bed_temp_max": { "type": "integer" },
+              "fan_speed": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "min_fan_speed": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "retraction_distance": { "type": "number" },
+              "retraction_speed": { "type": "number" },
+              "price_per_kg": { "type": "number" },
+              "price_per_gram": { "type": "number" },
+              "support_cost_multiplier": { "type": "number" },
+              "sls_refresh_factor": { "type": "number" },
+              "max_volumetric_flow": { "type": "number" },
+              "min_layer_time": { "type": "number" },
+              "filament_flow_ratio": { "type": "number", "minimum": 0.01 }
+            }
+          },
+          "quote_config": {
+            "type": "object",
+            "description": "Optional commercial and post-processing overrides.",
+            "properties": {
+              "currency": { "type": "string", "description": "ISO-style currency code such as USD, EUR, or TRY." },
+              "tax_rate": { "type": "number" },
+              "fixed_fee": { "type": "number" },
+              "energy_cost_per_kwh": { "type": "number" },
+              "hollowing": { "type": "string", "enum": ["solid", "2mm", "3mm"] },
+              "post_processing": { "type": "string", "enum": ["standard", "sanding", "painting", "painted"] },
+              "enable_batch_system": { "type": "boolean" },
+              "material_wastage_factor": { "type": "number" },
+              "volume_discount_tiers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "minVolume": { "type": "number" },
+                    "discount": { "type": "number" }
+                  },
+                  "required": ["minVolume", "discount"]
+                }
+              }
+            }
+          }
+        },
+        "required": ["file_id"]
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get an asynchronous Quote3D job's queue state, progress, error, and completed quote result. Poll every 2-5 seconds and stop on completed, failed, or cancelled.",
+      "method": "GET",
+      "path": "/v2/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "string", "description": "Job id returned by create_quote." }
+        },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "get_quote_statistics",
+      "description": "Get aggregate Quote3D quote counts, success rates, prices, materials, and technologies for a standard or custom time period.",
+      "method": "GET",
+      "path": "/v2/analytics/quotes",
+      "query_params": ["period", "date_from", "date_to"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "period": { "type": "string", "enum": ["day", "week", "month", "year", "custom"], "default": "month" },
+          "date_from": { "type": "string", "format": "date-time", "description": "Required by Quote3D when period is custom." },
+          "date_to": { "type": "string", "format": "date-time", "description": "Required by Quote3D when period is custom." }
+        }
+      }
+    },
+    {
+      "name": "get_popular_combinations",
+      "description": "Get the most frequently quoted Quote3D material and printer combinations for the authenticated account.",
+      "method": "GET",
+      "path": "/v2/analytics/popular",
+      "query_params": ["limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
+        }
+      }
+    },
+    {
+      "name": "get_cost_trends",
+      "description": "Get Quote3D average-price and cost trends over time, grouped by day, week, or month.",
+      "method": "GET",
+      "path": "/v2/analytics/cost-trends",
+      "query_params": ["date_from", "date_to", "group_by"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "date_from": { "type": "string", "format": "date-time" },
+          "date_to": { "type": "string", "format": "date-time" },
+          "group_by": { "type": "string", "enum": ["day", "week", "month"], "default": "day" }
+        }
+      }
+    },
+    {
+      "name": "export_analytics",
+      "description": "Export Quote3D quote or usage analytics as JSON or CSV for a date range. CSV responses are returned as downloadable content.",
+      "method": "GET",
+      "path": "/v2/analytics/export",
+      "query_params": ["type", "format", "date_from", "date_to", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["quotes", "usage"], "default": "quotes" },
+          "format": { "type": "string", "enum": ["json", "csv"], "default": "json" },
+          "date_from": { "type": "string", "format": "date-time" },
+          "date_to": { "type": "string", "format": "date-time" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 1000 }
+        }
+      }
+    },
+    {
+      "name": "list_quotes",
+      "description": "List saved Quote3D quote results with pagination and optional success/error status filtering.",
+      "method": "GET",
+      "path": "/v2/quotes",
+      "query_params": ["limit", "offset", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "offset": { "type": "integer", "minimum": 0, "default": 0 },
+          "status": { "type": "string", "enum": ["success", "error"] }
+        }
+      }
+    },
+    {
+      "name": "get_quote",
+      "description": "Get one saved Quote3D quote with its technical print details, pricing breakdown, model information, and processing status.",
+      "method": "GET",
+      "path": "/v2/quotes/{quote_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "quote_id": { "type": "string" }
+        },
+        "required": ["quote_id"]
+      }
+    },
+    {
+      "name": "delete_quote",
+      "description": "Permanently delete one saved Quote3D quote result. Inspect it with get_quote first and do not retry after a successful deletion.",
+      "method": "DELETE",
+      "path": "/v2/quotes/{quote_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "quote_id": { "type": "string" }
+        },
+        "required": ["quote_id"]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List Quote3D webhook subscriptions and delivery success/failure totals for the authenticated user.",
+      "method": "GET",
+      "path": "/v2/webhooks",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a Quote3D webhook subscription. The signing secret is returned only once; store it securely and use it to verify incoming webhook signatures.",
+      "method": "POST",
+      "path": "/v2/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri", "description": "Public HTTPS webhook receiver URL." },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "enum": ["quote.completed", "quote.failed", "file.uploaded", "file.deleted", "job.status_changed", "widget.added_to_cart"] }
+          },
+          "tokenId": { "type": "string", "description": "Optional Quote3D API token id to associate with this webhook." }
+        },
+        "required": ["url", "events"]
+      }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get one Quote3D webhook subscription, delivery counters, and recent delivery history.",
+      "method": "GET",
+      "path": "/v2/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": { "type": "string" }
+        },
+        "required": ["webhook_id"]
+      }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update a Quote3D webhook URL, subscribed events, or active state. Only supplied fields are changed.",
+      "method": "PUT",
+      "path": "/v2/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "enum": ["quote.completed", "quote.failed", "file.uploaded", "file.deleted", "job.status_changed", "widget.added_to_cart"] }
+          },
+          "isActive": { "type": "boolean" }
+        },
+        "required": ["webhook_id"]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Permanently delete a Quote3D webhook subscription. No further events are delivered to it after deletion.",
+      "method": "DELETE",
+      "path": "/v2/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": { "type": "string" }
+        },
+        "required": ["webhook_id"]
+      }
+    },
+    {
+      "name": "resend_webhook_delivery",
+      "description": "Re-send one previous Quote3D webhook delivery. Inspect get_webhook delivery history first and avoid repeated resends when the receiver is still failing.",
+      "method": "POST",
+      "path": "/v2/webhooks/{webhook_id}/deliveries/{delivery_id}/resend",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": { "type": "string" },
+          "delivery_id": { "type": "string" }
+        },
+        "required": ["webhook_id", "delivery_id"]
+      }
+    },
+    {
+      "name": "get_quota",
+      "description": "Get Quote3D token metadata, global and endpoint rate-limit windows, remaining requests, and usage counters for today, month, year, and all time.",
+      "method": "GET",
+      "path": "/v2/quota",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_usage",
+      "description": "List detailed Quote3D API usage records with pagination and optional date, endpoint, and status filters.",
+      "method": "GET",
+      "path": "/v2/usage",
+      "query_params": ["limit", "offset", "date_from", "date_to", "endpoint", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "default": 50 },
+          "offset": { "type": "integer", "minimum": 0, "default": 0 },
+          "date_from": { "type": "string", "format": "date" },
+          "date_to": { "type": "string", "format": "date" },
+          "endpoint": { "type": "string", "description": "Substring match against the called API endpoint." },
+          "status": { "type": "string", "description": "Usage-log status filter." }
+        }
+      }
+    }
+  ]
+}

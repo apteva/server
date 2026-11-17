@@ -1,0 +1,187 @@
+{
+  "slug": "magalu-cloud",
+  "name": "Magalu Cloud",
+  "description": "MCP server for Magalu Cloud (Brazilian sovereign cloud) - virtual machines, images, types, snapshots, SSH keys, block storage",
+  "logo": "https://www.google.com/s2/favicons?domain=magalu.cloud&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "brazil", "latam"],
+  "base_url": "https://api.magalu.cloud",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{api_key}}" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "description": "Magalu Cloud API key (id.magalu.com → API keys)" },
+      { "name": "region", "label": "Region", "description": "Magalu region, e.g. br-se1, br-ne1, br-mgl1" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_instances",
+      "description": "List virtual machine instances",
+      "method": "GET",
+      "path": "/{region}/compute/v1/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "_limit": { "type": "number" },
+          "_offset": { "type": "number" }
+        },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Get a virtual machine instance by ID",
+      "method": "GET",
+      "path": "/{region}/compute/v1/instances/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "id": { "type": "string" }
+        },
+        "required": ["region", "id"]
+      }
+    },
+    {
+      "name": "create_instance",
+      "description": "Create a virtual machine instance",
+      "method": "POST",
+      "path": "/{region}/compute/v1/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "name": { "type": "string" },
+          "machine_type": { "type": "object", "description": "{ name: 'BV1-1-10' } or similar" },
+          "image": { "type": "object", "description": "{ name: 'cloud-ubuntu-24.04 LTS' }" },
+          "ssh_key_name": { "type": "string" },
+          "user_data": { "type": "string" }
+        },
+        "required": ["region", "name", "machine_type", "image"]
+      }
+    },
+    {
+      "name": "delete_instance",
+      "description": "Delete a virtual machine instance",
+      "method": "DELETE",
+      "path": "/{region}/compute/v1/instances/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "id": { "type": "string" }
+        },
+        "required": ["region", "id"]
+      }
+    },
+    {
+      "name": "start_instance",
+      "description": "Start a virtual machine",
+      "method": "POST",
+      "path": "/{region}/compute/v1/instances/{id}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "id": { "type": "string" }
+        },
+        "required": ["region", "id"]
+      }
+    },
+    {
+      "name": "stop_instance",
+      "description": "Stop a virtual machine",
+      "method": "POST",
+      "path": "/{region}/compute/v1/instances/{id}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "id": { "type": "string" }
+        },
+        "required": ["region", "id"]
+      }
+    },
+    {
+      "name": "reboot_instance",
+      "description": "Reboot a virtual machine",
+      "method": "POST",
+      "path": "/{region}/compute/v1/instances/{id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" },
+          "id": { "type": "string" }
+        },
+        "required": ["region", "id"]
+      }
+    },
+    {
+      "name": "list_machine_types",
+      "description": "List available machine types (sizes)",
+      "method": "GET",
+      "path": "/{region}/compute/v1/machine-types",
+      "input_schema": {
+        "type": "object",
+        "properties": { "region": { "type": "string" } },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List available OS images",
+      "method": "GET",
+      "path": "/{region}/compute/v1/images",
+      "input_schema": {
+        "type": "object",
+        "properties": { "region": { "type": "string" } },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "list_ssh_keys",
+      "description": "List SSH keys",
+      "method": "GET",
+      "path": "/{region}/profile/v0/ssh-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": { "region": { "type": "string" } },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "list_block_volumes",
+      "description": "List block storage volumes",
+      "method": "GET",
+      "path": "/{region}/block-storage/v1/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": { "region": { "type": "string" } },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "list_snapshots",
+      "description": "List block storage snapshots",
+      "method": "GET",
+      "path": "/{region}/block-storage/v1/snapshots",
+      "input_schema": {
+        "type": "object",
+        "properties": { "region": { "type": "string" } },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List object storage buckets",
+      "method": "GET",
+      "path": "/{region}/object-storage/v1/buckets",
+      "input_schema": {
+        "type": "object",
+        "properties": { "region": { "type": "string" } },
+        "required": ["region"]
+      }
+    }
+  ]
+}

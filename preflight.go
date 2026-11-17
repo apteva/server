@@ -33,6 +33,12 @@ import (
 )
 
 func runPreflight() int {
+	if backup := os.Getenv("APTEVA_UPDATE_PREFLIGHT"); backup != "" {
+		if err := preflightUpdateDatabase(os.Getenv("DB_PATH"), backup); err != nil {
+			fmt.Fprintf(os.Stderr, "database update preflight: %v\n", err)
+			return 1
+		}
+	}
 	home := os.Getenv("APTEVA_HOME")
 	if home == "" {
 		// Fall back to the same default the CLI uses.

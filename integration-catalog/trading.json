@@ -1,0 +1,1012 @@
+{
+  "slug": "trading",
+  "name": "Trading & Portfolio Management",
+  "description": "Portfolio and trading management system with AI agent backtesting - track assets, portfolios, holdings, orders, transactions, and test strategies on historical data",
+  "logo": "https://www.google.com/s2/favicons?domain=omnikit.co&sz=128",
+  "categories": [
+    "trading",
+    "portfolio",
+    "assets",
+    "holdings",
+    "orders",
+    "transactions",
+    "market-data",
+    "backtesting",
+    "ai-agent"
+  ],
+  "base_url": "https://api.trading.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_asset",
+      "description": "Get comprehensive asset data with automatic live price fetching from exchanges (Alpaca/Binance)",
+      "method": "GET",
+      "path": "/get-asset",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "Asset ID or symbol (e.g., AAPL, BTC)"
+          },
+          "as_of_date": {
+            "type": "string",
+            "description": "Get price as of a specific date (YYYY-MM-DD). Use this for backtesting or historical queries. Example: 2025-01-05 for January 5th.",
+            "format": "date"
+          },
+          "include_prices": {
+            "type": "boolean",
+            "description": "Include price history",
+            "default": true
+          },
+          "include_fundamentals": {
+            "type": "boolean",
+            "description": "Include fundamental data",
+            "default": true
+          },
+          "include_dividends": {
+            "type": "boolean",
+            "description": "Include dividend history",
+            "default": true
+          },
+          "auto_fetch": {
+            "type": "boolean",
+            "description": "Auto-fetch prices if missing (historical if as_of_date set, current otherwise)",
+            "default": true
+          },
+          "max_age_minutes": {
+            "type": "number",
+            "description": "Consider prices older than this many minutes as stale (ignored for historical queries)",
+            "default": 5
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "description": "Force refresh from exchange, bypass cache",
+            "default": false
+          },
+          "interval": {
+            "type": "string",
+            "description": "Price data interval (default: 1d)",
+            "enum": [
+              "1m",
+              "5m",
+              "15m",
+              "1h",
+              "1d",
+              "1wk",
+              "1mo"
+            ],
+            "default": "1d"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Asset type: stock (default) or crypto/cryptocurrency",
+            "enum": [
+              "stock",
+              "crypto"
+            ],
+            "default": "stock"
+          }
+        },
+        "required": [
+          "asset_id"
+        ]
+      }
+    },
+    {
+      "name": "get_historical_prices",
+      "description": "Get historical OHLCV price data for stocks or crypto. Auto-fetches from Yahoo Finance (stocks) or Binance (crypto) if not cached in database.",
+      "method": "GET",
+      "path": "/get-historical-prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Stock or crypto symbol (e.g., AAPL, MSFT, BTC, ETH)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD). For a single day, set start_date and end_date to the same date. Defaults to 30 days ago.",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD). For a single day, set start_date and end_date to the same date. Defaults to today.",
+            "format": "date"
+          },
+          "interval": {
+            "type": "string",
+            "description": "Data interval",
+            "enum": [
+              "1m",
+              "5m",
+              "15m",
+              "1h",
+              "1d",
+              "1wk",
+              "1mo"
+            ],
+            "default": "1d"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Asset type: stock (default) or crypto",
+            "enum": [
+              "stock",
+              "crypto"
+            ],
+            "default": "stock"
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "description": "Force fetch from source even if cached",
+            "default": false
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List all available assets with filtering and pagination",
+      "method": "GET",
+      "path": "/list-assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_type": {
+            "type": "string",
+            "description": "Filter by asset type (stock, crypto, etf, etc.)"
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Filter by exchange"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results to return",
+            "default": 100,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Results offset for pagination",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order (e.g., symbol:asc, name:desc)",
+            "default": "symbol:asc"
+          }
+        }
+      }
+    },
+    {
+      "name": "search_assets",
+      "description": "Search assets by symbol or name with fuzzy matching",
+      "method": "GET",
+      "path": "/search-assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (symbol or name)"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Filter by asset type"
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Filter by exchange"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 20,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "create_portfolio",
+      "description": "Create a new investment portfolio for a user",
+      "method": "POST",
+      "path": "/create-portfolio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID who owns the portfolio"
+          },
+          "name": {
+            "type": "string",
+            "description": "Portfolio name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Portfolio description"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Base currency for the portfolio",
+            "default": "USD"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Whether this is the default portfolio",
+            "default": false
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_portfolios",
+      "description": "List all portfolios for a user with optional valuation data",
+      "method": "GET",
+      "path": "/list-portfolios",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID to list portfolios for"
+          },
+          "include_valuations": {
+            "type": "boolean",
+            "description": "Include latest valuation data",
+            "default": false
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_portfolio_summary",
+      "description": "Get portfolio value, performance, and allocation summary",
+      "method": "GET",
+      "path": "/get-portfolio-summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "as_of_date": {
+            "type": "string",
+            "description": "Date for summary (defaults to today, format: YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ]
+      }
+    },
+    {
+      "name": "get_holdings",
+      "description": "Get current holdings for a portfolio with market values. For backtests, use as_of_date to get prices as of the simulation date.",
+      "method": "GET",
+      "path": "/get-holdings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Filter by asset type"
+          },
+          "include_zero_balance": {
+            "type": "boolean",
+            "description": "Include assets with zero balance",
+            "default": false
+          },
+          "as_of_date": {
+            "type": "string",
+            "description": "Get holdings valued as of this date (YYYY-MM-DD). IMPORTANT for backtests to get correct historical prices.",
+            "format": "date"
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ]
+      }
+    },
+    {
+      "name": "record_transaction",
+      "description": "Manually record a buy/sell/transfer transaction and update holdings",
+      "method": "GET",
+      "path": "/record-transaction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Asset ID"
+          },
+          "transaction_type": {
+            "type": "string",
+            "description": "Transaction type",
+            "enum": [
+              "buy",
+              "sell",
+              "transfer_in",
+              "transfer_out",
+              "dividend",
+              "split",
+              "fee"
+            ]
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity of assets"
+          },
+          "price_per_unit": {
+            "type": "number",
+            "description": "Price per unit"
+          },
+          "fees": {
+            "type": "number",
+            "description": "Transaction fees",
+            "default": 0
+          },
+          "taxes": {
+            "type": "number",
+            "description": "Transaction taxes",
+            "default": 0
+          },
+          "transaction_date": {
+            "type": "string",
+            "description": "Transaction date (ISO format)"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Transaction notes"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Transaction currency",
+            "default": "USD"
+          },
+          "exchange_rate": {
+            "type": "number",
+            "description": "Exchange rate to portfolio base currency",
+            "default": 1
+          },
+          "backtest_run_id": {
+            "type": "string",
+            "description": "Backtest run ID (for simulated trades)"
+          },
+          "simulated_date": {
+            "type": "string",
+            "description": "Simulated date for backtest (ISO format)"
+          }
+        },
+        "required": [
+          "portfolio_id",
+          "asset_id",
+          "transaction_type",
+          "quantity",
+          "price_per_unit",
+          "transaction_date"
+        ]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List transaction history with optional portfolio/asset filtering",
+      "method": "GET",
+      "path": "/list-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Filter by portfolio ID (optional)"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Filter by asset ID"
+          },
+          "transaction_type": {
+            "type": "string",
+            "description": "Filter by transaction type"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date filter (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date filter (YYYY-MM-DD)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 50,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "create_portfolio_order",
+      "description": "Create and execute a trade order. Auto-resolves exchange and credentials from portfolio's linked credential. Waits for order fill by default (market orders typically fill within seconds). Returns filled status, transaction, and updated holding.",
+      "method": "POST",
+      "path": "/create-portfolio-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID - exchange and credentials are auto-resolved from the portfolio's linked credential"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Asset symbol (e.g., AAPL, BTC)"
+          },
+          "side": {
+            "type": "string",
+            "description": "Order side",
+            "enum": [
+              "buy",
+              "sell"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "Order type",
+            "enum": [
+              "market",
+              "limit",
+              "stop",
+              "stop_limit"
+            ]
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity to trade"
+          },
+          "price": {
+            "type": "number",
+            "description": "Limit price (for limit/stop_limit orders)"
+          },
+          "time_in_force": {
+            "type": "string",
+            "description": "Time in force",
+            "enum": [
+              "day",
+              "gtc",
+              "ioc",
+              "fok"
+            ]
+          },
+          "wait_for_fill": {
+            "type": "boolean",
+            "description": "Wait for order to fill before returning (polls exchange until filled/canceled/expired). Returns final status with transaction created.",
+            "default": true
+          },
+          "wait_timeout": {
+            "type": "integer",
+            "description": "Max time to wait for fill in milliseconds",
+            "default": 10000
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Asset ID (optional - resolved from symbol if not provided)"
+          },
+          "client_order_id": {
+            "type": "string",
+            "description": "Client order ID for tracking"
+          },
+          "simulated_date": {
+            "type": "string",
+            "description": "Execution date for backtest trades (YYYY-MM-DD format)",
+            "format": "date"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Asset type for symbol resolution: stock (default) or crypto. IMPORTANT: Use 'crypto' for cryptocurrencies like BTC, ETH, etc.",
+            "enum": [
+              "stock",
+              "crypto"
+            ],
+            "default": "stock"
+          }
+        },
+        "required": [
+          "portfolio_id",
+          "symbol",
+          "side",
+          "type",
+          "quantity"
+        ]
+      }
+    },
+    {
+      "name": "get_order_status",
+      "description": "Check current order status from exchange. Updates our database and creates transaction if filled. Use this to check on limit orders that may not fill immediately.",
+      "method": "GET",
+      "path": "/get-order-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Our database order ID"
+          },
+          "exchange_order_id": {
+            "type": "string",
+            "description": "Exchange's order ID (alternative to order_id)"
+          },
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID (required if using exchange_order_id)"
+          },
+          "create_transaction": {
+            "type": "boolean",
+            "description": "Create transaction if order is filled",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "list_portfolio_orders",
+      "description": "List order history for a portfolio with status filtering",
+      "method": "GET",
+      "path": "/list-portfolio-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by order status",
+            "enum": [
+              "pending",
+              "filled",
+              "partially_filled",
+              "cancelled",
+              "rejected",
+              "all"
+            ]
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Filter by asset ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 50,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ]
+      }
+    },
+    {
+      "name": "get_portfolio_order",
+      "description": "Get detailed information about a specific order",
+      "method": "GET",
+      "path": "/get-portfolio-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_portfolio_order",
+      "description": "Cancel a pending order on the exchange",
+      "method": "GET",
+      "path": "/cancel-portfolio-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID to cancel"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "sync_portfolio_order",
+      "description": "Sync order status from exchange and update portfolio records",
+      "method": "GET",
+      "path": "/sync-portfolio-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID to sync"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "run_backtest",
+      "description": "Create and run an AI agent backtest against historical data to test trading strategies",
+      "method": "GET",
+      "path": "/run-backtest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID"
+          },
+          "agent_id": {
+            "type": "string",
+            "description": "AI Agent ID (optional - will create temporary agent if not provided)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Strategy name"
+          },
+          "system_prompt": {
+            "type": "string",
+            "description": "AI agent trading strategy prompt"
+          },
+          "model": {
+            "type": "string",
+            "description": "LLM model to use",
+            "default": "claude-sonnet-4-5-20250929"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Backtest start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Backtest end date (YYYY-MM-DD)"
+          },
+          "initial_cash": {
+            "type": "number",
+            "description": "Starting capital"
+          },
+          "max_position_size": {
+            "type": "number",
+            "description": "Max position size as % of portfolio"
+          },
+          "max_positions": {
+            "type": "integer",
+            "description": "Maximum number of positions",
+            "default": 10
+          },
+          "stop_loss_percentage": {
+            "type": "number",
+            "description": "Stop loss threshold percentage"
+          },
+          "rebalance_frequency": {
+            "type": "string",
+            "description": "Decision frequency: daily or weekly",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "default": "daily"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "system_prompt",
+          "start_date",
+          "end_date",
+          "initial_cash"
+        ]
+      }
+    },
+    {
+      "name": "execute_backtest_simulation",
+      "description": "Execute the backtest simulation engine (may take several minutes)",
+      "method": "GET",
+      "path": "/execute-backtest-simulation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "get_backtest_performance",
+      "description": "Get comprehensive performance metrics including returns, Sharpe ratio, drawdown, and win rate",
+      "method": "GET",
+      "path": "/get-backtest-performance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "get_backtest_trades",
+      "description": "Get all trades from backtest with entry/exit prices and P&L",
+      "method": "GET",
+      "path": "/get-backtest-trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Filter by asset ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "get_backtest_decisions",
+      "description": "Get AI agent decisions and reasoning from backtest - see what the agent was thinking",
+      "method": "GET",
+      "path": "/get-backtest-decisions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          },
+          "date": {
+            "type": "string",
+            "description": "Filter by specific date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "get_backtest_daily_performance",
+      "description": "Get daily portfolio values and returns for charting",
+      "method": "GET",
+      "path": "/get-backtest-daily-performance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter from date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter to date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "compare_backtest_runs",
+      "description": "Compare performance metrics across multiple backtest runs to find the best strategy",
+      "method": "GET",
+      "path": "/compare-backtest-runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_ids": {
+            "type": "array",
+            "description": "Array of backtest run IDs (max 10)",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "run_ids"
+        ]
+      }
+    },
+    {
+      "name": "list_backtest_runs",
+      "description": "List all backtest runs for a user with filtering and pagination",
+      "method": "GET",
+      "path": "/list-backtest-runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID"
+          },
+          "agent_id": {
+            "type": "string",
+            "description": "Filter by AI agent ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_backtest_run",
+      "description": "Get details of a specific backtest run",
+      "method": "GET",
+      "path": "/get-backtest-run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_backtest_run",
+      "description": "Delete a backtest run and all associated data",
+      "method": "DELETE",
+      "path": "/delete-backtest-run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      }
+    },
+    {
+      "name": "deploy_backtest_to_live",
+      "description": "Deploy a proven backtest strategy to live trading on a real portfolio",
+      "method": "GET",
+      "path": "/deploy-backtest-to-live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Backtest run ID"
+          },
+          "target_portfolio_id": {
+            "type": "string",
+            "description": "Real portfolio ID to trade on"
+          },
+          "auto_start": {
+            "type": "boolean",
+            "description": "Automatically start live trading",
+            "default": true
+          }
+        },
+        "required": [
+          "run_id",
+          "target_portfolio_id"
+        ]
+      }
+    }
+  ]
+}

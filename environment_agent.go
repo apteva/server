@@ -16,9 +16,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,16 +38,19 @@ func waitForCoreListening(port int, budget time.Duration) bool {
 
 // EnvironmentAgentSpec configures spawning an agent copy into a Environment.
 type EnvironmentAgentSpec struct {
-	UserID            int64
-	Source            *Agent // clone directive/mode/config/project from this live agent
-	DirectiveOverride string // optional: run with a modified directive
-	Alias             string // stable environment-local label; defaults to "main"
-	ProviderPool      []ProviderInfo
-	Provider          string
-	Model             string
-	// StartPaused gates the cloned core at main's first iteration.start. This
-	// lets callers inject the opening event into main before the initial
-	// autonomous no-event loop can race ahead.
+	StartPausedScope    string
+	StartPausedThreadID string
+	UserID              int64
+	Source              *Agent // clone directive/mode/config/project from this live agent
+	DirectiveOverride   string // optional: run with a modified directive
+	Alias               string // stable environment-local label; defaults to "main"
+	ProviderPool        []ProviderInfo
+	Provider            string
+	Model               string
+	// StartPaused installs an instance-wide iteration.start gate, including
+	// delegated workers. Text cases can inject their task before releasing it.
+	// An explicit thread scope instead pauses only StartPausedThreadID.
+	// Omitting the scope preserves the existing instance-wide behavior.
 	StartPaused bool
 }
 
@@ -134,11 +140,37 @@ func (p environmentSourceAgentPolicy) mcpConfig(name, endpoint string) map[strin
 }
 
 func (p environmentSourceAgentPolicy) copyRealtimeConfig(target map[string]any) {
-	for _, key := range []string{"realtime_enabled", "realtime_voice", "realtime_voice_mcp"} {
+	for _, key := range []string{"realtime_enabled", "realtime_provider", "realtime_model", "realtime_voice", "realtime_voice_mcp"} {
 		if value, ok := p.config[key]; ok {
 			target[key] = value
 		}
 	}
+}
+
+// Isolated tests must honor the source's explicit realtime selection. The
+// ordinary provider builder tolerates stale saved choices by falling back;
+// reject those choices here before creating any temporary agent resources.
+func (p environmentSourceAgentPolicy) validateRealtimeSelection(pool []ProviderInfo) error {
+	selection := make(map[string]string, 2)
+	for _, key := range []string{"realtime_provider", "realtime_model"} {
+		value, exists := p.config[key]
+		if !exists || value == nil {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("environment realtime configuration: %s must be a string", key)
+		}
+		selection[key] = strings.TrimSpace(text)
+	}
+	provider, model := selection["realtime_provider"], selection["realtime_model"]
+	if provider == "" && model == "" {
+		return nil
+	}
+	if _, _, err := resolveRealtimeSelection(pool, provider, model); err != nil {
+		return fmt.Errorf("environment realtime selection cannot be honored: %w", err)
+	}
+	return nil
 }
 
 // Stop tears the environment-agent down (stops the core, deletes the row).
@@ -152,6 +184,10 @@ func (wa *EnvironmentAgent) Stop() {
 // real apteva-core for it. The caller drives the core via its HTTP API
 // (Port + APIKey) — or through the /api/environments/<id>/agent/* proxy.
 func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec EnvironmentAgentSpec) (*EnvironmentAgent, error) {
+	executionConfig, err := environmentStartupExecutionControl(spec)
+	if err != nil {
+		return nil, err
+	}
 	if environment == nil || spec.Source == nil {
 		return nil, fmt.Errorf("environment and source agent required")
 	}
@@ -183,8 +219,11 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if spec.DirectiveOverride != "" {
 		directive = spec.DirectiveOverride
 	}
-	directive = withAgentBehavior(directive, src.Mode, src.Proactivity)
+	directive = withoutAgentControls(directive)
 	sourcePolicy := parseEnvironmentSourceAgentPolicy(src.Config)
+	if err := sourcePolicy.validateRealtimeSelection(pool); err != nil {
+		return nil, err
+	}
 
 	// Transient environment-agent row cloned from the source.
 	row, err := s.store.CreateAgent(userID,
@@ -193,15 +232,26 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 	if err != nil {
 		return nil, fmt.Errorf("create environment agent: %w", err)
 	}
-	_, _ = s.store.db.Exec(`UPDATE agents SET kind = 'environment_agent' WHERE id = ?`, row.ID)
+	_, _ = s.store.dbExec(`UPDATE agents SET kind = 'environment_agent' WHERE id = ?`, row.ID)
 	wAgent, err := s.store.GetAgentByID(row.ID)
 	if err != nil {
 		s.store.DeleteAgent(userID, row.ID)
 		return nil, fmt.Errorf("reload environment agent: %w", err)
 	}
+	var cleanupOnce sync.Once
+	agentID := wAgent.ID
 	teardown := func() {
-		s.stopAgentWithConfigLock(wAgent.ID)
-		s.store.DeleteAgent(userID, wAgent.ID)
+		cleanupOnce.Do(func() {
+			environment.releaseAgentReservation(agentID)
+			s.stopAgentWithConfigLock(agentID)
+			s.store.DeleteAgent(userID, agentID)
+			_ = os.RemoveAll(filepath.Join(s.agents.dataDir, fmt.Sprintf("instance_%d", agentID)))
+		})
+	}
+	wa := &EnvironmentAgent{
+		AgentID: wAgent.ID, SourceAgentID: src.ID, SourceName: src.Name,
+		Alias: alias, Provider: selectedProvider, Model: selectedModel,
+		CreatedAt: time.Now(), cleanup: teardown,
 	}
 
 	// Point mcp_servers at the Environment apps the source agent can actually
@@ -272,14 +322,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		"mcp_servers":           mcpServers,
 		"include_apteva_server": false,
 		"include_channels":      false,
+		"execution_control":     executionConfig,
 	}
 	sourcePolicy.copyRealtimeConfig(cfg)
-	if spec.StartPaused {
-		cfg["execution_control"] = map[string]any{
-			"mode":        "paused",
-			"breakpoints": []string{"iteration.start"},
-		}
-	}
+
 	cfgJSON, _ := json.Marshal(cfg)
 	wAgent.Directive = directive
 	wAgent.Config = string(cfgJSON)
@@ -298,6 +344,10 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		teardown()
 		return nil, fmt.Errorf("seed environment agent config: %w", err)
 	}
+	if err := environment.reserveAgent(wa); err != nil {
+		teardown()
+		return nil, fmt.Errorf("reserve environment agent: %w", err)
+	}
 	if _, err := s.startManagedAgent(wAgent, providerEnv, pool); err != nil {
 		teardown()
 		return nil, fmt.Errorf("spawn environment core: %w", err)
@@ -311,19 +361,9 @@ func (s *Server) SpawnAgentInEnvironment(environment *Environment, spec Environm
 		return nil, fmt.Errorf("persist environment agent runtime state: %w", err)
 	}
 
-	wa := &EnvironmentAgent{
-		AgentID:       wAgent.ID,
-		SourceAgentID: src.ID,
-		SourceName:    src.Name,
-		Alias:         alias,
-		Provider:      selectedProvider,
-		Model:         selectedModel,
-		Port:          s.agents.GetPort(wAgent.ID),
-		CreatedAt:     time.Now(),
-		APIKey:        s.agents.GetCoreAPIKey(wAgent.ID),
-		cleanup:       teardown,
-	}
-	if err := environment.AttachAgent(wa); err != nil {
+	wa.Port = s.agents.GetPort(wAgent.ID)
+	wa.APIKey = s.agents.GetCoreAPIKey(wAgent.ID)
+	if err := environment.activateReservedAgent(wa); err != nil {
 		wa.Stop()
 		return nil, err
 	}

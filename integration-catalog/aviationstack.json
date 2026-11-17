@@ -1,0 +1,79 @@
+{
+  "slug": "aviationstack",
+  "name": "Aviationstack",
+  "description": "Real-time and historical commercial flight status, live aircraft location, airport timetables, routes, airports, airlines, aircraft, and reference data. Free plans are personal-use and limited to 100 requests/month; several endpoints require a paid plan.",
+  "logo": "https://www.google.com/s2/favicons?domain=aviationstack.com&sz=128",
+  "categories": ["aviation", "flight-tracking", "flight-status", "airports", "travel"],
+  "base_url": "https://api.aviationstack.com/v1",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "access_key": "{{api_key}}" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Access Key", "description": "Aviationstack access key from the APIlayer dashboard.", "required": true, "secret": true }
+    ]
+  },
+  "health_check": {
+    "tool": "list_flights",
+    "input": { "limit": 1 }
+  },
+  "tools": [
+    {
+      "name": "list_flights",
+      "description": "Retrieve real-time or historical flight status with departure/arrival times, delays, terminal/gate, airline, aircraft, and live position when available. Use narrow filters to conserve quota.",
+      "method": "GET",
+      "path": "/flights",
+      "query_params": ["flight_date", "flight_status", "access_key", "dep_iata", "arr_iata", "dep_icao", "arr_icao", "airline_name", "airline_iata", "airline_icao", "flight_number", "flight_iata", "flight_icao", "min_delay_dep", "min_delay_arr", "max_delay_dep", "max_delay_arr", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flight_date": { "type": "string", "description": "YYYY-MM-DD; historical availability depends on plan." },
+          "flight_status": { "type": "string", "enum": ["scheduled", "active", "landed", "cancelled", "incident", "diverted"] },
+          "dep_iata": { "type": "string" },
+          "arr_iata": { "type": "string" },
+          "dep_icao": { "type": "string" },
+          "arr_icao": { "type": "string" },
+          "airline_name": { "type": "string" },
+          "airline_iata": { "type": "string" },
+          "airline_icao": { "type": "string" },
+          "flight_number": { "type": "string" },
+          "flight_iata": { "type": "string" },
+          "flight_icao": { "type": "string" },
+          "min_delay_dep": { "type": "integer" },
+          "min_delay_arr": { "type": "integer" },
+          "max_delay_dep": { "type": "integer" },
+          "max_delay_arr": { "type": "integer" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 1000 },
+          "offset": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_routes",
+      "description": "List airline routes. Route access may require a paid plan.",
+      "method": "GET",
+      "path": "/routes",
+      "input_schema": { "type": "object", "properties": { "dep_iata": { "type": "string" }, "arr_iata": { "type": "string" }, "airline_iata": { "type": "string" }, "flight_number": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } }
+    },
+    {
+      "name": "get_airport_timetable",
+      "description": "Get arrivals or departures timetable for one airport. Flight schedules require a paid plan.",
+      "method": "GET",
+      "path": "/timetable",
+      "input_schema": { "type": "object", "properties": { "iataCode": { "type": "string" }, "type": { "type": "string", "enum": ["arrival", "departure"] }, "limit": { "type": "integer" }, "offset": { "type": "integer" } }, "required": ["iataCode", "type"] }
+    },
+    {
+      "name": "list_future_flights",
+      "description": "Get scheduled future flights for a date and route. Future-flight access requires a paid plan.",
+      "method": "GET",
+      "path": "/flightsFuture",
+      "input_schema": { "type": "object", "properties": { "iataCode": { "type": "string" }, "type": { "type": "string", "enum": ["arrival", "departure"] }, "date": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } }, "required": ["iataCode", "type", "date"] }
+    },
+    { "name": "list_airports", "description": "List/search airports and their IATA/ICAO, location, timezone, and contact data.", "method": "GET", "path": "/airports", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_airlines", "description": "List/search airlines and their IATA/ICAO identifiers.", "method": "GET", "path": "/airlines", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_airplanes", "description": "List/search individual aircraft registrations and operator/type metadata.", "method": "GET", "path": "/airplanes", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_aircraft_types", "description": "List/search aircraft types and IATA/ICAO type codes.", "method": "GET", "path": "/aircraft_types", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_cities", "description": "List/search cities used in aviation reference data.", "method": "GET", "path": "/cities", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_countries", "description": "List/search countries and ISO identifiers.", "method": "GET", "path": "/countries", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } },
+    { "name": "list_aviation_taxes", "description": "List/search aviation taxes and associated countries.", "method": "GET", "path": "/aviation_taxes", "input_schema": { "type": "object", "properties": { "search": { "type": "string" }, "limit": { "type": "integer" }, "offset": { "type": "integer" } } } }
+  ]
+}

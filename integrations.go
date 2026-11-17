@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	sdk "github.com/apteva/app-sdk"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -77,6 +78,7 @@ type AppTemplate struct {
 // AppRuntimeConfig declares how a connection's credentials become an
 // agent runtime backend. See runtime_env.go for the template renderer.
 type AppRuntimeConfig struct {
+	ServiceTiers []string `json:"service_tiers,omitempty"`
 	// Role — which runtime pool this app feeds. Only "llm" entries land
 	// in config.json's providers[]; others export env vars only.
 	Role string `json:"role"`
@@ -94,7 +96,26 @@ type AppRuntimeConfig struct {
 	// "subscription_usage" for providers exposing a quota endpoint.
 	Capabilities []string `json:"capabilities,omitempty"`
 	// Optional integration-owned eligibility and live-catalog tier preferences.
-	ModelPolicy *RuntimeModelPolicy `json:"model_policy,omitempty"`
+	ModelPolicy *RuntimeModelPolicy     `json:"model_policy,omitempty"`
+	Realtime    *RuntimeRealtimeCatalog `json:"realtime,omitempty"`
+}
+
+// RuntimeRealtimeCatalog describes voice models independently of the text
+// model policy. Unavailable entries are visible to the dashboard but cannot
+// be selected until their Core protocol support lands.
+type RuntimeRealtimeCatalog struct {
+	ProviderKey  string                 `json:"provider_key"`
+	DefaultModel string                 `json:"default_model"`
+	Models       []RuntimeRealtimeModel `json:"models"`
+	Voices       []string               `json:"voices"`
+}
+
+type RuntimeRealtimeModel struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Available    bool     `json:"available"`
+	Voices       []string `json:"voices,omitempty"`
+	DefaultVoice string   `json:"default_voice,omitempty"`
 }
 
 type IntegrationURLProperty struct {
@@ -187,20 +208,22 @@ type AppHealthCheck struct {
 
 // IntegrationUIComponent mirrors @apteva/integrations/src/types.ts
 // UIComponent. We keep the Go side as map[string]any for the schema
-// because we never inspect the schema server-side beyond rendering it
-// in the agent-facing description — the dashboard's runtime is the
-// authority for prop validation.
+// to preserve the portable schema shape. Widget settings use the shared SDK
+// primitive validator; component props remain owned by the renderer.
 type IntegrationUIComponent struct {
-	Name           string         `json:"name"`
-	Entry          string         `json:"entry"`
-	Slots          []string       `json:"slots,omitempty"`
-	SupportedSizes []string       `json:"supported_sizes,omitempty"`
-	DefaultSize    string         `json:"default_size,omitempty"`
-	Visibility     string         `json:"visibility,omitempty"`
-	RefreshTopics  []string       `json:"refresh_topics,omitempty"`
-	PropsSchema    map[string]any `json:"props_schema,omitempty"`
-	SettingsSchema map[string]any `json:"settings_schema,omitempty"`
-	PreviewProps   map[string]any `json:"preview_props,omitempty"`
+	Name             string                `json:"name"`
+	Entry            string                `json:"entry"`
+	Slots            []string              `json:"slots,omitempty"`
+	SupportedSizes   []string              `json:"supported_sizes,omitempty"`
+	DefaultSize      string                `json:"default_size,omitempty"`
+	Visibility       string                `json:"visibility,omitempty"`
+	DashboardScopes  []string              `json:"dashboard_scopes,omitempty"`
+	RecommendedViews []string              `json:"recommended_views,omitempty"`
+	RefreshTopics    []string              `json:"refresh_topics,omitempty"`
+	PropsSchema      map[string]any        `json:"props_schema,omitempty"`
+	SettingsUI       *sdk.WidgetSettingsUI `json:"settings_ui,omitempty"`
+	SettingsSchema   map[string]any        `json:"settings_schema,omitempty"`
+	PreviewProps     map[string]any        `json:"preview_props,omitempty"`
 }
 
 // IntegrationExplorerConfig mirrors @apteva/integrations/src/types.ts.
@@ -474,11 +497,12 @@ type CredentialField struct {
 }
 
 type OAuthConfig struct {
-	AuthorizeURL     string   `json:"authorize_url"`
-	TokenURL         string   `json:"token_url"`
-	Scopes           []string `json:"scopes"`
-	ClientIDRequired bool     `json:"client_id_required"`
-	PKCE             bool     `json:"pkce"`
+	AuthorizeURL         string   `json:"authorize_url"`
+	TokenURL             string   `json:"token_url"`
+	Scopes               []string `json:"scopes"`
+	ClientIDRequired     bool     `json:"client_id_required"`
+	PKCE                 bool     `json:"pkce"`
+	ClientSecretRequired bool     `json:"client_secret_required,omitempty"`
 	// ClientIDParamName overrides the parameter name carrying the client
 	// id on both the authorize-URL build and the token-exchange POST
 	// body. Defaults to "client_id" (the OAuth 2.0 standard). TikTok is
@@ -573,11 +597,17 @@ type AppToolDef struct {
 	BaseURL     string            `json:"base_url,omitempty"`
 	Path        string            `json:"path"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	// MCPTool names a tool on a stateless MCP endpoint. Auth body params become tool arguments.
+	MCPTool string `json:"mcp_tool,omitempty"`
 	// OmitAuthHeaders removes selected app-level auth headers for this tool.
 	// Presigned upload URLs authenticate in their query string and reject a
 	// forwarded provider Authorization header.
 	OmitAuthHeaders []string       `json:"omit_auth_headers,omitempty"`
 	InputSchema     map[string]any `json:"input_schema"`
+	// BodyNone suppresses request body construction, including auth body fields,
+	// for zero-byte probes and signed endpoints. URL and header handling remain
+	// unchanged. Mirrors AppToolTemplate.body_none in the TypeScript runner.
+	BodyNone bool `json:"body_none,omitempty"`
 	// Names of input fields that should be sent as URL query string
 	// parameters instead of being folded into the request body. Required
 	// for APIs that mix query+body on POST/PUT/PATCH (e.g. Google Sheets'
@@ -643,6 +673,9 @@ type AppToolDef struct {
 	// Capped at 600s server-side to keep a single tool call from holding
 	// a connection open indefinitely. Zero / unset → 30s default.
 	TimeoutMS int `json:"timeout_ms,omitempty"`
+	// MaxTimeoutMS is the upper bound for a caller's optional
+	// _apteva.timeout_ms override. The platform hard cap is 600s.
+	MaxTimeoutMS int `json:"max_timeout_ms,omitempty"`
 
 	// BodyInput names a single input field whose value carries the raw
 	// request body. Required for endpoints that take binary content
@@ -702,6 +735,11 @@ type AppToolDef struct {
 	// ResponseTransform rewrites provider-specific responses into
 	// agent-friendly output after response_path and before response_omit.
 	ResponseTransform *ResponseTransformDef `json:"response_transform,omitempty"`
+	// ResponseHeaderFields maps only catalog-declared upstream headers into JSON,
+	// including async operation handles returned with an empty HTTP 202 body.
+	ResponseHeaderFields map[string]string `json:"response_header_fields,omitempty"`
+	// Preserve successful downloads as binary envelopes regardless of their MIME type.
+	ResponseType string `json:"response_type,omitempty"`
 
 	// Signing overrides the app-level auth.signers[] chain for this
 	// specific tool. Use when most endpoints share one auth flavor but
@@ -778,6 +816,8 @@ type ResponseTransformDef struct {
 	Source          string            `json:"source,omitempty"`
 	Target          string            `json:"target,omitempty"`
 	Encoding        string            `json:"encoding,omitempty"`
+	MimeType        string            `json:"mime_type,omitempty"`
+	MimeTypeParam   string            `json:"mime_type_param,omitempty"`
 	Fields          map[string]string `json:"fields,omitempty"`
 	BodyModeParam   string            `json:"body_mode_param,omitempty"`
 	MaxCharsParam   string            `json:"max_chars_param,omitempty"`

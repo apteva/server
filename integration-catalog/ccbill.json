@@ -1,0 +1,142 @@
+{
+  "slug": "ccbill",
+  "name": "CCBill",
+  "description": "Adult-friendly payment processing API for CCBill RESTful tokenization, token-based charges, 3DS checks, and transaction lookup.",
+  "logo": "https://www.google.com/s2/favicons?domain=ccbill.com&sz=128",
+  "categories": ["payments", "adult", "high-risk", "subscriptions", "checkout"],
+  "base_url": "https://api.ccbill.com",
+  "auth": {
+    "types": ["bearer", "basic"],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Accept": "application/vnd.mcn.transaction-service.api.v.2+json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "access_token",
+        "label": "Bearer Access Token",
+        "description": "CCBill OAuth access token used for RESTful transaction API calls.",
+        "required": false
+      },
+      {
+        "name": "basic_auth",
+        "label": "OAuth Basic Auth",
+        "description": "Base64-encoded Merchant Application ID:Secret Key value for requesting an OAuth token. Do not include the 'Basic ' prefix.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "request_oauth_token",
+      "description": "Request a CCBill OAuth bearer token using client credentials. Store the returned access_token in the connection before calling transaction tools.",
+      "method": "POST",
+      "path": "/ccbill-auth/oauth/token",
+      "headers": {
+        "Authorization": "Basic {{basic_auth}}",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "grant_type": { "type": "string", "default": "client_credentials" }
+        }
+      }
+    },
+    {
+      "name": "create_payment_token",
+      "description": "Create a CCBill payment token without CVV verification. Body is the raw CCBill tokenization payload with clientAccnum, clientSubacc, customerInfo, paymentInfo, timeToLive or validNumberOfUse.",
+      "method": "POST",
+      "path": "/payment-tokens/merchant-only",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "body": { "type": "object" } }, "required": ["body"] }
+    },
+    {
+      "name": "create_verified_payment_token",
+      "description": "Create a CCBill payment token with CVV/AVS verification. Body is the raw CCBill tokenization payload including creditCardPaymentInfo.cvv2.",
+      "method": "POST",
+      "path": "/payment-tokens/merchant-only-verify",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "body": { "type": "object" } }, "required": ["body"] }
+    },
+    {
+      "name": "create_3ds_verified_payment_token",
+      "description": "Create a CCBill payment token with CVV verification and 3DS/SCA result fields.",
+      "method": "POST",
+      "path": "/payment-tokens/merchant-only-verify-3ds",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "body": { "type": "object" } }, "required": ["body"] }
+    },
+    {
+      "name": "get_payment_token",
+      "description": "Retrieve a CCBill payment token by ID.",
+      "method": "GET",
+      "path": "/payment-tokens/{paymentTokenId}",
+      "input_schema": { "type": "object", "properties": { "paymentTokenId": { "type": "string" } }, "required": ["paymentTokenId"] }
+    },
+    {
+      "name": "check_card_3ds_required",
+      "description": "Check whether a card BIN/last4 requires 3DS for a CCBill merchant/currency.",
+      "method": "GET",
+      "path": "/payment-tokens/threeds-required",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bin": { "type": "string" },
+          "last4": { "type": "string" },
+          "clientAccnum": { "type": "integer" },
+          "clientSubacc": { "type": "integer" },
+          "currencyCode": { "type": "integer" }
+        },
+        "required": ["bin", "last4", "clientAccnum", "clientSubacc", "currencyCode"]
+      }
+    },
+    {
+      "name": "check_token_3ds_required",
+      "description": "Check whether a payment token requires 3DS for a specific currency.",
+      "method": "GET",
+      "path": "/payment-tokens/{paymentTokenId}/threeds-required",
+      "input_schema": { "type": "object", "properties": { "paymentTokenId": { "type": "string" }, "currencyCode": { "type": "integer" } }, "required": ["paymentTokenId", "currencyCode"] }
+    },
+    {
+      "name": "charge_payment_token",
+      "description": "Create a CCBill transaction against a payment token. Body accepts initialPrice, initialPeriod, currencyCode, recurringPrice, recurringPeriod, rebills, passThroughInfo, createNewPaymentToken, and related CCBill transaction fields.",
+      "method": "POST",
+      "path": "/transactions/payment-tokens/{paymentTokenId}",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "paymentTokenId": { "type": "string" }, "body": { "type": "object" } }, "required": ["paymentTokenId", "body"] }
+    },
+    {
+      "name": "charge_3ds_payment_token",
+      "description": "Create a CCBill transaction against a payment token using 3DS result fields.",
+      "method": "POST",
+      "path": "/transactions/payment-tokens/threeds/{paymentTokenId}",
+      "body_root_param": "body",
+      "input_schema": { "type": "object", "properties": { "paymentTokenId": { "type": "string" }, "body": { "type": "object" } }, "required": ["paymentTokenId", "body"] }
+    },
+    {
+      "name": "list_token_transactions",
+      "description": "View previous CCBill charges associated with a payment token and merchant account.",
+      "method": "GET",
+      "path": "/transactions/payment-tokens/{paymentTokenId}",
+      "input_schema": { "type": "object", "properties": { "paymentTokenId": { "type": "string" }, "clientAccnum": { "type": "integer" }, "clientSubacc": { "type": "integer" } }, "required": ["paymentTokenId", "clientAccnum"] }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-ccbill-signature",
+    "events": [
+      { "name": "transaction.approved", "description": "A CCBill transaction was approved." },
+      { "name": "transaction.denied", "description": "A CCBill transaction was denied." },
+      { "name": "subscription.cancelled", "description": "A CCBill subscription was cancelled." },
+      { "name": "subscription.rebill", "description": "A CCBill recurring billing event occurred." }
+    ],
+    "registration": {
+      "method": "POST",
+      "path": "/",
+      "url_field": "url",
+      "manual_setup": "Configure CCBill Webhooks in the CCBill admin using the Apteva callback URL. CCBill webhook setup is merchant-account based and is not auto-registered by this integration."
+    }
+  }
+}

@@ -1,0 +1,879 @@
+{
+  "slug": "consensus",
+  "name": "Consensus",
+  "description": "MCP server for Consensus demo automation — manage interactive demos, DemoBoards, leads, analytics, and webhooks",
+  "logo": "https://www.google.com/s2/favicons?domain=goconsensus.com&sz=128",
+  "categories": [
+    "demo-automation",
+    "sales",
+    "marketing",
+    "analytics",
+    "interactive-demos"
+  ],
+  "base_url": "https://app.goconsensus.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "api_key"
+      },
+      {
+        "name": "api_secret",
+        "label": "api_secret"
+      },
+      {
+        "name": "user_email",
+        "label": "user_email"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "user_info",
+      "description": "Get authenticated user details and group information",
+      "method": "POST",
+      "path": "/integr/v1.0/info/userInfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret from Consensus Integrations settings"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Your Consensus account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit",
+            "description": "Integration source identifier"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "demo_search",
+      "description": "Search for demos in your Consensus account. Optionally include permissions and thumbnail URLs.",
+      "method": "POST",
+      "path": "/integr/v1.0/demo/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search query to filter demos by name"
+          },
+          "include_permissions": {
+            "type": "boolean",
+            "description": "Include permission details",
+            "default": false
+          },
+          "include_thumbnails": {
+            "type": "boolean",
+            "description": "Include demo thumbnail URLs",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results per page",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (1-based)",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "demo_get_by_link",
+      "description": "Retrieve demo information using a link hash identifier",
+      "method": "POST",
+      "path": "/integr/v1.0/demo/getDemoByLinkHash",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "link_hash": {
+            "type": "string",
+            "description": "The demo link hash identifier"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "link_hash"
+        ]
+      }
+    },
+    {
+      "name": "create_demo_link",
+      "description": "Generate a shareable demo link/hash for marketing purposes",
+      "method": "POST",
+      "path": "/integr/v1.0/marketing/createlink",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "demo_id": {
+            "type": "string",
+            "description": "ID of the demo to create a link for"
+          },
+          "link_name": {
+            "type": "string",
+            "description": "Name/label for the link"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "demo_id"
+        ]
+      }
+    },
+    {
+      "name": "search_leads",
+      "description": "Query leads with geo/feature data from demo interactions",
+      "method": "POST",
+      "path": "/integr/v1.0/marketing/searchleads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search term (email, name, etc.)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter end date (ISO 8601)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results per page",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "create_lead",
+      "description": "Add a new lead with optional UTM parameters",
+      "method": "POST",
+      "path": "/integr/v1.0/marketing/createlead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "email": {
+            "type": "string",
+            "description": "Lead email address"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "Lead first name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Lead last name"
+          },
+          "company": {
+            "type": "string",
+            "description": "Lead company name"
+          },
+          "utm_source": {
+            "type": "string",
+            "description": "UTM source parameter"
+          },
+          "utm_medium": {
+            "type": "string",
+            "description": "UTM medium parameter"
+          },
+          "utm_campaign": {
+            "type": "string",
+            "description": "UTM campaign parameter"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "get_recipient",
+      "description": "Retrieve a lead/recipient by email address",
+      "method": "POST",
+      "path": "/integr/v1.0/user/get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address of the recipient to retrieve"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "delete_recipient",
+      "description": "Anonymize/delete a lead's data by email",
+      "method": "POST",
+      "path": "/integr/v1.0/user/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email of the recipient to delete/anonymize"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "create_demoboard",
+      "description": "Create a new DemoBoard (personalized demo experience) with recipients. A DemoBoard bundles one or more demos for a specific prospect/opportunity.",
+      "method": "POST",
+      "path": "/integr/v1.0/sales/createsenddemo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "demo_ids": {
+            "type": "array",
+            "description": "Array of demo IDs to include",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recipients": {
+            "type": "array",
+            "description": "Array of recipient objects with email, first_name, last_name",
+            "items": {
+              "type": "object"
+            }
+          },
+          "opportunity_id": {
+            "type": "string",
+            "description": "CRM opportunity ID to associate with"
+          },
+          "subject": {
+            "type": "string",
+            "description": "DemoBoard subject/title"
+          },
+          "message": {
+            "type": "string",
+            "description": "Personal message to recipients"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "demo_ids",
+          "recipients"
+        ]
+      }
+    },
+    {
+      "name": "update_demoboard",
+      "description": "Modify an existing DemoBoard's metadata",
+      "method": "POST",
+      "path": "/integr/v1.0/sales/updatesenddemo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "demoboard_id": {
+            "type": "string",
+            "description": "DemoBoard ID to update"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Updated subject"
+          },
+          "message": {
+            "type": "string",
+            "description": "Updated message"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "demoboard_id"
+        ]
+      }
+    },
+    {
+      "name": "search_demoboards",
+      "description": "Search DemoBoard analytics by date range or opportunity",
+      "method": "POST",
+      "path": "/integr/v1.0/sales/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "opportunity_id": {
+            "type": "string",
+            "description": "CRM opportunity ID filter"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "demos_details_report",
+      "description": "Get demo metadata and analytics filtered by type and date range",
+      "method": "POST",
+      "path": "/reports/v1.0/demosDetails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "demo_type": {
+            "type": "string",
+            "description": "Filter by demo type"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "sales_report",
+      "description": "Get detailed sales demolytics report with viewer activity per customer",
+      "method": "POST",
+      "path": "/reports/v1.0/salesByCustomerDetailed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "track_demoboards_report",
+      "description": "Get DemoBoard metrics and tracking data within a date range",
+      "method": "POST",
+      "path": "/reports/v1.0/trackDemoBoards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (ISO 8601)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (ISO 8601)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "manage_users_report",
+      "description": "Retrieve user metadata with pagination and filtering",
+      "method": "POST",
+      "path": "/reports/v1.0/manageUsers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search term to filter users"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25
+          },
+          "page": {
+            "type": "integer",
+            "default": 1
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "update_opportunity",
+      "description": "Sync opportunity, contact, and account data with Consensus CRM integration",
+      "method": "POST",
+      "path": "/integr/v1.0/crm/updateOpportunityData",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "opportunity_id": {
+            "type": "string",
+            "description": "CRM opportunity ID"
+          },
+          "contact_email": {
+            "type": "string",
+            "description": "Contact email"
+          },
+          "account_name": {
+            "type": "string",
+            "description": "Account/company name"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "opportunity_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Register an event webhook to receive notifications (JSON or XML format)",
+      "method": "POST",
+      "path": "/integr/v1.0/setting/createWebHook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "url": {
+            "type": "string",
+            "description": "Webhook endpoint URL"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "xml"
+            ],
+            "default": "json",
+            "description": "Payload format"
+          },
+          "events": {
+            "type": "array",
+            "description": "Events to subscribe to",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "Retrieve all configured webhooks",
+      "method": "POST",
+      "path": "/integr/v1.0/setting/webHookList",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Remove a webhook by its UUID",
+      "method": "POST",
+      "path": "/integr/v1.0/setting/deleteWebHook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "webhook_uuid": {
+            "type": "string",
+            "description": "UUID of the webhook to delete"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "webhook_uuid"
+        ]
+      }
+    },
+    {
+      "name": "mail_merge_create",
+      "description": "Generate a mail merge campaign for personalized demo distribution",
+      "method": "POST",
+      "path": "/integration-links/v1.0/mail-merge/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          },
+          "demo_id": {
+            "type": "string",
+            "description": "Demo ID for the campaign"
+          },
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email",
+          "demo_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "mail_merge_list",
+      "description": "List all mail merge campaigns",
+      "method": "POST",
+      "path": "/integration-links/v1.0/mail-merge/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_secret": {
+            "type": "string",
+            "description": "API secret"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Account email"
+          },
+          "source_name": {
+            "type": "string",
+            "default": "omnikit"
+          }
+        },
+        "required": [
+          "api_secret",
+          "user_email"
+        ]
+      }
+    }
+  ]
+}

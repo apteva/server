@@ -1,0 +1,1012 @@
+{
+  "slug": "creatify",
+  "name": "Creatify",
+  "description": "Creatify.ai API for URL-to-video ads, AI avatar/lip-sync videos, Aurora avatar videos, custom templates, product videos, scripts, voices, TTS, image ads, assets, and credits.",
+  "logo": "https://www.google.com/s2/favicons?domain=creatify.ai&sz=128",
+  "categories": [
+    "ai",
+    "video",
+    "avatars",
+    "ads",
+    "generation",
+    "ugc"
+  ],
+  "base_url": "https://api.creatify.ai",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-ID": "{{api_id}}",
+      "X-API-KEY": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_id",
+        "label": "API ID",
+        "type": "password",
+        "description": "Creatify X-API-ID from the API credentials page."
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "type": "password",
+        "description": "Creatify X-API-KEY from the API credentials page."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_remaining_credits"
+  },
+  "tools": [
+    {
+      "name": "get_remaining_credits",
+      "description": "Get remaining Creatify API credits for the workspace.",
+      "method": "GET",
+      "path": "/api/remaining_credits/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_avatars",
+      "description": "List stock and available avatar/persona records.",
+      "method": "GET",
+      "path": "/api/personas/",
+      "query_params": [
+        "ids",
+        "name",
+        "gender",
+        "age",
+        "ethnicity",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "age": {
+            "type": "string"
+          },
+          "ethnicity": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_avatar",
+      "description": "Get one avatar/persona by ID.",
+      "method": "GET",
+      "path": "/api/personas/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List Creatify voices and accents.",
+      "method": "GET",
+      "path": "/api/voices/",
+      "query_params": [
+        "ids",
+        "name",
+        "language",
+        "gender",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_cloned_voices",
+      "description": "List cloned voices.",
+      "method": "GET",
+      "path": "/api/voices/cloned/",
+      "query_params": [
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Create a voice clone from audio/video file URLs.",
+      "method": "POST",
+    "path": "/api/voices/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "language": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "urls"
+        ]
+      }
+    },
+    {
+      "name": "delete_cloned_voice",
+      "description": "Delete a cloned voice by ID.",
+      "method": "DELETE",
+    "path": "/api/voices/accents/{accent_id}/",
+    "path_params": [
+      "accent_id"
+    ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+        "accent_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accent_id"
+      ]
+    }
+  },
+    {
+      "name": "generate_text_to_speech",
+      "description": "Generate an audio voiceover from text and a Creatify voice/accent.",
+      "method": "POST",
+      "path": "/api/text_to_speech/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "accent": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "accent"
+        ]
+      }
+    },
+    {
+      "name": "list_text_to_speech",
+      "description": "List text-to-speech jobs.",
+      "method": "GET",
+      "path": "/api/text_to_speech/",
+      "query_params": [
+        "ids",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_text_to_speech",
+      "description": "Get a text-to-speech job by ID.",
+      "method": "GET",
+      "path": "/api/text_to_speech/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_ai_avatar",
+      "description": "Create a single-avatar lip-sync video from text or an audio URL.",
+      "method": "POST",
+      "path": "/api/lipsyncs/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "audio": {
+            "type": "string"
+          },
+          "creator": {
+            "type": "string",
+            "description": "Avatar/persona ID from list_avatars."
+          },
+          "accent": {
+            "type": "string",
+            "description": "Voice/accent ID from list_voices."
+          },
+          "model_version": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "aurora_v1",
+              "aurora_v1_fast"
+            ]
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16x9",
+              "1x1",
+              "9x16"
+            ]
+          },
+          "green_screen": {
+            "type": "boolean"
+          },
+          "transparent_background": {
+            "type": "boolean"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "creator"
+        ]
+      }
+    },
+    {
+      "name": "list_ai_avatar_videos",
+      "description": "List AI avatar/lip-sync videos.",
+      "method": "GET",
+      "path": "/api/lipsyncs/",
+      "query_params": [
+        "ids",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ai_avatar_video",
+      "description": "Get an AI avatar/lip-sync video by ID.",
+      "method": "GET",
+      "path": "/api/lipsyncs/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "preview_ai_avatar",
+      "description": "Generate a preview for an AI avatar video before final render.",
+      "method": "POST",
+      "path": "/api/lipsyncs/preview/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "audio": {
+            "type": "string"
+          },
+          "creator": {
+            "type": "string"
+          },
+          "accent": {
+            "type": "string"
+          },
+          "aspect_ratio": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "render_ai_avatar",
+      "description": "Render a final AI avatar video from an existing preview/job.",
+      "method": "POST",
+      "path": "/api/lipsyncs/render/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_ai_avatar_v2",
+      "description": "Create a multi-scene/multi-avatar lip-sync video with video_inputs.",
+      "method": "POST",
+      "path": "/api/lipsyncs_v2/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_inputs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16x9",
+              "1x1",
+              "9x16"
+            ]
+          },
+          "background_music": {
+            "type": "object"
+          },
+          "cta_end": {
+            "type": "object"
+          },
+          "webhook_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "model_version": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "aurora_v1",
+              "aurora_v1_fast"
+            ]
+          }
+        },
+        "required": [
+          "video_inputs"
+        ]
+      }
+    },
+    {
+      "name": "list_ai_avatar_v2_videos",
+      "description": "List AI Avatar v2 videos.",
+      "method": "GET",
+      "path": "/api/lipsyncs_v2/",
+      "query_params": [
+        "ids",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ai_avatar_v2_video",
+      "description": "Get an AI Avatar v2 video by ID.",
+      "method": "GET",
+      "path": "/api/lipsyncs_v2/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_url_to_video",
+      "description": "Create a short-form video ad from a product/landing page URL.",
+      "method": "POST",
+      "path": "/api/link_to_videos/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "target_platform": {
+            "type": "string"
+          },
+          "target_audience": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "override_avatar": {
+            "type": "string"
+          },
+          "override_voice": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          },
+          "aspect_ratio": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "list_url_to_videos",
+      "description": "List URL-to-video jobs.",
+      "method": "GET",
+      "path": "/api/link_to_videos/",
+      "query_params": [
+        "ids",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_url_to_video",
+      "description": "Get URL-to-video result by ID.",
+      "method": "GET",
+      "path": "/api/link_to_videos/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "preview_url_to_video",
+      "description": "Generate a preview for a URL-to-video job.",
+      "method": "POST",
+      "path": "/api/link_to_videos/preview/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "render_url_to_video",
+      "description": "Render a final URL-to-video job from a preview.",
+      "method": "POST",
+      "path": "/api/link_to_videos/render/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_custom_templates",
+      "description": "List custom templates created in Creatify.",
+      "method": "GET",
+      "path": "/api/custom_templates/",
+      "query_params": [
+        "ids",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_custom_template",
+      "description": "Get one custom template and its variables.",
+      "method": "GET",
+      "path": "/api/custom_templates/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_custom_template_video",
+      "description": "Generate a video from a custom template and variables.",
+      "method": "POST",
+      "path": "/api/custom_template_jobs/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "variables"
+        ]
+      }
+    },
+    {
+      "name": "get_custom_template_video",
+      "description": "Get custom template video job by ID.",
+      "method": "GET",
+      "path": "/api/custom_template_jobs/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_aurora_video",
+      "description": "Create an Aurora image/audio-to-avatar video.",
+      "method": "POST",
+      "path": "/api/aurora/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "audio": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "accent": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "type": "string"
+          },
+          "aspect_ratio": {
+            "type": "string"
+          },
+          "model_version": {
+            "type": "string",
+            "enum": [
+              "aurora_v1",
+              "aurora_v1_fast"
+            ]
+          }
+        },
+        "required": [
+          "image"
+        ]
+      }
+    },
+    {
+      "name": "get_aurora_video",
+      "description": "Get Aurora video by ID.",
+      "method": "GET",
+      "path": "/api/aurora/{id}/",
+      "path_params": [
+        "id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_aurora_videos",
+      "description": "List Aurora videos.",
+      "method": "GET",
+      "path": "/api/aurora/",
+      "query_params": [
+        "ids",
+        "page",
+        "page_size"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "page_size": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "generate_ai_scripts",
+      "description": "Generate marketing scripts from a URL or title/description.",
+      "method": "POST",
+      "path": "/api/ai_scripts/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "target_audience": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "number_of_scripts": {
+            "type": "integer"
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_iab_images",
+      "description": "Generate IAB-compliant ad banner images from an input image.",
+      "method": "POST",
+      "path": "/api/iab_images/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string"
+          },
+          "brand_name": {
+            "type": "string"
+          },
+          "product_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "sizes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "webhook_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_url"
+        ]
+      }
+    },
+    {
+      "name": "create_asset_generation",
+    "description": "Create a task using Creatify Asset Generator models. Use get_asset_generation_schema to discover model inputs.",
+    "method": "POST",
+    "path": "/api/asset_generator/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_name": {
+            "type": "string"
+          },
+          "input": {
+            "type": "object"
+          },
+          "webhook_url": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_name",
+          "input"
+        ]
+      }
+    },
+  {
+    "name": "list_asset_generations",
+    "description": "List Creatify Asset Generator tasks.",
+    "method": "GET",
+    "path": "/api/asset_generator/",
+    "query_params": [
+      "ids",
+      "page",
+      "page_size"
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "ids": {
+          "type": "string"
+        },
+        "page": {
+          "type": "integer"
+        },
+        "page_size": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_asset_generation",
+    "description": "Get one Creatify Asset Generator task by ID.",
+    "method": "GET",
+    "path": "/api/asset_generator/{id}/",
+    "path_params": [
+      "id"
+    ],
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  {
+    "name": "get_asset_generation_schema",
+    "description": "List available Asset Generator models and input schemas.",
+    "method": "GET",
+    "path": "/api/asset_generator/schemas/",
+      "query_params": [
+        "model_name"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,452 @@
+{
+  "slug": "fetch-sms",
+  "name": "Fetch SMS",
+  "description": "Rent dedicated US numbers, purchase short-term service verifications, poll received codes and messages, extend rentals, and check wallet funds. Messages are delivered for services supported by the Fetch SMS catalogue.",
+  "logo": "https://www.google.com/s2/favicons?domain=fetchsms.com&sz=128",
+  "categories": [
+    "telephony",
+    "phone-numbers",
+    "sms"
+  ],
+  "base_url": "https://api.fetchsms.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Fetch SMS API key created on the dashboard API page. Enter the key without the Bearer prefix.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_balance"
+  },
+  "tools": [
+    {
+      "name": "get_balance",
+      "description": "Read the API-key-accessible wallet balance in integer US cents.",
+      "method": "GET",
+      "path": "/wallet/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_services",
+      "description": "List the public service catalogue, current prices in cents, and stock. Use returned numeric service IDs in subsequent requests.",
+      "method": "GET",
+      "path": "/services",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "omit_auth_headers": [
+        "Authorization"
+      ]
+    },
+    {
+      "name": "list_area_codes",
+      "description": "List available US area codes for short-term or long-term numbers.",
+      "method": "GET",
+      "path": "/services/area-codes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "short",
+              "long"
+            ],
+            "description": "Short-term verification or long-term rental."
+          },
+          "service": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ],
+            "description": "Service numeric ID from list_services. A service slug is also accepted."
+          }
+        }
+      },
+      "omit_auth_headers": [
+        "Authorization"
+      ],
+      "query_params": [
+        "mode",
+        "service"
+      ]
+    },
+    {
+      "name": "get_quote",
+      "description": "Quote the full price in integer US cents before buying. Long-term mode uses service=1 and requires days.",
+      "method": "GET",
+      "path": "/services/quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ],
+            "description": "Service numeric ID from list_services. A service slug is also accepted."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "short",
+              "long"
+            ],
+            "description": "Short-term verification or long-term rental."
+          },
+          "days": {
+            "type": "integer",
+            "enum": [
+              1,
+              7,
+              30,
+              90,
+              365
+            ],
+            "description": "Rental term in days. Required for long-term quotes, purchases, and extensions."
+          },
+          "custom_area_code": { "type": "boolean", "description": "Include the custom area-code surcharge. Defaults to false." }
+        },
+        "required": [
+          "service",
+          "mode"
+        ]
+      },
+      "omit_auth_headers": [
+        "Authorization"
+      ],
+      "query_params": [
+        "service",
+        "mode",
+        "days",
+        "custom_area_code"
+      ]
+    },
+    {
+      "name": "create_verification",
+      "description": "Reserve a billed number for a supported service in a 15-minute verification window. Poll get_verification every 2-5 seconds for a code.",
+      "method": "POST",
+      "path": "/verifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "minLength": 1
+              }
+            ],
+            "description": "Service numeric ID from list_services. A service slug is also accepted."
+          },
+          "area_code": {
+            "type": "string",
+            "pattern": "^[0-9]{3}$",
+            "description": "Optional three-digit US area code. Adds the provider area-code surcharge."
+          }
+        },
+        "required": [
+          "service"
+        ]
+      }
+    },
+    {
+      "name": "list_verifications",
+      "description": "List your active or finished short-term verifications.",
+      "method": "GET",
+      "path": "/verifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string",
+            "enum": [
+              "active",
+              "history"
+            ],
+            "description": "Active numbers or completed history. Defaults to active."
+          }
+        }
+      },
+      "query_params": [
+        "tab"
+      ]
+    },
+    {
+      "name": "get_verification",
+      "description": "Read a verification and its latest code. Poll every 2-5 seconds until status is received or the verification ends.",
+      "method": "GET",
+      "path": "/verifications/{verification_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "verification_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Verification ID returned by create_verification or list_verifications."
+          }
+        },
+        "required": [
+          "verification_id"
+        ]
+      }
+    },
+    {
+      "name": "list_verification_messages",
+      "description": "Read all verification codes received during an owned verification window, newest first.",
+      "method": "GET",
+      "path": "/verifications/{verification_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "verification_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Verification ID returned by create_verification or list_verifications."
+          }
+        },
+        "required": [
+          "verification_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_verification",
+      "description": "Cancel a waiting verification and request its refund. The provider rejects cancellation after a code arrives.",
+      "method": "POST",
+      "path": "/verifications/{verification_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "verification_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Verification ID returned by create_verification or list_verifications."
+          }
+        },
+        "required": [
+          "verification_id"
+        ]
+      },
+      "body_none": true
+    },
+    {
+      "name": "reuse_verification",
+      "description": "Purchase a new verification window on the same number and service as an eligible finished verification. The provider checks availability and reuse eligibility.",
+      "method": "POST",
+      "path": "/verifications/{verification_id}/reuse",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "verification_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Verification ID returned by create_verification or list_verifications."
+          }
+        },
+        "required": [
+          "verification_id"
+        ]
+      },
+      "body_none": true
+    },
+    {
+      "name": "create_rental",
+      "description": "Purchase a dedicated long-term US number for all supported catalogue services. The entire rental price is charged up front.",
+      "method": "POST",
+      "path": "/rentals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "enum": [
+                  1
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "unlimited-services"
+                ]
+              }
+            ],
+            "description": "Long-term Unlimited product. Use numeric ID 1 or unlimited-services."
+          },
+          "days": {
+            "type": "integer",
+            "enum": [
+              1,
+              7,
+              30,
+              90,
+              365
+            ],
+            "description": "Rental term in days. Required for long-term quotes, purchases, and extensions."
+          },
+          "area_code": {
+            "type": "string",
+            "pattern": "^[0-9]{3}$",
+            "description": "Optional three-digit US area code. Adds the provider area-code surcharge."
+          }
+        },
+        "required": [
+          "service",
+          "days"
+        ]
+      }
+    },
+    {
+      "name": "list_rentals",
+      "description": "List owned long-term rentals, newest first.",
+      "method": "GET",
+      "path": "/rentals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tab": {
+            "type": "string",
+            "enum": [
+              "active",
+              "history"
+            ],
+            "description": "Active numbers or completed history. Defaults to active."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Maximum number of rentals to return. Defaults to 100."
+          }
+        }
+      },
+      "query_params": [
+        "tab",
+        "limit"
+      ]
+    },
+    {
+      "name": "get_rental",
+      "description": "Read an owned rental and its last_code. Poll every 2-5 seconds for supported-service messages.",
+      "method": "GET",
+      "path": "/rentals/{rental_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rental_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Rental ID returned by create_rental or list_rentals."
+          }
+        },
+        "required": [
+          "rental_id"
+        ]
+      }
+    },
+    {
+      "name": "list_rental_messages",
+      "description": "Read delivered messages for an owned rental, including full text and extracted codes, newest first.",
+      "method": "GET",
+      "path": "/rentals/{rental_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rental_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Rental ID returned by create_rental or list_rentals."
+          }
+        },
+        "required": [
+          "rental_id"
+        ]
+      }
+    },
+    {
+      "name": "extend_rental",
+      "description": "Add a billed term to an active rental while retaining its number. Extensions may run up to 730 days ahead.",
+      "method": "POST",
+      "path": "/rentals/{rental_id}/extend",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rental_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Rental ID returned by create_rental or list_rentals."
+          },
+          "days": {
+            "type": "integer",
+            "enum": [
+              1,
+              7,
+              30,
+              90,
+              365
+            ],
+            "description": "Rental term in days. Required for long-term quotes, purchases, and extensions."
+          }
+        },
+        "required": [
+          "rental_id",
+          "days"
+        ]
+      }
+    },
+    {
+      "name": "cancel_rental",
+      "description": "Cancel and request a refund before the rental cancel_deadline and before any code has arrived. Cancellation releases the number.",
+      "method": "POST",
+      "path": "/rentals/{rental_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rental_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Rental ID returned by create_rental or list_rentals."
+          }
+        },
+        "required": [
+          "rental_id"
+        ]
+      },
+      "body_none": true
+    }
+  ]
+}

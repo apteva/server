@@ -1,0 +1,70 @@
+{
+  "slug": "snowflake",
+  "name": "Snowflake",
+  "description": "MCP server for Snowflake - execute SQL statements via SQL API",
+  "logo": "https://www.google.com/s2/favicons?domain=snowflake.com&sz=128",
+  "categories": ["data-warehouse", "database", "analytics", "sql"],
+  "base_url": "https://{{accountIdentifier}}.snowflakecomputing.com/api/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "X-Snowflake-Authorization-Token-Type": "KEYPAIR_JWT"
+    },
+    "credential_fields": [
+      { "name": "accountIdentifier", "label": "Account Identifier", "description": "e.g. xy12345.us-east-1" },
+      { "name": "token", "label": "JWT Token", "description": "Key-pair JWT or OAuth token" },
+      { "name": "user", "label": "Username" },
+      { "name": "warehouse", "label": "Warehouse" },
+      { "name": "database", "label": "Database" },
+      { "name": "schema", "label": "Schema" },
+      { "name": "role", "label": "Role" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "submit_statement",
+      "description": "Submit a SQL statement",
+      "method": "POST",
+      "path": "/statements",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "statement": { "type": "string" },
+          "database": { "type": "string" },
+          "schema": { "type": "string" },
+          "warehouse": { "type": "string" },
+          "role": { "type": "string" },
+          "bindings": { "type": "object" },
+          "timeout": { "type": "number" }
+        },
+        "required": ["statement"]
+      }
+    },
+    {
+      "name": "get_statement_status",
+      "description": "Check the status of a submitted statement",
+      "method": "GET",
+      "path": "/statements/{statement_handle}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "statement_handle": { "type": "string" },
+          "partition": { "type": "number" }
+        },
+        "required": ["statement_handle"]
+      }
+    },
+    {
+      "name": "cancel_statement",
+      "description": "Cancel a running statement",
+      "method": "POST",
+      "path": "/statements/{statement_handle}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": { "statement_handle": { "type": "string" } },
+        "required": ["statement_handle"]
+      }
+    }
+  ]
+}

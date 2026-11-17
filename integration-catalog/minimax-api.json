@@ -1,0 +1,155 @@
+{
+  "slug": "minimax-api",
+  "name": "MiniMax",
+  "description": "MiniMax language-model API with OpenAI-compatible chat completions, multimodal inputs, reasoning, function calling, and account-aware model discovery.",
+  "logo": "https://www.google.com/s2/favicons?domain=minimax.io&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "chat",
+    "reasoning",
+    "multimodal",
+    "vision"
+  ],
+  "base_url": "https://api.minimax.io/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "MiniMax API Key",
+        "description": "Create a pay-as-you-go API key in the MiniMax Developer Platform account console."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create an OpenAI-compatible MiniMax chat completion. Supports text and model-dependent image/video inputs, reasoning controls, structured output, and function calling.",
+      "method": "POST",
+      "path": "/chat/completions",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "MiniMax-M3",
+            "description": "Native MiniMax model ID. Use list_models to discover models available to this account."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Conversation messages in OpenAI chat format. Content may be text or model-supported text, image_url, and video_url parts.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {},
+                "name": {
+                  "type": "string"
+                },
+                "tool_calls": {
+                  "type": "array"
+                },
+                "tool_call_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role"
+              ]
+            }
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "top_p": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "max_completion_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum generated tokens, including reasoning tokens where applicable."
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Legacy OpenAI-compatible output-token limit. Prefer max_completion_tokens."
+          },
+          "thinking": {
+            "type": "object",
+            "description": "Model-specific thinking configuration, such as {\"type\":\"adaptive\"}."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Function tools in OpenAI format."
+          },
+          "tool_choice": {
+            "description": "OpenAI-compatible tool selection mode or a specific function selection."
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Requested text, JSON object, or JSON schema response format when supported by the selected model."
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List MiniMax models available to the connected account in OpenAI-compatible model-list format.",
+      "method": "GET",
+      "path": "/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_model",
+      "description": "Retrieve metadata for one MiniMax model.",
+      "method": "GET",
+      "path": "/models/{model_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "description": "Native MiniMax model ID."
+          }
+        },
+        "required": [
+          "model_id"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

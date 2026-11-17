@@ -1,0 +1,90 @@
+{
+  "slug": "lightpanda",
+  "name": "Lightpanda",
+  "description": "Lightpanda Cloud HTTP API for rendering JavaScript-heavy webpages and returning agent-ready markdown or rendered HTML. This integration covers the documented HTTP fetch API; interactive browsing, clicks, and form filling require Lightpanda's separate CDP WebSocket interface.",
+  "logo": "https://www.google.com/s2/favicons?domain=lightpanda.io&sz=128",
+  "categories": ["browser", "scraping", "web", "automation", "ai-agents"],
+  "base_url": "https://{{credential.region}}.cloud.lightpanda.io",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Lightpanda Cloud token created in the Lightpanda console."
+      },
+      {
+        "name": "region",
+        "label": "Cloud Region",
+        "description": "Lightpanda Cloud region prefix: euwest for Europe or uswest for the United States.",
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "fetch",
+      "description": "Render one URL with Lightpanda and return the resulting HTML or markdown. Prefer output_format='markdown' for agent reading. Set raw=false for the structured response containing data, upstream status, and headers; raw=true returns only the rendered content. This endpoint is stateless and cannot click, fill forms, or preserve a browser session.",
+      "method": "POST",
+      "path": "/api/fetch",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public HTTP or HTTPS URL to render."
+          },
+          "output_format": {
+            "type": "string",
+            "enum": ["html", "markdown"],
+            "default": "html",
+            "description": "Rendered page format. Use markdown to minimize agent context usage."
+          },
+          "wait_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 5000,
+            "description": "Additional time to wait before retrieving the rendered page, in milliseconds."
+          },
+          "wait_event": {
+            "type": "string",
+            "enum": ["DOMContentLoaded", "load", "networkAlmostIdle", "networkIdle"],
+            "default": "networkIdle",
+            "description": "Page lifecycle event to wait for before returning content."
+          },
+          "raw": {
+            "type": "boolean",
+            "default": false,
+            "description": "Return only the HTML or markdown string instead of the structured JSON wrapper."
+          },
+          "proxy_name": {
+            "type": "string",
+            "enum": ["fast_dc", "datacenter"],
+            "default": "fast_dc",
+            "description": "Lightpanda outbound proxy pool. datacenter supports country targeting."
+          },
+          "country": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2}$",
+            "description": "Optional two-letter country code used only with proxy_name='datacenter', for example de, fr, es, or us."
+          }
+        },
+        "required": ["url"]
+      },
+      "mock_response": {
+        "data": "# Example Domain\n\nThis domain is for use in documentation examples.",
+        "status": 200,
+        "headers": {
+          "content-type": "text/html"
+        }
+      }
+    }
+  ]
+}

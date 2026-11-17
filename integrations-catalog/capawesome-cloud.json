@@ -1,0 +1,1069 @@
+{
+  "slug": "capawesome-cloud",
+  "name": "Capawesome Cloud",
+  "description": "Build and publish Capacitor, Ionic, Cordova, and native apps through Capawesome Cloud. Manage apps, native build sources, build status and artifacts, signing-certificate references, environments, variables, secrets, and store deployments. Configure Git access, certificates, and store destinations before a release build.",
+  "logo": "https://www.google.com/s2/favicons?domain=capawesome.io&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "builds"
+  ],
+  "base_url": "https://api.cloud.capawesome.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "type": "password",
+        "required": true,
+        "description": "Create an API token in the Capawesome Cloud Console. Token access determines visible organizations and apps."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_apps",
+      "description": "List accessible apps with limit/offset pagination.",
+      "method": "GET",
+      "path": "/v1/apps",
+      "query_params": [
+        "limit",
+        "name",
+        "offset",
+        "organizationId",
+        "query",
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "relations": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_app",
+      "description": "Get an app and optionally its related resources.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}",
+      "query_params": [
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "create_app",
+      "description": "Create a Capawesome Cloud app in an optional organization.",
+      "method": "POST",
+      "path": "/v1/apps",
+      "query_params": [
+        "organizationId"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "default": "capacitor",
+            "type": "string",
+            "enum": [
+              "android",
+              "capacitor",
+              "cordova",
+              "electron",
+              "ios"
+            ]
+          },
+          "organizationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Start a native build from the app Git repository or an appBuildSourceId from create_build_source. Select platform, type, stack, and signing/environment references. Configuration can supply omitted settings. Poll get_build and list_build_artifacts afterwards. This consumes build usage.",
+      "method": "POST",
+      "path": "/v1/apps/{appId}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adHocEnvironmentVariables": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appBuildSourceId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appCertificateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appCertificateName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appChannelId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appChannelIds": {
+            "anyOf": [
+              {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appChannelNames": {
+            "anyOf": [
+              {
+                "maxItems": 5,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appConfigurationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appConfigurationName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appDestinationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appEnvironmentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appEnvironmentName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gitRef": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "android",
+                  "ios",
+                  "web"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "releaseNotes": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "macos-golden-gate",
+                  "macos-sequoia",
+                  "macos-tahoe"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "app-store",
+                  "ad-hoc",
+                  "debug",
+                  "development",
+                  "enterprise",
+                  "release",
+                  "simulator"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "appId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "List builds for an app, with platform, commit, automation, and build-number filters.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/builds",
+      "query_params": [
+        "appAutomationId",
+        "appGitCommit",
+        "limit",
+        "offset",
+        "numberAsString",
+        "platform",
+        "query",
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appAutomationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "appGitCommit": {
+            "type": "string"
+          },
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "numberAsString": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios",
+              "web"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get one build to inspect its status, errors, and related resources.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/builds/{buildId}",
+      "query_params": [
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          },
+          "buildId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "create_build_source",
+      "description": "Create a source archive reference. Supply an accessible ZIP fileUrl, or fileSizeInBytes for an upload session. Complete any returned upload instructions before passing the source ID to start_build. Prepare the project archive outside this JSON integration.",
+      "method": "POST",
+      "path": "/v1/apps/{appId}/build-sources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileSizeInBytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 262144000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fileUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "appId"
+        ],
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "fileUrl"
+            ],
+            "properties": {
+              "fileUrl": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          {
+            "required": [
+              "fileSizeInBytes"
+            ],
+            "properties": {
+              "fileSizeInBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 262144000
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "list_build_artifacts",
+      "description": "List build artifacts, including signed native binaries.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/builds/{buildId}/artifacts",
+      "query_params": [
+        "limit",
+        "offset",
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          },
+          "buildId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "get_artifact_download_url",
+      "description": "Obtain a signed artifact download URL. Use download_artifact afterwards.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/builds/{buildId}/artifacts/{artifactId}/signed-download-url",
+      "query_params": [
+        "fileName"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          },
+          "buildId": {
+            "type": "string"
+          },
+          "artifactId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "buildId",
+          "artifactId"
+        ]
+      }
+    },
+    {
+      "name": "list_certificates",
+      "description": "List signing-certificate references configured for an app. Upload and configure certificates in the Console or official CLI first.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/certificates",
+      "query_params": [
+        "limit",
+        "name",
+        "offset",
+        "platform",
+        "type",
+        "query",
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios",
+              "web"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "development",
+              "production"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "list_environments",
+      "description": "List reusable build environments.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/environments",
+      "query_params": [
+        "limit",
+        "name",
+        "offset",
+        "query",
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "create_environment",
+      "description": "Create a reusable build environment.",
+      "method": "POST",
+      "path": "/v1/apps/{appId}/environments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "appId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_environment_variables",
+      "description": "List non-secret environment variables.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/environments/{environmentId}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "environmentId"
+        ]
+      }
+    },
+    {
+      "name": "create_environment_variable",
+      "description": "Create a non-secret build environment variable.",
+      "method": "POST",
+      "path": "/v1/apps/{appId}/environments/{environmentId}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
+          "value": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "appId",
+          "environmentId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_environment_secrets",
+      "description": "List environment-secret metadata.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/environments/{environmentId}/secrets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "environmentId"
+        ]
+      }
+    },
+    {
+      "name": "create_environment_secret",
+      "description": "Create an encrypted build environment secret.",
+      "method": "POST",
+      "path": "/v1/apps/{appId}/environments/{environmentId}/secrets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
+          "value": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "appId",
+          "environmentId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_configurations",
+      "description": "List native-build configuration references.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/configurations",
+      "query_params": [
+        "limit",
+        "name",
+        "offset",
+        "query"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "list_destinations",
+      "description": "List configured App Store Connect, Google Play, or other publishing destinations.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/destinations",
+      "query_params": [
+        "limit",
+        "name",
+        "offset",
+        "platform",
+        "query",
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": "10",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "offset": {
+            "default": "0",
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "android",
+              "ios"
+            ]
+          },
+          "query": {
+            "type": "string"
+          },
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId"
+        ]
+      }
+    },
+    {
+      "name": "create_deployment",
+      "description": "Publish an existing appBuildId to a configured destination or channel. Configure the publishing destination first.",
+      "method": "POST",
+      "path": "/v1/apps/{appId}/deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appBuildId": {
+            "type": "string"
+          },
+          "appChannelId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appChannelName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appDestinationId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appDestinationName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "releaseNotes": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rolloutPercentage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "appBuildId",
+          "appId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_deployment",
+      "description": "Get a deployment and inspect publishing status.",
+      "method": "GET",
+      "path": "/v1/apps/{appId}/deployments/{deploymentId}",
+      "query_params": [
+        "relations"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "relations": {
+            "type": "string"
+          },
+          "appId": {
+            "type": "string"
+          },
+          "deploymentId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "appId",
+          "deploymentId"
+        ]
+      }
+    },
+    {
+      "name": "download_artifact",
+      "description": "Download the exact signed URL returned by get_artifact_download_url. The Capawesome API token is not sent to the artifact host.",
+      "method": "GET",
+      "path": "{download_url}",
+      "omit_auth_headers": [
+        "Authorization",
+        "Content-Type",
+        "Accept"
+      ],
+      "response_type": "binary",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        },
+        "required": [
+          "download_url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_apps",
+    "input": {
+      "limit": "1"
+    }
+  }
+}

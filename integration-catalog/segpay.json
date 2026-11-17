@@ -1,0 +1,215 @@
+{
+  "slug": "segpay",
+  "name": "Segpay",
+  "description": "Adult-friendly Segpay payment integration for hosted checkout links, SRS reporting/support calls, postback IPs, refunds, cancellations, reactivations, and subsite creation.",
+  "logo": "https://www.google.com/s2/favicons?domain=segpay.com&sz=128",
+  "categories": ["payments", "adult", "high-risk", "subscriptions", "checkout"],
+  "base_url": "https://srs.segpay.com",
+  "auth": {
+    "types": ["api_key", "basic"],
+    "credential_fields": [
+      {
+        "name": "user_id",
+        "label": "SRS User ID",
+        "description": "Segpay Reporting Service User ID.",
+        "required": false,
+        "type": "text"
+      },
+      {
+        "name": "user_access_key",
+        "label": "SRS User Access Key",
+        "description": "Segpay Reporting Service User Access Key.",
+        "required": false
+      },
+      {
+        "name": "basic_auth",
+        "label": "MerchantServices Basic Auth",
+        "description": "Base64-encoded credentials for Segpay MerchantServices APIs. Do not include the 'Basic ' prefix.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_payment_page_url",
+      "description": "Generate a Segpay hosted payment page URL from a package/button-code x-eticketid and optional prefill/tracking parameters.",
+      "method": "GET",
+      "base_url": "https://secure2.segpay.com",
+      "path": "/billing/poset.cgi?x-eticketid={x_eticketid}",
+      "return_request_url": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "x_eticketid": { "type": "string", "description": "Segpay package/button-code eticket ID, for example xxxxxx:xxxxx." },
+          "email": { "type": "string" },
+          "username": { "type": "string" },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "custom1": { "type": "string" },
+          "custom2": { "type": "string" },
+          "custom3": { "type": "string" }
+        },
+        "required": ["x_eticketid"]
+      }
+    },
+    {
+      "name": "validate_user_access",
+      "description": "Validate SRS credentials and return the linked Segpay merchant ID.",
+      "method": "GET",
+      "path": "/adm.asmx/ValidateUserAccess?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_transactions",
+      "description": "Run Segpay TransactionsList_V3 for a date range or transaction filters. Dates use mmddyyyy.",
+      "method": "GET",
+      "path": "/MWS.asmx/TransactionsList_V3?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "BegDate": { "type": "string" }, "EndDate": { "type": "string" }, "TransID": { "type": "string" }, "URLID": { "type": "string" } } }
+    },
+    {
+      "name": "get_transaction_by_id",
+      "description": "Get Segpay transaction details by transaction ID.",
+      "method": "GET",
+      "path": "/MWS.asmx/TransactionsByTransID?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "TransID": { "type": "string" } }, "required": ["TransID"] }
+    },
+    {
+      "name": "get_transactions_by_purchase_id",
+      "description": "Get all Segpay transactions associated with a purchase ID, including initial purchases, rebills, refunds, and related events.",
+      "method": "GET",
+      "path": "/MWS.asmx/TransactionByPurchaseID?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "PurchaseID": { "type": "string" } }, "required": ["PurchaseID"] }
+    },
+    {
+      "name": "list_declined_transactions",
+      "description": "Run Segpay TransactionsList_Declined_V2 for declined transactions in a date range. Dates use mmddyyyy.",
+      "method": "GET",
+      "path": "/MWS.asmx/TransactionsList_Declined_V2?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "BegDate": { "type": "string" }, "EndDate": { "type": "string" }, "URLID": { "type": "string" } } }
+    },
+    {
+      "name": "list_purchases_by_url",
+      "description": "Run Segpay TransactionsPurchasesByURL_V5 for purchase and transaction details for a URL.",
+      "method": "GET",
+      "path": "/MWS.asmx/TransactionsPurchasesByURL_V5?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "BegDate": { "type": "string" }, "EndDate": { "type": "string" }, "URLID": { "type": "string" }, "TransID": { "type": "string" } } }
+    },
+    {
+      "name": "revenue_daily_summary",
+      "description": "Get Segpay revenue per transaction over a date range.",
+      "method": "GET",
+      "path": "/MWS.asmx/RevenueDailySummary?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "BegDate": { "type": "string" }, "EndDate": { "type": "string" }, "URLID": { "type": "string" } } }
+    },
+    {
+      "name": "revenue_summary_by_url",
+      "description": "Get Segpay sales, refunds, chargebacks, revokes, declines, and voids by URL for a date range.",
+      "method": "GET",
+      "path": "/MWS.asmx/RevenueSummaryByURL?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "BegDate": { "type": "string" }, "EndDate": { "type": "string" }, "URLID": { "type": "string" } } }
+    },
+    {
+      "name": "list_active_subscriptions",
+      "description": "List active Segpay subscriptions by URL.",
+      "method": "GET",
+      "path": "/MWS.asmx/AssetsActiveSubscriptionsByURL_RebillDate?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "URLID": { "type": "string" } } }
+    },
+    {
+      "name": "list_canceled_subscriptions",
+      "description": "List canceled Segpay subscriptions by URL.",
+      "method": "GET",
+      "path": "/MWS.asmx/CanceledSubscriptionsByURL?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "URLID": { "type": "string" }, "BegDate": { "type": "string" }, "EndDate": { "type": "string" } } }
+    },
+    {
+      "name": "cancel_membership",
+      "description": "Cancel a Segpay consumer subscription while preserving access until the next billing date.",
+      "method": "GET",
+      "path": "/adm.asmx/CancelMembership?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "PurchaseID": { "type": "string" }, "TransID": { "type": "string" }, "Note": { "type": "string" } } }
+    },
+    {
+      "name": "expire_membership",
+      "description": "Expire a Segpay subscription, removing consumer access.",
+      "method": "GET",
+      "path": "/adm.asmx/ExpireMembership?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "PurchaseID": { "type": "string" }, "TransID": { "type": "string" }, "Note": { "type": "string" } } }
+    },
+    {
+      "name": "extend_membership",
+      "description": "Extend a Segpay membership by adding days to the current rebill date.",
+      "method": "GET",
+      "path": "/adm.asmx/ExtendMembership?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "PurchaseID": { "type": "string" }, "TransID": { "type": "string" }, "Days": { "type": "integer" }, "Note": { "type": "string" } } }
+    },
+    {
+      "name": "refund_transaction",
+      "description": "Refund a Segpay transaction.",
+      "method": "GET",
+      "path": "/adm.asmx/RefundTransaction?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "TransID": { "type": "string" }, "Amount": { "type": "number" }, "Note": { "type": "string" } }, "required": ["TransID"] }
+    },
+    {
+      "name": "modify_rebill_amount",
+      "description": "Change the amount a Segpay consumer is charged on the next billing date.",
+      "method": "GET",
+      "path": "/adm.asmx/ModifyRebillAmount?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "PurchaseID": { "type": "string" }, "Amount": { "type": "number" }, "Note": { "type": "string" } } }
+    },
+    {
+      "name": "get_reactivation_link",
+      "description": "Retrieve a reactivation pay page link for a canceled or expired Segpay subscription.",
+      "method": "GET",
+      "path": "/merchantservices/Reactivation?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": { "PurchaseID": { "type": "string" }, "TransID": { "type": "string" } } }
+    },
+    {
+      "name": "get_postback_ip_list",
+      "description": "List Segpay postback IP addresses for firewall allowlisting.",
+      "method": "GET",
+      "path": "/adm.asmx/GetPostbackIPList?UserID={{credential.user_id}}&UserAccessKey={{credential.user_access_key}}",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_subsite",
+      "description": "Create a Segpay subsite under an approved parent website using the MerchantServices Subsites API.",
+      "method": "POST",
+      "path": "/MerchantServices/website-sections",
+      "headers": {
+        "Authorization": "Basic {{basic_auth}}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      "query_params": ["test"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "test": { "type": "boolean" },
+          "ParentId": { "type": "integer" },
+          "Type": { "type": "string", "description": "Subdomain or Subdirectory." },
+          "Url": { "type": "string" },
+          "UserName": { "type": "string" },
+          "Password": { "type": "string" },
+          "AccessNotes": { "type": "string" }
+        },
+        "required": ["ParentId", "Type", "Url"]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "segpay-postback",
+    "events": [
+      { "name": "postback.transaction", "description": "Segpay transaction postback." },
+      { "name": "postback.subscription", "description": "Segpay subscription lifecycle postback." },
+      { "name": "postback.refund", "description": "Segpay refund or reversal postback." }
+    ],
+    "registration": {
+      "method": "POST",
+      "path": "/",
+      "url_field": "url",
+      "manual_setup": "Configure Segpay postbacks on the payment page/package in the Merchant Portal using the Apteva callback URL. Segpay postbacks are not auto-registered by this integration."
+    }
+  },
+  "health_check": { "tool": "validate_user_access" }
+}

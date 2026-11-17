@@ -1,0 +1,57 @@
+{
+  "slug": "railway",
+  "name": "Railway",
+  "description": "MCP server for Railway - projects, services, deployments, variables via GraphQL",
+  "logo": "https://www.google.com/s2/favicons?domain=railway.app&sz=128",
+  "categories": ["hosting", "deployment", "devops", "paas"],
+  "base_url": "https://backboard.railway.app/graphql/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal or Project Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "graphql",
+      "description": "Run a GraphQL query/mutation against Railway API",
+      "method": "POST",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "variables": { "type": "object" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List your projects",
+      "method": "POST",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "default": "{ me { projects { edges { node { id name } } } } }" }
+        }
+      }
+    },
+    {
+      "name": "trigger_deploy",
+      "description": "Trigger a deploy (serviceInstanceRedeploy mutation)",
+      "method": "POST",
+      "path": "",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "variables": { "type": "object", "description": "{ serviceId, environmentId }" }
+        },
+        "required": ["query", "variables"]
+      }
+    }
+  ]
+}

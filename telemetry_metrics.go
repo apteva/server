@@ -13,7 +13,7 @@ import (
 // There is no timer/TTL: inserts, restores, corrections and deletes are visible
 // to the very next query, including writes by another server process.
 func (s *Store) migrateTelemetryMetrics() error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}

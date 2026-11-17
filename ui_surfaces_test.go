@@ -74,7 +74,7 @@ func TestDashboardHomeSurfaceResolvesNativeAppsAndPortableLayout(t *testing.T) {
 	if len(tasks.ProjectSurfaces) != 1 || tasks.ProjectSurfaces[0].ID != "tasks" {
 		t.Fatalf("tasks project surfaces=%+v", tasks.ProjectSurfaces)
 	}
-	if !builtins["native:usage"] || !builtins["native:activity"] || builtins["native:inbox"] {
+	if !builtins["native:agent-activity"] || !builtins["native:usage"] || !builtins["native:activity"] || builtins["native:inbox"] {
 		t.Fatalf("builtins=%+v", builtins)
 	}
 }

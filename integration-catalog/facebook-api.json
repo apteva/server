@@ -1,0 +1,1880 @@
+{
+  "slug": "facebook-api",
+  "name": "Facebook & Instagram",
+  "description": "Meta Graph API operations for Facebook Pages and Instagram Business: page/post management, photo + video publishing, Instagram Reels containers, and social analytics. One OAuth grant covers both surfaces.",
+  "logo": "https://www.google.com/s2/favicons?domain=www.facebook.com&sz=128",
+  "categories": [
+    "facebook",
+    "instagram",
+    "meta",
+    "social-media",
+    "pages",
+    "posts"
+  ],
+  "base_url": "https://graph.facebook.com/v25.0",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "accessToken"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      },
+      {
+        "name": "expiresIn",
+        "label": "expiresIn"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.facebook.com/v25.0/dialog/oauth",
+      "token_url": "https://graph.facebook.com/v25.0/oauth/access_token",
+      "scopes": [
+        "email",
+        "public_profile",
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_read_user_content",
+        "pages_manage_engagement",
+        "pages_manage_posts",
+        "pages_manage_metadata",
+        "pages_messaging",
+        "instagram_basic",
+        "instagram_content_publish",
+        "instagram_manage_messages",
+        "instagram_manage_comments",
+        "ads_management",
+        "business_management"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "post_to_page",
+      "description": "Post text, links, or photos to a Facebook page. For IMAGE/PHOTO posts, use the 'image' parameter with a public URL - do NOT use 'link' for images. The 'link' parameter is only for sharing webpage URLs. For video uploads, use facebook-api-post-video instead. Caller MUST also include access_token=<page-level token from list_pages> — Facebook rejects the user token for /feed writes (error 210).",
+      "method": "POST",
+      "path": "/{pageId}/feed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "message": {
+            "type": "string",
+            "description": "Post message content (used as caption for photos)"
+          },
+          "image": {
+            "type": "string",
+            "description": "Image/photo URL to post (must be publicly accessible). Use this for posting images - NOT the 'link' parameter."
+          },
+          "link": {
+            "type": "string",
+            "description": "Webpage URL to share (NOT for images - use 'image' parameter for photos)"
+          },
+          "photos": {
+            "type": "array",
+            "description": "Array of photo URLs for multi-image posts (must be publicly accessible)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required: Facebook rejects user-level tokens for /feed writes."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "id": "100200300400500_122100000000000001"
+      }
+    },
+    {
+      "name": "post_photo_to_page",
+      "description": "Upload and post a photo to a Facebook page using a publicly accessible image URL. Use this (not post_to_page) whenever you have an image — /feed only renders link previews and ignores image fields. Caller MUST include access_token=<page-level token from list_pages>.",
+      "method": "POST",
+      "path": "/{pageId}/photos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "url": {
+            "type": "string",
+            "description": "Publicly accessible image URL (Graph API will fetch + attach)."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Caption text for the photo (rendered as the post body)."
+          },
+          "published": {
+            "type": "boolean",
+            "description": "Whether the photo is published immediately (true) or staged (false). Defaults to true.",
+            "default": true
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId",
+          "url"
+        ]
+      },
+      "mock_response": {
+        "id": "122100000000000010",
+        "post_id": "100200300400500_122100000000000011"
+      }
+    },
+    {
+      "name": "post_video",
+      "description": "Upload and post a video to a Facebook page using a publicly accessible URL. Videos must be under 1GB and 20 minutes. Caller MUST include access_token=<page-level token from list_pages> — Facebook rejects user tokens for /videos writes (error 210).",
+      "method": "POST",
+      "path": "/{pageId}/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "file_url": {
+            "type": "string",
+            "description": "Publicly accessible URL to the video file (MP4, MOV, AVI, WMV, FLV supported)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Video title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Video description text"
+          },
+          "thumb": {
+            "type": "string",
+            "description": "URL to custom thumbnail image"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required: Facebook rejects user-level tokens for /videos writes."
+          }
+        },
+        "required": [
+          "pageId",
+          "file_url"
+        ]
+      },
+      "mock_response": {
+        "id": "122100000000000020"
+      }
+    },
+    {
+      "name": "get_page_posts",
+      "description": "List posts from a Facebook page. Calls GET /{pageId}/posts on the Graph API. Page-level access_token is required (user-level tokens are rejected for /posts on Pages). Returns posts with message content, images (full_picture URL), permalink_url, and engagement metrics (reactions/comments/shares.summary.total_count when included in fields).",
+      "method": "GET",
+      "path": "/{pageId}/posts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of posts to retrieve",
+            "default": 25,
+            "maximum": 100
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include",
+            "default": "id,message,created_time,full_picture,permalink_url,shares,reactions.summary(true),comments.summary(true)"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or date string to filter posts from"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or date string to filter posts until"
+          },
+          "includeHidden": {
+            "type": "boolean",
+            "description": "Whether to include hidden posts",
+            "default": false
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "100200300400500_122100000000000001",
+            "message": "Excited to share our latest update!",
+            "created_time": "2026-05-22T12:00:00+0000",
+            "full_picture": "https://example.com/social/update-cover.jpg",
+            "shares": {
+              "count": 12
+            },
+            "reactions": {
+              "data": [],
+              "summary": {
+                "total_count": 184
+              }
+            },
+            "comments": {
+              "data": [],
+              "summary": {
+                "total_count": 9
+              }
+            },
+            "permalink_url": "https://www.facebook.com/100200300400500/posts/122100000000000001"
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUn"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_page_insights",
+      "description": "Get analytics data for a Facebook page through the Meta Graph API",
+      "method": "GET",
+      "path": "/{pageId}/insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook page ID"
+          },
+          "metric": {
+            "type": "string",
+            "description": "Comma-separated metrics to retrieve",
+            "default": "page_fans"
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period",
+            "enum": [
+              "day",
+              "week",
+              "days_28"
+            ],
+            "default": "day"
+          },
+          "since": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD or Unix timestamp)"
+          },
+          "until": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD or Unix timestamp)"
+          },
+          "datePreset": {
+            "type": "string",
+            "description": "Predefined date range",
+            "enum": [
+              "today",
+              "yesterday",
+              "this_week",
+              "last_week",
+              "this_month",
+              "last_month"
+            ]
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "page_fans",
+            "period": "day",
+            "values": [
+              {
+                "value": 12480,
+                "end_time": "2026-05-22T07:00:00+0000"
+              }
+            ],
+            "title": "Lifetime Total Likes",
+            "id": "100200300400500/insights/page_fans/day"
+          }
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List all Facebook pages managed by the authenticated user with details like name, category, fan count, and verification status",
+      "method": "GET",
+      "path": "/me/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields to include",
+            "default": "id,name,category,access_token,tasks,fan_count,verification_status,website"
+          }
+        }
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "100200300400500",
+            "name": "Apteva",
+            "access_token": "EAABwzmockpagetokenXXXXXXXX",
+            "category": "Software company",
+            "fan_count": 12480,
+            "verification_status": "verified",
+            "website": "https://apteva.ai",
+            "instagram_business_account": {
+              "id": "17841400000000001",
+              "username": "apteva"
+            },
+            "tasks": [
+              "MANAGE",
+              "CREATE_CONTENT",
+              "MODERATE",
+              "ANALYZE"
+            ]
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_get_post",
+      "description": "Get a Facebook post by id, including engagement counts when fields are requested. Calls GET /{postId}?fields=... on the Graph API; postId must be the full pageId_postId format. Page-level access_token is required (user-level tokens are rejected with error 210, same as the write endpoints). Common fields for metrics: 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)' — counts come back under the .summary.total_count of each.",
+      "method": "GET",
+      "path": "/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Facebook post ID in pageId_postId format"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of fields. For engagement counts use 'likes.summary(true),comments.summary(true),shares,reactions.summary(true)'.",
+            "default": "id,message,created_time,updated_time"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required for posts owned by Pages."
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      },
+      "mock_response": {
+        "id": "100200300400500_122100000000000001",
+        "message": "Excited to share our latest update!",
+        "created_time": "2026-05-22T12:00:00+0000",
+        "permalink_url": "https://www.facebook.com/100200300400500/posts/122100000000000001"
+      }
+    },
+    {
+      "name": "facebook_get_video",
+      "description": "Get a Facebook Page video or Reel by Video ID. Video publication returns this object ID rather than a full pageId_postId feed-post ID. Request post_id to resolve the associated feed post; views, likes, and comments are available directly on the video object.",
+      "method": "GET",
+      "path": "/{videoId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Facebook Video or Reel ID returned by post_video."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated video fields. shares and reactions are feed-post fields and must not be requested from this object.",
+            "default": "id,post_id,permalink_url,views,likes.limit(0).summary(true),comments.limit(0).summary(true)"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the Page that owns the video."
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      },
+      "mock_response": {
+        "id": "27830404249960972",
+        "post_id": "1032431409544833",
+        "permalink_url": "/reel/27830404249960972/",
+        "views": 13,
+        "likes": {
+          "data": [],
+          "summary": {
+            "total_count": 0
+          }
+        },
+        "comments": {
+          "data": [],
+          "summary": {
+            "total_count": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_get_video_insights",
+      "description": "Get lifetime or selected insights for a Facebook Page video by Video ID. Calls /{videoId}/video_insights and requires a Page access token with pages_read_engagement.",
+      "method": "GET",
+      "path": "/{videoId}/video_insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Facebook Video ID."
+          },
+          "metric": {
+            "type": "string",
+            "description": "Optional comma-separated Video Insights metrics.",
+            "default": "total_video_views,total_video_views_unique"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the Page that owns the video."
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "total_video_views",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 13
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "facebook_update_post",
+      "description": "Edit the message of a Facebook post. Calls POST /{postId} on the Graph API; postId is the full pageId_postId format. Page-level access_token required (user-level tokens are rejected with error 210, same as the write endpoints).",
+      "method": "POST",
+      "path": "/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Facebook post ID in pageId_postId format"
+          },
+          "message": {
+            "type": "string",
+            "description": "New message body for the post"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token)."
+          }
+        },
+        "required": [
+          "postId",
+          "message"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "facebook_delete_post",
+      "description": "Permanently delete a Facebook post from a page. Calls DELETE /{postId} on the Graph API; postId must be the full pageId_postId format that post_to_page / post_photo_to_page / post_video return as `id`. Page-level access_token is required (user-level tokens are rejected with error 210, same as the write endpoints).",
+      "method": "DELETE",
+      "path": "/{postId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "string",
+            "description": "Facebook post ID in pageId_postId format (the `id` value returned by the post_to_page family)."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required: Facebook rejects user-level tokens for delete on page posts."
+          }
+        },
+        "required": [
+          "postId"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "create_media_container",
+      "description": "Instagram step 1 of 2: create a media container with image/video URL and caption. Returns containerId for step 2 (publish_media_container). For videos, sync=true (default) waits for processing to complete. The IG Business account must be linked to a Facebook Page that this connection has access to (instagramAccountId comes from list_pages with fields=...,instagram_business_account{id}).",
+      "method": "POST",
+      "path": "/{instagramAccountId}/media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID (from the linked FB Page's instagram_business_account.id)"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "URL of image to post (for IMAGE/CAROUSEL). Snake_case is canonical per Graph API."
+          },
+          "video_url": {
+            "type": "string",
+            "description": "URL of video to post (for REELS). Snake_case is canonical per Graph API."
+          },
+          "caption": {
+            "type": "string",
+            "description": "Caption text for the media"
+          },
+          "media_type": {
+            "type": "string",
+            "description": "Type of media (VIDEO is deprecated, use REELS for videos)",
+            "enum": [
+              "IMAGE",
+              "REELS",
+              "STORIES"
+            ],
+            "default": "IMAGE"
+          },
+          "sync": {
+            "type": "boolean",
+            "description": "For videos/reels: wait for processing before returning. Default true.",
+            "default": true
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token of the FB Page that owns this IG account). Required for IG Business writes."
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      },
+      "mock_response": {
+        "id": "17900000000000001"
+      }
+    },
+    {
+      "name": "get_container_status",
+      "description": "Poll an Instagram media container's processing status before publishing. Returns {id, status_code, status}. status_code values: FINISHED (ready to publish), IN_PROGRESS (still processing — Reels especially take time), ERROR (transcode/validation failed), EXPIRED (container older than 24h, must recreate). Calls GET /{containerId}?fields=status_code,status on the Graph API.",
+      "method": "GET",
+      "path": "/{containerId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "containerId": {
+            "type": "string",
+            "description": "Container ID returned by create_media_container."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve.",
+            "default": "id,status_code,status"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (the same one used to create the container)."
+          }
+        },
+        "required": [
+          "containerId"
+        ]
+      },
+      "mock_response": {
+        "status_code": "FINISHED",
+        "id": "17900000000000001"
+      }
+    },
+    {
+      "name": "publish_media_container",
+      "description": "Instagram step 2 of 2: publish the container created in step 1. Returns the published media id.",
+      "method": "POST",
+      "path": "/{instagramAccountId}/media_publish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "containerId": {
+            "type": "string",
+            "description": "The 'id' returned from create_media_container."
+          },
+          "creation_id": {
+            "type": "string",
+            "description": "Alias for containerId — Graph API expects this field name."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required for IG Business writes."
+          }
+        },
+        "required": [
+          "instagramAccountId",
+          "containerId"
+        ]
+      },
+      "mock_response": {
+        "id": "17900000000000099"
+      }
+    },
+    {
+      "name": "get_account_media",
+      "description": "Retrieve Instagram Business media posts through the Meta Graph API. Requires the page-level access token for the Facebook Page linked to the IG Business account.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of media items to retrieve",
+            "default": 25,
+            "maximum": 100
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp,like_count,comments_count"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime data value for lower bound"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or strtotime data value for upper bound"
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the linked Facebook Page."
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000099",
+            "caption": "Launch day!",
+            "media_type": "IMAGE",
+            "media_url": "https://scontent.cdninstagram.com/mock-media1.jpg",
+            "permalink": "https://www.instagram.com/p/CmOckPost1/",
+            "timestamp": "2026-05-22T12:00:00+0000",
+            "like_count": 210,
+            "comments_count": 18
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
+      }
+    },
+    {
+      "name": "get_media",
+      "description": "Fetch one Instagram Business media object. Use this to resolve media type, permalink, and public engagement counters before requesting media insights.",
+      "method": "GET",
+      "path": "/{mediaId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "Instagram media ID"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to retrieve",
+            "default": "id,media_type,media_product_type,permalink,like_count,comments_count"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the linked Facebook Page."
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      },
+      "mock_response": {
+        "id": "17900000000000099",
+        "media_type": "VIDEO",
+        "media_product_type": "REELS",
+        "permalink": "https://www.instagram.com/reel/CmOckPost1/",
+        "like_count": 210,
+        "comments_count": 18
+      }
+    },
+    {
+      "name": "get_account_insights",
+      "description": "Fetch Instagram Business account insights through the Meta Graph API. Requires the page-level access token for the Facebook Page linked to the IG Business account.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID"
+          },
+          "metric": {
+            "type": "string",
+            "description": "Comma-separated metrics to retrieve",
+            "default": "reach,follower_count"
+          },
+          "metric_type": {
+            "type": "string",
+            "description": "Metric type for IG insights",
+            "default": "time_series"
+          },
+          "breakdown": {
+            "type": "string",
+            "description": "Optional demographic breakdown for compatible total_value metrics, such as country, city, age, or gender. Availability is metric- and privacy-threshold-dependent."
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period for insights",
+            "enum": [
+              "day",
+              "week",
+              "days_28"
+            ],
+            "default": "day"
+          },
+          "since": {
+            "type": "string",
+            "description": "Unix timestamp or YYYY-MM-DD lower bound"
+          },
+          "until": {
+            "type": "string",
+            "description": "Unix timestamp or YYYY-MM-DD upper bound"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token for the linked Facebook Page."
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "reach",
+            "period": "day",
+            "values": [
+              {
+                "value": 1980,
+                "end_time": "2026-05-22T07:00:00+0000"
+              }
+            ],
+            "title": "Reach",
+            "id": "17841400000000000/insights/reach/day"
+          }
+        ]
+      }
+    },
+    {
+      "name": "get_media_insights",
+      "description": "Fetch Instagram Business media insights (per-post metrics). Calls GET /{mediaId}/insights?metric=...&access_token=PAGE_TOKEN on the Graph API. Returns {data: [{name, period, values: [{value: N}]}]} — one entry per requested metric. Current engagement metrics include reach, views, likes, comments, saved, and shares where supported. Availability varies by media type.",
+      "method": "GET",
+      "path": "/{mediaId}/insights",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "IG media id — the platform_post_id returned by publish_media_container."
+          },
+          "metric": {
+            "type": "string",
+            "description": "Comma-separated metric names (no spaces). Default covers the engagement basics.",
+            "default": "reach,views,likes,comments,saved,shares"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (the same token that owns the IG Business account)."
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "name": "reach",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 1980
+              }
+            ],
+            "title": "Reach",
+            "id": "17900000000000099/insights/reach/lifetime"
+          },
+          {
+            "name": "likes",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 142
+              }
+            ],
+            "title": "Likes",
+            "id": "17900000000000099/insights/likes/lifetime"
+          },
+          {
+            "name": "comments",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 18
+              }
+            ],
+            "title": "Comments",
+            "id": "17900000000000099/insights/comments/lifetime"
+          },
+          {
+            "name": "saved",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 36
+              }
+            ],
+            "title": "Saves",
+            "id": "17900000000000099/insights/saved/lifetime"
+          },
+          {
+            "name": "shares",
+            "period": "lifetime",
+            "values": [
+              {
+                "value": 27
+              }
+            ],
+            "title": "Shares",
+            "id": "17900000000000099/insights/shares/lifetime"
+          }
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send an Instagram DM, sender action (typing/seen), reaction, or private reply to a comment. Single endpoint POST /{instagramAccountId}/messages — body shape switches by intent. (1) Text DM: recipient={id:IGSID}, message={text:'...'}. (2) Media DM: recipient={id:IGSID}, message={attachment:{type:'image'|'video'|'audio'|'file', payload:{url, is_reusable?}}}. (3) Quick replies: message={text, quick_replies:[{content_type:'text', title, payload}]}. (4) Sender action: recipient={id:IGSID}, sender_action='typing_on'|'typing_off'|'mark_seen'. (5) Reaction: recipient={id:IGSID}, sender_action='react'|'unreact', payload={message_id, reaction:'love'}. (6) Private reply to comment: recipient={comment_id:'...'}, message={text:'...'} — 7-day single-use window from the comment, the only way to initiate to a user who hasn't DM'd you. Standard recipients are bound by Meta's 24-hour messaging window unless using an approved message tag. Returns {recipient_id, message_id} for messages; {recipient_id} for sender actions. Page-level access_token required.",
+      "method": "POST",
+      "path": "/{instagramAccountId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID (sender). From list_pages → data[].instagram_business_account.id."
+          },
+          "recipient": {
+            "type": "object",
+            "description": "Who receives the message. Use {id: '<IGSID>'} for a known Instagram-scoped user (obtained from an inbound webhook event or list_conversations participants). Use {comment_id: '<comment-id>'} for a private reply to a public comment (7-day window from the comment, single-use).",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Instagram-scoped user id (IGSID) of the recipient."
+              },
+              "comment_id": {
+                "type": "string",
+                "description": "Comment id to private-reply to (alternative to id). Single-use, 7-day window."
+              }
+            }
+          },
+          "message": {
+            "type": "object",
+            "description": "Message payload. Omit when sending a sender_action. One of {text}, {attachment}, or {text, quick_replies}.",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Message body text. Max 1000 chars."
+              },
+              "attachment": {
+                "type": "object",
+                "description": "Media attachment payload.",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "image",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "description": "Publicly accessible media URL."
+                      },
+                      "is_reusable": {
+                        "type": "boolean",
+                        "description": "Cache the attachment server-side so it can be reused by id in later sends.",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "payload"
+                ]
+              },
+              "quick_replies": {
+                "type": "array",
+                "description": "Tap-to-reply chips shown beneath the message. Max 13.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "content_type": {
+                      "type": "string",
+                      "enum": [
+                        "text"
+                      ],
+                      "default": "text"
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "Chip label (max 20 chars)."
+                    },
+                    "payload": {
+                      "type": "string",
+                      "description": "Opaque value echoed back in the inbound webhook when tapped."
+                    }
+                  },
+                  "required": [
+                    "content_type",
+                    "title",
+                    "payload"
+                  ]
+                }
+              }
+            }
+          },
+          "sender_action": {
+            "type": "string",
+            "description": "Use instead of `message` to send a typing indicator, read receipt, or reaction. typing_on/typing_off/mark_seen require no payload; react/unreact require the `payload` field below.",
+            "enum": [
+              "typing_on",
+              "typing_off",
+              "mark_seen",
+              "react",
+              "unreact"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "description": "Reaction payload — only when sender_action is 'react' or 'unreact'.",
+            "properties": {
+              "message_id": {
+                "type": "string",
+                "description": "The inbound message id being reacted to."
+              },
+              "reaction": {
+                "type": "string",
+                "description": "Reaction name. Meta currently supports 'love'.",
+                "default": "love"
+              }
+            },
+            "required": [
+              "message_id"
+            ]
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token of the FB Page that owns this IG account). Required."
+          }
+        },
+        "required": [
+          "instagramAccountId",
+          "recipient"
+        ]
+      },
+      "mock_response": {
+        "recipient_id": "17841400000000050",
+        "message_id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ"
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List Instagram DM conversations (threads) for an IG Business account. Calls GET /{instagramAccountId}/conversations?platform=instagram on the Graph API. Returns {data:[{id, updated_time, participants:{data:[{id, username}]}}], paging:{cursors, next}}. Pass the next cursor's `after` value to page. Use this to find IGSIDs of users you can message (those who have messaged you) and to drive a conversation list UI.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Instagram Business Account ID (your account, not the participant)."
+          },
+          "platform": {
+            "type": "string",
+            "description": "Must be 'instagram' to scope to IG DMs (vs. Messenger).",
+            "enum": [
+              "instagram"
+            ],
+            "default": "instagram"
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields. Default surfaces participants inline so callers don't need a second roundtrip.",
+            "default": "id,updated_time,participants{id,username}"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Optional IGSID filter — return only the conversation with this participant (if it exists)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (Meta caps around 25 by default).",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required."
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "aWdfdGhyZWFkX21vY2tfMDAx",
+            "updated_time": "2026-05-22T11:00:00+0000",
+            "participants": {
+              "data": [
+                {
+                  "id": "17841400000000001",
+                  "username": "apteva"
+                },
+                {
+                  "id": "17841400000000050",
+                  "username": "a_customer"
+                }
+              ]
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Fetch a single Instagram DM conversation with its messages inline. Calls GET /{conversationId}?fields=... on the Graph API. Default fields pull the most recent 20 messages with sender/recipient/body/attachments — Meta caps inline message history at ~20; for older messages you must paginate via the messages edge separately.",
+      "method": "GET",
+      "path": "/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation id from list_conversations.data[].id."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector. Default expands the messages edge with the common per-message fields.",
+            "default": "id,updated_time,participants{id,username},messages{id,from,to,message,created_time,attachments}"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      },
+      "mock_response": {
+        "id": "aWdfdGhyZWFkX21vY2tfMDAx",
+        "updated_time": "2026-05-22T11:00:00+0000",
+        "participants": {
+          "data": [
+            {
+              "id": "17841400000000001",
+              "username": "apteva"
+            },
+            {
+              "id": "17841400000000050",
+              "username": "a_customer"
+            }
+          ]
+        },
+        "messages": {
+          "data": [
+            {
+              "id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ",
+              "from": {
+                "id": "17841400000000050",
+                "username": "a_customer"
+              },
+              "to": {
+                "data": [
+                  {
+                    "id": "17841400000000001",
+                    "username": "apteva"
+                  }
+                ]
+              },
+              "message": "Hi, is this still available?",
+              "created_time": "2026-05-22T11:00:00+0000",
+              "attachments": {
+                "data": []
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Fetch a single Instagram DM message by id, including attachments and reactions. Calls GET /{messageId}?fields=... on the Graph API. Useful for fetching attachment URLs or reaction details that aren't included in the lightweight conversation listing.",
+      "method": "GET",
+      "path": "/{messageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "description": "Message id (from a conversation's messages edge or an inbound webhook event)."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector.",
+            "default": "id,from,to,message,created_time,attachments,reactions"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages). Required."
+          }
+        },
+        "required": [
+          "messageId"
+        ]
+      },
+      "mock_response": {
+        "id": "aWdfbWVzc2FnZV9tb2NrXzAwMQ",
+        "created_time": "2026-05-22T11:00:00+0000",
+        "from": {
+          "username": "a_customer",
+          "id": "17841400000000050"
+        },
+        "to": {
+          "data": [
+            {
+              "username": "apteva",
+              "id": "17841400000000001"
+            }
+          ]
+        },
+        "message": "Hi, is this still available?",
+        "attachments": {
+          "data": []
+        },
+        "reactions": {
+          "data": []
+        }
+      }
+    },
+    {
+      "name": "list_conversation_messages",
+      "description": "List messages for a Meta conversation thread. Works for Instagram conversations returned by list_conversations and Facebook Page conversations returned by facebook_list_conversations. Calls GET /{conversationId}/messages and supports cursor pagination. Use this for historical DM loading beyond the inline messages returned by get_conversation/facebook_get_conversation.",
+      "method": "GET",
+      "path": "/{conversationId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation id from list_conversations or facebook_list_conversations."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated message fields.",
+            "default": "id,from,to,message,created_time,attachments"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "m_mock_001",
+            "message": "Hi, is this still available?",
+            "created_time": "2026-05-22T11:00:00+0000",
+            "from": {
+              "id": "17841400000000050",
+              "username": "a_customer"
+            },
+            "to": {
+              "data": [
+                {
+                  "id": "17841400000000001",
+                  "username": "apteva"
+                }
+              ]
+            },
+            "attachments": {
+              "data": []
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_list_conversations",
+      "description": "List Messenger conversations for a Facebook Page. Calls GET /{pageId}/conversations with a Page access token. Requires pages_messaging and the Page messaging product/review setup; some app configurations may also require Meta legacy mailbox access. Returns conversation ids, participants, snippets, unread counts, and paging cursors.",
+      "method": "GET",
+      "path": "/{pageId}/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields.",
+            "default": "id,updated_time,participants{id,name,email},senders{id,name,email},snippet,unread_count,can_reply,link"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "t_mock_page_thread_001",
+            "updated_time": "2026-05-22T11:00:00+0000",
+            "snippet": "Hi, is this still available?",
+            "unread_count": 1,
+            "can_reply": true,
+            "participants": {
+              "data": [
+                {
+                  "id": "100200300400500",
+                  "name": "Page"
+                },
+                {
+                  "id": "123456789",
+                  "name": "Customer"
+                }
+              ]
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_get_conversation",
+      "description": "Fetch one Facebook Page Messenger conversation with inline messages. Calls GET /{conversationId}?fields=... with a Page access token. For deeper history, page through list_conversation_messages.",
+      "method": "GET",
+      "path": "/{conversationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "description": "Conversation id from facebook_list_conversations.data[].id."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector.",
+            "default": "id,updated_time,participants{id,name,email},senders{id,name,email},messages{id,from,to,message,created_time,attachments}"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "conversationId"
+        ]
+      },
+      "mock_response": {
+        "id": "t_mock_page_thread_001",
+        "updated_time": "2026-05-22T11:00:00+0000",
+        "participants": {
+          "data": [
+            {
+              "id": "100200300400500",
+              "name": "Page"
+            },
+            {
+              "id": "123456789",
+              "name": "Customer"
+            }
+          ]
+        },
+        "messages": {
+          "data": [
+            {
+              "id": "m_mock_001",
+              "from": {
+                "id": "123456789",
+                "name": "Customer"
+              },
+              "message": "Hi, is this still available?",
+              "created_time": "2026-05-22T11:00:00+0000"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "facebook_send_message",
+      "description": "Send a Messenger reply from a Facebook Page. Calls POST /{pageId}/messages with recipient={id:PSID}, message={text}, and messaging_type=RESPONSE by default. Requires a user-initiated conversation and the normal Messenger response window unless an approved tag/use case applies.",
+      "method": "POST",
+      "path": "/{pageId}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "recipient": {
+            "type": "object",
+            "description": "Recipient object. For replies, use {id: \"<page-scoped-user-id>\"}.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Page-scoped user ID (PSID)."
+              }
+            },
+            "required": [
+              "id"
+            ]
+          },
+          "message": {
+            "type": "object",
+            "description": "Message payload, usually {text}.",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "Message text."
+              }
+            }
+          },
+          "messaging_type": {
+            "type": "string",
+            "enum": [
+              "RESPONSE",
+              "UPDATE",
+              "MESSAGE_TAG"
+            ],
+            "default": "RESPONSE",
+            "description": "Messenger send type. RESPONSE is the normal customer-care reply."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Optional approved Messenger tag, only with messaging_type=MESSAGE_TAG."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId",
+          "recipient",
+          "message"
+        ]
+      },
+      "mock_response": {
+        "recipient_id": "123456789",
+        "message_id": "m_mock_reply_001"
+      }
+    },
+    {
+      "name": "facebook_private_reply_to_comment",
+      "description": "Send a private Messenger reply to a Facebook Page comment. Calls POST /{commentId}/private_replies with message. Meta limits this by policy/window and the user/comment must be eligible.",
+      "method": "POST",
+      "path": "/{commentId}/private_replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Facebook comment id."
+          },
+          "message": {
+            "type": "string",
+            "description": "Private reply text."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "commentId",
+          "message"
+        ]
+      },
+      "mock_response": {
+        "recipient_id": "123456789",
+        "message_id": "m_mock_private_reply_001"
+      }
+    },
+    {
+      "name": "facebook_list_reviews",
+      "description": "List recommendations/reviews for a Facebook Page. Calls GET /{pageId}/ratings with a Page access token. Requires pages_read_user_content and Page task access. Returns Recommendation nodes plus paging cursors.",
+      "method": "GET",
+      "path": "/{pageId}/ratings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Recommendation fields. Meta may ignore unsupported fields depending on API version.",
+            "default": "id,created_time,review_text,recommendation_type,has_rating,has_review,rating,open_graph_story,reviewer{id,name}"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "review_mock_001",
+            "created_time": "2026-05-20T09:00:00+0000",
+            "review_text": "Great service",
+            "recommendation_type": "positive",
+            "reviewer": {
+              "id": "123456789",
+              "name": "Customer"
+            }
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "facebook_list_tagged",
+      "description": "List public posts/photos/videos that tag a Facebook Page. Calls GET /{pageId}/tagged with a Page access token. Useful for Page mentions in the unified inbox. Visibility depends on Meta privacy and Page authenticity rules.",
+      "method": "GET",
+      "path": "/{pageId}/tagged",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Facebook Page ID."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Tagged object fields.",
+            "default": "id,message,story,created_time,from,permalink_url,full_picture,attachments"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "tagged_mock_001",
+            "message": "Mentioning the page",
+            "created_time": "2026-05-21T09:00:00+0000",
+            "from": {
+              "id": "123456789",
+              "name": "Customer"
+            },
+            "permalink_url": "https://www.facebook.com/mock/posts/tagged_mock_001"
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_media_comments",
+      "description": "List comments on an Instagram or Facebook post. For IG calls GET /{ig-media-id}/comments; for FB calls GET /{post-id}/comments. Returns {data:[{id, text|message, username|from, timestamp|created_time, like_count?, replies?}], paging}. The page-level access_token is required (user-level tokens are rejected for /comments on Pages and on IG Business media).",
+      "method": "GET",
+      "path": "/{mediaId}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "description": "IG media id (from create_media_container → publish_media_container, or post-publish lookup) OR Facebook post id in pageId_postId format. The Graph API routes by token + id automatically."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields. Default covers what an inbox needs: text body, author, timestamp, like_count, parent (for nested replies).",
+            "default": "id,text,username,timestamp,like_count,replies{id,text,username,timestamp,like_count}"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (Meta caps around 50 by default).",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "mediaId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000200",
+            "text": "Love this!",
+            "username": "happy_user",
+            "timestamp": "2026-05-22T10:30:00+0000",
+            "like_count": 3
+          }
+        ],
+        "paging": {
+          "cursors": {
+            "before": "QVFIUm",
+            "after": "QVFIUm"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_comment",
+      "description": "Fetch a single comment by id with full fields. Calls GET /{comment-id}?fields=... on the Graph API. Works for both Instagram and Facebook comments — the comment id encodes which.",
+      "method": "GET",
+      "path": "/{commentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Comment id (from list_media_comments.data[].id or a webhook event)."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Fields selector.",
+            "default": "id,text,username,timestamp,like_count,hidden,replies{id,text,username,timestamp},parent_id"
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      },
+      "mock_response": {
+        "id": "17900000000000200",
+        "text": "Love this!",
+        "username": "happy_user",
+        "timestamp": "2026-05-22T10:30:00+0000",
+        "like_count": 3
+      }
+    },
+    {
+      "name": "reply_to_comment",
+      "description": "Reply to an Instagram or Facebook comment as the page/IG account. Calls POST /{comment-id}/replies with `message`. Returns {id} — the new reply comment id. For IG, the reply appears under the original comment as a nested reply. Page-level access_token required. To send a private DM to the comment author instead (IG only), use send_message with recipient.comment_id.",
+      "method": "POST",
+      "path": "/{commentId}/replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Parent comment id to reply to."
+          },
+          "message": {
+            "type": "string",
+            "description": "Reply body text. Plain text; IG strips most formatting."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "commentId",
+          "message"
+        ]
+      },
+      "mock_response": {
+        "id": "17900000000000201"
+      }
+    },
+    {
+      "name": "hide_comment",
+      "description": "Hide or unhide a comment. Calls POST /{comment-id} with hide=true|false. The comment stays visible to its author and their friends but is removed from public view. Reversible via the same endpoint with hide=false. Supported on both IG Business and Facebook page comments. Page-level access_token required.",
+      "method": "POST",
+      "path": "/{commentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Comment id to hide or unhide."
+          },
+          "hide": {
+            "type": "boolean",
+            "description": "true to hide the comment; false to unhide.",
+            "default": true
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "delete_comment",
+      "description": "Permanently delete a comment we authored, or any comment on our IG/FB content. Calls DELETE /{comment-id}. Page-level access_token required.",
+      "method": "DELETE",
+      "path": "/{commentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string",
+            "description": "Comment id to delete."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "commentId"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "list_my_tags",
+      "description": "List Instagram media the IG Business account has been tagged in (mentions on visual content). Calls GET /{ig-user-id}/tags on the Graph API. Returns {data:[{id, caption, media_type, media_url|permalink, username, timestamp}]} — one entry per tagged media. Useful for picking up brand mentions surfaced via @-tags in others' posts. Comment-level mentions arrive via webhooks, not this endpoint.",
+      "method": "GET",
+      "path": "/{instagramAccountId}/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instagramAccountId": {
+            "type": "string",
+            "description": "Your Instagram Business Account ID (from list_pages → data[].instagram_business_account.id)."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields.",
+            "default": "id,caption,media_type,media_url,permalink,username,timestamp,like_count,comments_count"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size.",
+            "default": 25
+          },
+          "after": {
+            "type": "string",
+            "description": "Pagination cursor from previous response's paging.cursors.after."
+          },
+          "access_token": {
+            "type": "string",
+            "description": "Page-level access token (from list_pages → data[].access_token). Required."
+          }
+        },
+        "required": [
+          "instagramAccountId"
+        ]
+      },
+      "mock_response": {
+        "data": [
+          {
+            "id": "17900000000000300",
+            "media_type": "IMAGE",
+            "username": "some_brand",
+            "timestamp": "2026-05-21T09:00:00+0000"
+          }
+        ],
+        "paging": {
+          "cursors": {}
+        }
+      }
+    }
+  ]
+}

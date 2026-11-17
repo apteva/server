@@ -1,0 +1,311 @@
+{
+  "slug": "aws-dynamodb",
+  "name": "AWS DynamoDB",
+  "description": "MCP server for AWS DynamoDB - NoSQL database, queries, scans",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "dynamodb",
+    "nosql",
+    "database",
+    "serverless"
+  ],
+  "base_url": "https://dynamodb.{region}.amazonaws.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_tables",
+      "description": "List DynamoDB tables",
+      "method": "GET",
+      "path": "/list-tables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number"
+          },
+          "exclusive_start_table_name": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "describe_table",
+      "description": "Describe a DynamoDB table",
+      "method": "GET",
+      "path": "/describe-table",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name"
+        ]
+      }
+    },
+    {
+      "name": "get_item",
+      "description": "Get an item by key",
+      "method": "GET",
+      "path": "/get-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "object"
+          },
+          "consistent_read": {
+            "type": "boolean"
+          },
+          "projection_expression": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "put_item",
+      "description": "Put an item into a table",
+      "method": "GET",
+      "path": "/put-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "item": {
+            "type": "object"
+          },
+          "condition_expression": {
+            "type": "string"
+          },
+          "return_values": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "item"
+        ]
+      }
+    },
+    {
+      "name": "update_item",
+      "description": "Update an item",
+      "method": "PUT",
+      "path": "/update-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "object"
+          },
+          "update_expression": {
+            "type": "string"
+          },
+          "expression_attribute_names": {
+            "type": "object"
+          },
+          "expression_attribute_values": {
+            "type": "object"
+          },
+          "condition_expression": {
+            "type": "string"
+          },
+          "return_values": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "key",
+          "update_expression"
+        ]
+      }
+    },
+    {
+      "name": "delete_item",
+      "description": "Delete an item",
+      "method": "DELETE",
+      "path": "/delete-item",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "object"
+          },
+          "condition_expression": {
+            "type": "string"
+          },
+          "return_values": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "query",
+      "description": "Query a table or index",
+      "method": "GET",
+      "path": "/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "key_condition_expression": {
+            "type": "string"
+          },
+          "filter_expression": {
+            "type": "string"
+          },
+          "expression_attribute_names": {
+            "type": "object"
+          },
+          "expression_attribute_values": {
+            "type": "object"
+          },
+          "projection_expression": {
+            "type": "string"
+          },
+          "index_name": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "scan_index_forward": {
+            "type": "boolean"
+          },
+          "exclusive_start_key": {
+            "type": "object"
+          },
+          "consistent_read": {
+            "type": "boolean"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name",
+          "key_condition_expression"
+        ]
+      }
+    },
+    {
+      "name": "scan",
+      "description": "Scan a table",
+      "method": "GET",
+      "path": "/scan",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "table_name": {
+            "type": "string"
+          },
+          "filter_expression": {
+            "type": "string"
+          },
+          "expression_attribute_names": {
+            "type": "object"
+          },
+          "expression_attribute_values": {
+            "type": "object"
+          },
+          "projection_expression": {
+            "type": "string"
+          },
+          "index_name": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "exclusive_start_key": {
+            "type": "object"
+          },
+          "consistent_read": {
+            "type": "boolean"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "table_name"
+        ]
+      }
+    }
+  ]
+}

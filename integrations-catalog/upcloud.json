@@ -1,0 +1,575 @@
+{
+  "slug": "upcloud",
+  "name": "UpCloud",
+  "description": "Cloud server lifecycle, plans and zones, Linux templates, block storage, backups, networking and firewall rules.",
+  "logo": "https://www.google.com/s2/favicons?domain=upcloud.com&sz=128",
+  "categories": [
+    "cloud",
+    "servers",
+    "vps",
+    "infrastructure"
+  ],
+  "base_url": "https://api.upcloud.com/1.3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "description": "Create a dedicated API token in UpCloud Hub with server, storage and zone permissions.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_plans",
+      "description": "List plans",
+      "method": "GET",
+      "path": "/plan",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_zones",
+      "description": "List zones",
+      "method": "GET",
+      "path": "/zone",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_prices",
+      "description": "List prices",
+      "method": "GET",
+      "path": "/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_server_sizes",
+      "description": "List server sizes",
+      "method": "GET",
+      "path": "/server_size",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get account",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List images",
+      "method": "GET",
+      "path": "/storage/template",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_servers",
+      "description": "List servers",
+      "method": "GET",
+      "path": "/server",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "search": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_server",
+      "description": "Get server",
+      "method": "GET",
+      "path": "/server/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "create_server",
+      "description": "Create server",
+      "method": "POST",
+      "path": "/server",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server"
+        ]
+      }
+    },
+    {
+      "name": "modify_server",
+      "description": "Modify server",
+      "method": "PUT",
+      "path": "/server/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "server": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id",
+          "server"
+        ]
+      }
+    },
+    {
+      "name": "delete_server",
+      "description": "Delete server",
+      "method": "DELETE",
+      "path": "/server/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "storages": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "backups": {
+            "type": "string",
+            "enum": [
+              "keep",
+              "keep_latest",
+              "delete"
+            ]
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      },
+      "query_params": [
+        "storages",
+        "backups"
+      ]
+    },
+    {
+      "name": "start_server",
+      "description": "Start server",
+      "method": "POST",
+      "path": "/server/{server_id}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "start_server": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "stop_server",
+      "description": "Stop server",
+      "method": "POST",
+      "path": "/server/{server_id}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "stop_server": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "restart_server",
+      "description": "Restart server",
+      "method": "POST",
+      "path": "/server/{server_id}/restart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "restart_server": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "list_volumes",
+      "description": "List volumes",
+      "method": "GET",
+      "path": "/storage/normal",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_volume",
+      "description": "Get volume",
+      "method": "GET",
+      "path": "/storage/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "create_volume",
+      "description": "Create volume",
+      "method": "POST",
+      "path": "/storage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storage": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "storage"
+        ]
+      }
+    },
+    {
+      "name": "resize_volume",
+      "description": "Resize volume",
+      "method": "PUT",
+      "path": "/storage/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          },
+          "storage": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "volume_id",
+          "storage"
+        ]
+      }
+    },
+    {
+      "name": "delete_volume",
+      "description": "Delete volume",
+      "method": "DELETE",
+      "path": "/storage/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "attach_volume",
+      "description": "Attach volume",
+      "method": "POST",
+      "path": "/server/{server_id}/storage/attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "storage_device": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id",
+          "storage_device"
+        ]
+      }
+    },
+    {
+      "name": "detach_volume",
+      "description": "Detach volume",
+      "method": "POST",
+      "path": "/server/{server_id}/storage/detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "storage_device": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id",
+          "storage_device"
+        ]
+      }
+    },
+    {
+      "name": "create_backup",
+      "description": "Create backup",
+      "method": "POST",
+      "path": "/storage/{volume_id}/backup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          },
+          "storage": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "volume_id",
+          "storage"
+        ]
+      }
+    },
+    {
+      "name": "restore_backup",
+      "description": "Restore backup",
+      "method": "POST",
+      "path": "/storage/{volume_id}/restore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          },
+          "storage": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "volume_id",
+          "storage"
+        ]
+      }
+    },
+    {
+      "name": "clone_volume",
+      "description": "Clone volume",
+      "method": "POST",
+      "path": "/storage/{volume_id}/clone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": {
+            "type": "string"
+          },
+          "storage": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "volume_id",
+          "storage"
+        ]
+      }
+    },
+    {
+      "name": "list_networks",
+      "description": "List networks",
+      "method": "GET",
+      "path": "/network",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_network",
+      "description": "Create network",
+      "method": "POST",
+      "path": "/network",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "network"
+        ]
+      }
+    },
+    {
+      "name": "get_network",
+      "description": "Get network",
+      "method": "GET",
+      "path": "/network/{network_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "network_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_network",
+      "description": "Delete network",
+      "method": "DELETE",
+      "path": "/network/{network_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "network_id"
+        ]
+      }
+    },
+    {
+      "name": "list_firewall_rules",
+      "description": "List firewall rules",
+      "method": "GET",
+      "path": "/server/{server_id}/firewall_rule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "create_firewall_rule",
+      "description": "Create firewall rule",
+      "method": "POST",
+      "path": "/server/{server_id}/firewall_rule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "firewall_rule": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "server_id",
+          "firewall_rule"
+        ]
+      }
+    },
+    {
+      "name": "delete_firewall_rule",
+      "description": "Delete firewall rule",
+      "method": "DELETE",
+      "path": "/server/{server_id}/firewall_rule/{rule_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "rule_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "server_id",
+          "rule_id"
+        ]
+      }
+    }
+  ]
+}

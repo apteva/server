@@ -1,0 +1,175 @@
+{
+  "slug": "wasabi",
+  "name": "Wasabi",
+  "description": "Wasabi Hot Cloud Storage \u2014 S3-compatible object storage at $6.99/TB/month with no egress fees. Critical caveat: Wasabi enforces a 90-day minimum storage duration \u2014 objects deleted before 90 days are billed for the full 90-day period anyway, so churny workloads are a poor fit. Bucket-scoped REST with AWS SigV4 against s3.{region}.wasabisys.com. Regions: us-east-1, us-east-2, us-central-1, us-west-1, ca-central-1, eu-central-1, eu-central-2, eu-west-1, eu-west-2, ap-northeast-1, ap-northeast-2, ap-southeast-1, ap-southeast-2. Generate access keys at console.wasabisys.com \u2192 Access Keys.",
+  "logo": "https://www.google.com/s2/favicons?domain=wasabi.com&sz=128",
+  "categories": [
+    "storage",
+    "wasabi",
+    "cloud",
+    "infrastructure",
+    "s3-compatible",
+    "hot-storage"
+  ],
+  "base_url": "https://s3.{{region}}.wasabisys.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "Wasabi region of your bucket \u2014 e.g. us-east-1, eu-central-1, ap-northeast-1. Note: us-east-1 uses the legacy hostname s3.wasabisys.com but the regional form (s3.us-east-1.wasabisys.com) also works and is preferred here.",
+        "required": true,
+        "type": "text",
+        "default": "us-east-1"
+      },
+      {
+        "name": "access_key_id",
+        "label": "Wasabi Access Key",
+        "description": "From console.wasabisys.com \u2192 Access Keys \u2192 Create New Access Key. Scope to a sub-user with bucket-level policy where possible \u2014 root keys grant account-wide access.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Wasabi Secret Key",
+        "description": "Returned at creation alongside the access key. Cannot be retrieved later \u2014 regenerate if lost.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Wasabi bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to keys starting with this prefix."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "Pagination cursor from a prior IsTruncated response."
+          },
+          "max-keys": {
+            "type": "integer",
+            "description": "Page size (max 1000)."
+          },
+          "list-type": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "continuation-token",
+        "max-keys",
+        "list-type"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass content as 'body'; runner sends verbatim with SigV4 integrity hash. Wasabi caps single PUT at 5GB; use multipart for larger.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key (path inside the bucket)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Object content. Bytes welcome \u2014 the runner sends them verbatim."
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200MB).",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204. WARNING: deletes within the 90-day minimum-retention window are still billed through day 90 \u2014 you save no money by deleting early.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all Wasabi buckets the access key can see. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_buckets",
+    "auth_ok_when_body_contains": [
+      "AccessDenied"
+    ]
+  }
+}

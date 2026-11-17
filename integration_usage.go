@@ -33,10 +33,12 @@ func (s *Server) recordIntegrationUsage(ev integrationUsageEvent) {
 	if s == nil || s.store == nil || s.store.db == nil {
 		return
 	}
-	recordIntegrationUsageDB(s.store.db, ev)
+	recordIntegrationUsageDB(s.store.boundedDatabase(nil), ev)
 }
 
-func recordIntegrationUsageDB(db *sql.DB, ev integrationUsageEvent) {
+func recordIntegrationUsageDB(db interface {
+	Exec(string, ...any) (sql.Result, error)
+}, ev integrationUsageEvent) {
 	if db == nil {
 		return
 	}
@@ -79,7 +81,7 @@ func (s *Server) callerAppName(installID int64) string {
 		return ""
 	}
 	var name string
-	_ = s.store.db.QueryRow(`
+	_ = s.store.dbQueryRow(`
 		SELECT COALESCE(a.name, '')
 		FROM app_installs i JOIN apps a ON a.id = i.app_id
 		WHERE i.id = ?
@@ -92,7 +94,7 @@ func (s *Server) projectForConnection(connID int64) string {
 		return ""
 	}
 	var projectID string
-	_ = s.store.db.QueryRow(`SELECT COALESCE(project_id, '') FROM connections WHERE id = ?`, connID).Scan(&projectID)
+	_ = s.store.dbQueryRow(`SELECT COALESCE(project_id, '') FROM connections WHERE id = ?`, connID).Scan(&projectID)
 	return projectID
 }
 

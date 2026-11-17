@@ -17,6 +17,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,9 +25,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -34,23 +37,46 @@ import (
 // InstalledAppsRegistry is the in-memory index built at boot from app_installs +
 // orchestrator service URLs. Read by every place that needs to know
 // "is app X mounted?" or "what's its sidecar URL?".
+type appInstallScope struct{ name, project string }
+
 type InstalledAppsRegistry struct {
-	mu      sync.RWMutex
-	entries map[int64]*InstalledApp // keyed by install id
-	byName  map[string]*InstalledApp
+	defaults map[appInstallScope]int64
+	mu       sync.RWMutex
+	entries  map[int64]*InstalledApp // keyed by install id
+	byName   map[string]*InstalledApp
+
+	// Serialize loading DB snapshots with local exit handling. If SQLite
+	// cannot record an exit, keep that exact process out of later reloads.
+	loadMu      sync.Mutex
+	failedExits map[localAppRoute]localExitRecord
+}
+
+type localAppRoute struct {
+	installID int64
+	pid       int
+	url       string
+}
+
+type localExitRecord struct {
+	port    int
+	message string
 }
 
 type InstalledApp struct {
-	InstallID   int64
-	AppName     string
-	ProjectID   string
-	Manifest    sdk.Manifest
-	SidecarURL  string            // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
-	StaticDir   string            // absolute path on disk (kind=static apps only)
-	MountPath   string            // URL prefix this app is served at (kind=static apps only, e.g. "/client")
-	Config      map[string]string // decrypted config_json — used for branding / kiosk-key injection
-	Permissions []sdk.Permission
-	Token       string // platform-issued APTEVA_APP_TOKEN for callbacks
+	MCPName         string
+	RuntimeReplicas []runtimeReplicaEndpoint
+	RuntimeRouting  string
+	InstallID       int64
+	AppName         string
+	ProjectID       string
+	Manifest        sdk.Manifest
+	SidecarURL      string            // http://<worker-ip>:<port> from orchestrator (sidecar apps only)
+	StaticDir       string            // absolute path on disk (kind=static apps only)
+	MountPath       string            // URL prefix this app is served at (kind=static apps only, e.g. "/client")
+	Config          map[string]string // decrypted config_json — used for branding / kiosk-key injection
+	Permissions     []sdk.Permission
+	Token           string // platform-issued APTEVA_APP_TOKEN for callbacks
+	localPID        int    // owner of the published route for an unmanaged local sidecar
 }
 
 func NewInstalledAppsRegistry() *InstalledAppsRegistry {
@@ -63,8 +89,8 @@ func (r *InstalledAppsRegistry) Get(installID int64) *InstalledApp {
 	return r.entries[installID]
 }
 
-// GetByName returns *some* install with the given app name. Returns
-// the LAST-registered one when multiple exist (one per project).
+// GetByName returns the global default, or the oldest project default.
+// The legacy last-registered index is used only before defaults are loaded.
 //
 // IMPORTANT: for apps that can be installed in more than one project
 // (storage, media, anything declaring scopes:[project,global] in its
@@ -76,6 +102,18 @@ func (r *InstalledAppsRegistry) Get(installID int64) *InstalledApp {
 func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if r.defaults != nil {
+		if id, exists := r.defaults[appInstallScope{name, ""}]; exists {
+			return r.entries[id]
+		}
+		var chosen int64
+		for scope, id := range r.defaults {
+			if scope.name == name && id > 0 && (chosen == 0 || id < chosen) {
+				chosen = id
+			}
+		}
+		return r.entries[chosen]
+	}
 	return r.byName[name]
 }
 
@@ -87,8 +125,8 @@ func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 //  3. nil.
 //
 // When projectID is "" only the global install is considered. This
-// matches the schema's UNIQUE(app_id, project_id) — exactly one
-// install per (app, project) combination, plus optionally one global.
+// resolves the designated default for each scope. A scope with an unavailable
+// default blocks fallback, even when another installation is running.
 //
 // Used by handleAppProxy to dispatch /api/apps/<name>/...?project_id=...
 // requests to the correct install, instead of last-wins which leaks
@@ -96,6 +134,12 @@ func (r *InstalledAppsRegistry) GetByName(name string) *InstalledApp {
 func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if id, exists := r.defaults[appInstallScope{name, projectID}]; exists {
+		return r.entries[id]
+	}
+	if r.defaults != nil {
+		return r.entries[r.defaults[appInstallScope{name, ""}]]
+	}
 	var globalMatch *InstalledApp
 	for _, e := range r.entries {
 		if e.AppName != name {
@@ -114,6 +158,9 @@ func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *Ins
 func (r *InstalledAppsRegistry) GetByNameAndProjectExact(name, projectID string) *InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if id, exists := r.defaults[appInstallScope{name, projectID}]; exists {
+		return r.entries[id]
+	}
 	for _, e := range r.entries {
 		if e.AppName == name && e.ProjectID == projectID {
 			return e
@@ -156,6 +203,21 @@ func (r *InstalledAppsRegistry) Add(e *InstalledApp) {
 func (r *InstalledAppsRegistry) Remove(installID int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.removeLocked(installID)
+}
+
+func (r *InstalledAppsRegistry) removeLocalRoute(route localAppRoute, committedOwner bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Resume can commit a new PID on the same port before reloading the
+	// registry. A matching DB owner also invalidates that cached address.
+	if app := r.entries[route.installID]; app != nil && app.localPID > 0 && app.SidecarURL == route.url &&
+		(app.localPID == route.pid || committedOwner) {
+		r.removeLocked(route.installID)
+	}
+}
+
+func (r *InstalledAppsRegistry) removeLocked(installID int64) {
 	if e, ok := r.entries[installID]; ok {
 		delete(r.byName, e.AppName)
 		delete(r.entries, installID)
@@ -176,30 +238,60 @@ func (r *InstalledAppsRegistry) Remove(installID int64) {
 // LoadInstalledApps reads every running app_install from the DB and
 // populates the in-memory registry. Called at server boot. Failures
 // for one install are logged and skipped — they don't block boot.
-func (s *Server) LoadInstalledApps() {
-	rows, err := s.store.db.Query(
-		`SELECT i.id, i.app_id, COALESCE(i.project_id, ''), i.service_name,
-			COALESCE(i.sidecar_url_override, ''),
-			COALESCE(i.config_encrypted, ''),
-			i.permissions_json, i.version, a.name,
-			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
-		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status = 'running'`)
-	if err != nil {
-		log.Printf("[APPS] load installs: %v", err)
+func (s *Server) LoadInstalledApps() { s.LoadInstalledAppsContext(nil) }
+func (s *Server) LoadInstalledAppsContext(parent context.Context) {
+	ctx, cancel := s.store.databaseContext(parent)
+	defer cancel()
+	registry := s.installedApps
+	if registry == nil {
 		return
 	}
-	defer rows.Close()
+	for !registry.loadMu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Millisecond):
+		}
+	}
+	defer registry.loadMu.Unlock()
+	for route, exit := range registry.failedExits {
+		if committedOwner, err := s.recordLocalProcessExit(route, exit.port, exit.message); err == nil {
+			registry.removeLocalRoute(route, committedOwner)
+			delete(registry.failedExits, route)
+		}
+	}
+
+	defaults, err := s.loadInstallationDefaults()
+	if err != nil {
+		log.Printf("[APPS] load installation defaults: %v", err)
+		return
+	}
+	registry.mu.Lock()
+	registry.defaults = defaults
+	registry.mu.Unlock()
+
+	records, err := s.readRunningInstalls(ctx)
+	if err != nil {
+		log.Printf("[APPS] read installs: %v", err)
+		return
+	}
 	count := 0
-	for rows.Next() {
-		var (
-			id, appID                                                              int64
-			projectID, serviceName, sidecarOverride, configEnc, permsJSON, version string
-			appName, manifestJSON                                                  string
-		)
-		if err := rows.Scan(&id, &appID, &projectID, &serviceName, &sidecarOverride,
-			&configEnc, &permsJSON, &version, &appName, &manifestJSON); err != nil {
-			log.Printf("[APPS] scan: %v", err)
+	for _, record := range records {
+		if ctx.Err() != nil {
+			return
+		}
+		id := record.id
+		projectID := record.projectID
+		serviceName := record.serviceName
+		sidecarOverride := record.sidecarOverride
+		configEnc := record.configEnc
+		permsJSON := record.permsJSON
+		appName := record.appName
+		manifestJSON := record.manifestJSON
+		installationKey := record.installationKey
+		localPID := record.localPID
+
+		if _, exited := registry.failedExits[localAppRoute{id, localPID, sidecarOverride}]; exited {
 			continue
 		}
 		var manifest sdk.Manifest
@@ -232,12 +324,13 @@ func (s *Server) LoadInstalledApps() {
 		// Without this, handleAppProxy sends no
 		// Authorization header to the sidecar and every dashboard
 		// iframe request comes back 401 from withTokenAuth.
-		token, tokenErr := s.appInstallToken(id)
+		token, tokenErr := s.appInstallTokenContext(ctx, id)
 		if tokenErr != nil {
 			log.Printf("[APPS] install=%d credential unavailable: %v", id, tokenErr)
 			continue
 		}
 		entry := &InstalledApp{
+			MCPName:     installationMCPName(appName, installationKey, id),
 			InstallID:   id,
 			AppName:     appName,
 			ProjectID:   projectID,
@@ -245,10 +338,14 @@ func (s *Server) LoadInstalledApps() {
 			Config:      cfg,
 			Permissions: perms,
 			Token:       token,
+			localPID:    localPID,
 		}
 		if strings.HasPrefix(sidecarOverride, "static://") {
 			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
 			entry.MountPath = resolveMountPath(&manifest, cfg)
+			if defaults[appInstallScope{appName, projectID}] != id {
+				entry.MountPath = strings.TrimRight(entry.MountPath, "/") + "/_install/" + strconv.FormatInt(id, 10)
+			}
 			s.installedApps.Add(entry)
 			count++
 			log.Printf("[APPS] mounted %s (install=%d project=%q static_dir=%s mount=%s)",
@@ -262,9 +359,10 @@ func (s *Server) LoadInstalledApps() {
 		// the orchestrator at all.
 		sidecarURL := sidecarOverride
 		if sidecarURL == "" {
-			sidecarURL = s.resolveSidecarURL(serviceName, manifest.Runtime.Port)
+			sidecarURL = s.resolveSidecarURLContext(ctx, serviceName, manifest.Runtime.Port)
 		}
 		entry.SidecarURL = sidecarURL
+		s.loadRuntimeEndpoints(entry)
 		s.installedApps.Add(entry)
 		count++
 		log.Printf("[APPS] mounted %s (install=%d project=%q sidecar=%s)",
@@ -277,10 +375,19 @@ func (s *Server) LoadInstalledApps() {
 // running and returns http://<ip>:<host_port>. Empty string if the
 // orchestrator can't tell us — callers fall back gracefully.
 func (s *Server) resolveSidecarURL(serviceName string, primaryPort int) string {
+	return s.resolveSidecarURLContext(nil, serviceName, primaryPort)
+}
+func (s *Server) resolveSidecarURLContext(parent context.Context, serviceName string, primaryPort int) string {
+	ctx, cancel := s.store.databaseContext(parent)
+	defer cancel()
 	if serviceName == "" || s.orchestratorURL == "" {
 		return ""
 	}
-	resp, err := http.Get(s.orchestratorURL + "/api/v1/services/" + url.PathEscape(serviceName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.orchestratorURL+"/api/v1/services/"+url.PathEscape(serviceName), nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("[APPS] orchestrator unreachable for %s: %v", serviceName, err)
 		return ""
@@ -410,8 +517,20 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	//
 	// An absent project_id may only resolve a global install. Picking an
 	// arbitrary project install here would cross tenant boundaries.
+	if tail == sdk.FileReferenceReadPath {
+		http.Error(w, "internal file resolver route", http.StatusForbidden)
+		return
+	}
 	isAppMCPCall := tail == "/mcp" && r.Method == http.MethodPost
 	if isAppMCPCall {
+		if r.URL.Query().Get("file_auth") != "" {
+			agentID, err := s.fileReferenceAgent(r)
+			if err != nil {
+				writeFileToolFailure(w, r, err)
+				return
+			}
+			r.Header.Set("X-Apteva-Caller-Agent", strconv.FormatInt(agentID, 10))
+		}
 		// Core carries the active thread as a hidden tools/call argument. Lift
 		// it into a server-owned header before project routing so a validated
 		// app-spawned thread scope can select a global app safely.
@@ -505,6 +624,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app not installed: "+appName, http.StatusNotFound)
 		return
 	}
+	if s.isOwnedComponent(entry.InstallID) {
+		http.Error(w, "owned components are callable only through their owner", http.StatusForbidden)
+		return
+	}
 	effectiveProjectID := entry.ProjectID
 	if effectiveProjectID == "" {
 		// Global installs execute inside the validated request project. This
@@ -538,6 +661,18 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if entry.StaticDir != "" {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "GET or HEAD only", 405)
+			return
+		}
+		request := r.Clone(r.Context())
+		request.URL.Path = path.Clean("/" + strings.TrimPrefix(tail, "/"))
+		selected := *entry
+		selected.MountPath = fmt.Sprintf("/api/apps/%s/_install/%d", appName, entry.InstallID)
+		newStaticAppFileHandler(s, &selected).ServeHTTP(w, request)
+		return
+	}
 	if entry.SidecarURL == "" {
 		http.Error(w, "app sidecar not reachable: "+appName, http.StatusServiceUnavailable)
 		return
@@ -559,11 +694,22 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if isAppMCPCall {
 		s.applyChannelChatSubjectContext(r)
+		releaseFiles, err := s.resolveAppFileRequest(r, entry)
+		if err != nil {
+			writeFileToolFailure(w, r, err)
+			return
+		}
+		defer releaseFiles()
 	}
 	var asyncReq *appMCPAsyncRequest
 	if tail == "/mcp" && r.Method == http.MethodPost {
-		asyncReq = s.inspectAppMCPAsyncRequest(entry, r)
+		asyncReq = s.inspectAppMCPAsyncRequest(entry, r, effectiveProjectID)
 	}
+	if strings.HasPrefix(tail, runtimeControlPrefix) {
+		http.Error(w, "not found", 404)
+		return
+	}
+	entry = s.runtimeProxyEntry(entry, r)
 	target, err := url.Parse(entry.SidecarURL)
 	if err != nil {
 		http.Error(w, "invalid sidecar url", http.StatusInternalServerError)
@@ -575,6 +721,10 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) { writeAdmissionError(w, err) }
 	}
 	publicRoute := appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r))
+	var requestPrincipal *sdk.TrustedPrincipal
+	if !publicRoute && authenticatedAppID == 0 {
+		requestPrincipal = s.trustedAppPrincipal(r, effectiveProjectID)
+	}
 	// Rewrite path so the sidecar sees its own routes (without the
 	// /apps/<name> prefix). The token swap happens in Director.
 	originalDirector := proxy.Director
@@ -588,8 +738,15 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		// Ordinary app routes are agent/user-facing. Only the authenticated
 		// /apps/callback/apps/:name/call bridge may mint this identity.
+		req.Header.Del(sdk.HeaderFileReadSignature)
+		query := req.URL.Query()
+		query.Del("file_agent")
+		query.Del("file_auth")
+		req.URL.RawQuery = query.Encode()
 		req.Header.Del(sdk.HeaderBoundCallerInstallID)
 		req.Header.Del(sdk.HeaderBoundCallerAppName)
+		req.Header.Del(sdk.HeaderTrustedPrincipal)
+		req.Header.Del(sdk.HeaderTrustedPrincipalSignature)
 		// Named app MCP profiles were abandoned. Scrub the old header so
 		// sidecars built with the short-lived SDK implementation cannot split
 		// their tool surface when reached through a current server.
@@ -609,14 +766,27 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set("Authorization", "Bearer "+entry.Token)
 			}
 		}
+		setTrustedAppPrincipalHeaders(req, entry.Token, requestPrincipal)
 		req.Header.Set("X-Apteva-App-Install-ID", fmt.Sprintf("%d", entry.InstallID))
 	}
-	if asyncReq != nil {
+	if asyncReq != nil || isAppMCPCall {
 		proxy.ModifyResponse = func(resp *http.Response) error {
-			return s.maybeAugmentAppMCPAsyncResponse(entry, asyncReq, resp)
+			// Convert bytes before any async result inspection buffers or
+			// augments the response. Both consumers see the same handle.
+			if isAppMCPCall {
+				if err := s.storeAppBlobResponse(r, resp); err != nil {
+					return err
+				}
+			}
+			if asyncReq != nil {
+				return s.maybeAugmentAppMCPAsyncResponse(entry, asyncReq, resp)
+			}
+			return nil
 		}
 	}
-	proxy.ServeHTTP(w, r)
+
+	configureAppClientIP(proxy, r, entry.Token)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "app", App: entry.AppName, InstallID: entry.InstallID})
 }
 
 func appProxyRouteIsNoAuth(entry *InstalledApp, path, method string) bool {

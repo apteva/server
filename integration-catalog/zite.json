@@ -1,0 +1,173 @@
+{
+  "slug": "zite",
+  "name": "Zite",
+  "description": "Zite database and records platform (by Fillout). Create, find, update, and manage records across tables in your Zite databases.",
+  "logo": "https://www.google.com/s2/favicons?domain=zite.com&sz=128",
+  "categories": [
+    "database",
+    "zite",
+    "records",
+    "tables",
+    "no-code",
+    "fillout"
+  ],
+  "base_url": "https://api.zite.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Zite/Fillout API key (generate from your Zite dashboard)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_records",
+      "description": "Query and retrieve records from a Zite database table. Supports filtering, sorting, pagination, and field selection. Returns an array of matching records with their field values. Use limit and offset for pagination through large result sets.",
+      "method": "GET",
+      "path": "/find-records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "description": "The unique ID of the Zite database."
+          },
+          "tableId": {
+            "type": "string",
+            "description": "The unique ID of the table within the database."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of records to return. Defaults to 50.",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of records to skip for pagination. Defaults to 0.",
+            "default": 0
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order for results (e.g. 'fieldName:asc' or 'fieldName:desc')."
+          },
+          "filters": {
+            "type": "string",
+            "description": "JSON-encoded filter criteria to narrow results (e.g. '{\"fieldName\": {\"eq\": \"value\"}}')."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated list of field names to include in the response. If omitted, all fields are returned."
+          }
+        },
+        "required": [
+          "databaseId",
+          "tableId"
+        ]
+      }
+    },
+    {
+      "name": "add_record",
+      "description": "Create a new record in a Zite database table. Provide the field values as key-value pairs in the fields object. Returns the newly created record with its assigned ID and all field values.",
+      "method": "POST",
+      "path": "/add-record",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "description": "The unique ID of the Zite database."
+          },
+          "tableId": {
+            "type": "string",
+            "description": "The unique ID of the table within the database."
+          },
+          "fields": {
+            "type": "object",
+            "description": "Key-value pairs of field names to values for the new record. Supports text, numbers, dates, booleans, and other Zite field types."
+          }
+        },
+        "required": [
+          "databaseId",
+          "tableId",
+          "fields"
+        ]
+      }
+    },
+    {
+      "name": "update_record",
+      "description": "Update an existing record in a Zite database table. Provide the record ID and the field values to update. Only the specified fields will be modified; other fields remain unchanged. Returns the updated record.",
+      "method": "PUT",
+      "path": "/update-record",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "description": "The unique ID of the Zite database."
+          },
+          "tableId": {
+            "type": "string",
+            "description": "The unique ID of the table within the database."
+          },
+          "recordId": {
+            "type": "string",
+            "description": "The unique ID of the record to update."
+          },
+          "fields": {
+            "type": "object",
+            "description": "Key-value pairs of field names to updated values. Only the specified fields will be modified."
+          }
+        },
+        "required": [
+          "databaseId",
+          "tableId",
+          "recordId",
+          "fields"
+        ]
+      }
+    },
+    {
+      "name": "upsert_record",
+      "description": "Insert a new record or update an existing one in a Zite database table (upsert). If a record matching the provided match fields already exists, it will be updated; otherwise a new record is created. Returns the created or updated record.",
+      "method": "PATCH",
+      "path": "/upsert-record",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "description": "The unique ID of the Zite database."
+          },
+          "tableId": {
+            "type": "string",
+            "description": "The unique ID of the table within the database."
+          },
+          "fields": {
+            "type": "object",
+            "description": "Key-value pairs of field names to values. These will be set on the created or updated record."
+          },
+          "matchFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of field names to use for matching an existing record. If a record with matching values in these fields exists, it will be updated instead of creating a new one."
+          }
+        },
+        "required": [
+          "databaseId",
+          "tableId",
+          "fields"
+        ]
+      }
+    }
+  ]
+}

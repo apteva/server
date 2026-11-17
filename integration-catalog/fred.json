@@ -1,0 +1,156 @@
+{
+  "slug": "fred",
+  "name": "FRED — Federal Reserve Economic Data",
+  "description": "FRED is the St. Louis Fed's economic data warehouse — the authoritative source for ~830,000 US and international macro time series: CPI, unemployment, GDP, Fed funds rate, Treasury yields, M2, mortgage rates, dollar index, oil price, and basically every other macroeconomic indicator a trading agent might want. Free, official, and the API has been stable for over a decade. Required for any agent reasoning about Fed policy, recession risk, inflation, or other macro-driven prediction markets and equities trades. Sign up at https://fredaccount.stlouisfed.org/apikeys for a free api_key.",
+  "logo": "https://www.google.com/s2/favicons?domain=stlouisfed.org&sz=128",
+  "categories": [
+    "finance",
+    "economy",
+    "macro",
+    "research",
+    "fed",
+    "public-data"
+  ],
+  "base_url": "https://api.stlouisfed.org/fred",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api_key": "{{api_key}}",
+      "file_type": "json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "FRED API Key",
+        "description": "32-char alphanumeric key from https://fredaccount.stlouisfed.org/apikeys. Free, no rate limit cap; FRED requests you 'be reasonable'."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "series_observations",
+      "description": "Get the time-series values for a FRED series. The most common call — feed it a series_id like 'UNRATE' (unemployment rate), 'CPIAUCSL' (headline CPI), 'FEDFUNDS' (Fed funds rate), 'DGS10' (10-year Treasury), 'GDPC1' (real GDP), etc. Returns date+value pairs. Use limit + offset for big series; use sort_order=desc for the latest first.",
+      "method": "GET",
+      "path": "/series/observations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "series_id":           {"type": "string", "description": "FRED series id (UNRATE, CPIAUCSL, FEDFUNDS, DGS10, GDPC1, etc.)."},
+          "observation_start":   {"type": "string", "description": "YYYY-MM-DD, default is the series' first observation."},
+          "observation_end":     {"type": "string", "description": "YYYY-MM-DD, default is the latest available."},
+          "limit":               {"type": "integer", "description": "1-100000. Default 100000."},
+          "offset":              {"type": "integer", "description": "Pagination offset."},
+          "sort_order":          {"type": "string", "enum": ["asc", "desc"], "description": "default asc (oldest first); use desc for latest first"},
+          "units":               {"type": "string", "enum": ["lin","chg","ch1","pch","pc1","pca","cch","cca","log"], "description": "lin=levels (default), pch=% change period-over-period, pc1=% change year-over-year, log=natural log."},
+          "frequency":           {"type": "string", "enum": ["d","w","bw","m","q","sa","a"], "description": "Down-sample frequency — d=daily, w=weekly, m=monthly, q=quarterly, a=annual."},
+          "aggregation_method":  {"type": "string", "enum": ["avg","sum","eop"], "description": "How to aggregate when frequency is coarser than source. eop=end-of-period."}
+        },
+        "required": ["series_id"]
+      }
+    },
+    {
+      "name": "series_search",
+      "description": "Find a FRED series by free-text query. Use this when the agent knows the concept (e.g. 'US unemployment rate', 'core CPI services') but not the exact series_id. Returns matches with id + title + frequency + units + last-update.",
+      "method": "GET",
+      "path": "/series/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search_text": {"type": "string", "description": "Free-text query — 'unemployment', '10 year treasury', 'core cpi services'."},
+          "limit":       {"type": "integer", "description": "Max matches. Default 1000."},
+          "search_type": {"type": "string", "enum": ["full_text", "series_id"], "description": "full_text searches title+notes; series_id matches the id literally."},
+          "order_by":    {"type": "string", "description": "search_rank, series_id, title, units, frequency, observation_start, observation_end, popularity, last_updated."}
+        },
+        "required": ["search_text"]
+      }
+    },
+    {
+      "name": "series_info",
+      "description": "Get the metadata for one series — title, frequency, units, observation range, last-updated, notes. Use after a search to confirm you've got the right thing before pulling observations.",
+      "method": "GET",
+      "path": "/series",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "series_id": {"type": "string"}
+        },
+        "required": ["series_id"]
+      }
+    },
+    {
+      "name": "category_children",
+      "description": "Browse FRED's category tree — alternative to free-text search. Root category id is 0. Use this when exploring a topic ('Money, Banking, & Finance' → 'Interest Rates' → ...).",
+      "method": "GET",
+      "path": "/category/children",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": {"type": "integer", "description": "FRED category id, 0 = root."}
+        }
+      }
+    },
+    {
+      "name": "category_series",
+      "description": "List every series in a given FRED category. Useful after category_children to enumerate what's available under a topic.",
+      "method": "GET",
+      "path": "/category/series",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": {"type": "integer"},
+          "limit":       {"type": "integer"},
+          "offset":      {"type": "integer"},
+          "order_by":    {"type": "string"}
+        },
+        "required": ["category_id"]
+      }
+    },
+    {
+      "name": "release_dates",
+      "description": "Calendar of upcoming + recent FRED release dates — when CPI prints, when jobs report drops, etc. Critical for macro prediction markets where the agent wants to know 'when does the next number land?'.",
+      "method": "GET",
+      "path": "/release/dates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "release_id": {"type": "integer", "description": "FRED release id (50=CPI, 76=Employment Situation, 53=Industrial Production, etc.)."},
+          "limit":      {"type": "integer"},
+          "sort_order": {"type": "string", "enum": ["asc","desc"], "description": "desc returns nearest dates first."}
+        },
+        "required": ["release_id"]
+      }
+    },
+    {
+      "name": "releases",
+      "description": "List every release FRED tracks. Use to discover release_ids to feed release_dates.",
+      "method": "GET",
+      "path": "/releases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit":  {"type": "integer"},
+          "offset": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "series_updates",
+      "description": "Recently-updated series across FRED. Use as a heartbeat — 'what new data landed in the last day/week?'.",
+      "method": "GET",
+      "path": "/series/updates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit":            {"type": "integer"},
+          "filter_value":     {"type": "string", "enum": ["macro","regional","all"], "description": "Filter by series scope."},
+          "start_time":       {"type": "string", "description": "YYYYMMDDHhmm format — observations updated on or after."},
+          "end_time":         {"type": "string", "description": "YYYYMMDDHhmm format."}
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "series_info",
+    "args": {"series_id": "GDP"}
+  }
+}

@@ -1,0 +1,681 @@
+{
+  "slug": "castbase",
+  "name": "CastBase",
+  "description": "Complete podcast hosting platform with RSS feeds, episode management, analytics, and media delivery",
+  "logo": "https://cdn-icons-png.flaticon.com/512/3106/3106777.png",
+  "categories": [
+    "castbase",
+    "podcasting",
+    "audio",
+    "rss",
+    "episodes",
+    "media",
+    "analytics"
+  ],
+  "base_url": "https://api.castbase.dev/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "CastBase API Key (from your project dashboard)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_podcast",
+      "description": "Create a new podcast with metadata and optional cover image",
+      "method": "POST",
+      "path": "/create-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Podcast title (required)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Podcast description"
+          },
+          "author": {
+            "type": "string",
+            "description": "Podcast author/host name (required)"
+          },
+          "owner_email": {
+            "type": "string",
+            "format": "email",
+            "description": "Owner email address (required)"
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "description": "Podcast website URL"
+          },
+          "language": {
+            "type": "string",
+            "default": "en",
+            "description": "Language code (e.g., 'en', 'es')"
+          },
+          "category": {
+            "type": "string",
+            "description": "Podcast category"
+          },
+          "explicit": {
+            "type": "boolean",
+            "default": false,
+            "description": "Contains explicit content"
+          },
+          "cover_image_url": {
+            "type": "string",
+            "description": "Cover image URL"
+          }
+        },
+        "required": [
+          "title",
+          "author",
+          "owner_email"
+        ]
+      }
+    },
+    {
+      "name": "get_podcast",
+      "description": "Retrieve podcast details by ID",
+      "method": "GET",
+      "path": "/get-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "include_episodes": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include episodes in response"
+          },
+          "episode_status": {
+            "type": "string",
+            "default": "published",
+            "description": "Filter episodes by status when include_episodes is true"
+          },
+          "episode_limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Limit episodes when include_episodes is true"
+          }
+        },
+        "required": [
+          "podcast_id"
+        ]
+      }
+    },
+    {
+      "name": "list_podcasts",
+      "description": "List podcasts with filtering and pagination",
+      "method": "GET",
+      "path": "/list-podcasts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "archived"
+            ],
+            "description": "Filter by podcast status"
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by category"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in title and description"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Number of podcasts to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Offset for pagination"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort order (created_at:desc, title:asc, etc.)"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_podcast",
+      "description": "Update podcast metadata and settings",
+      "method": "PUT",
+      "path": "/update-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated podcast title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated podcast description"
+          },
+          "author": {
+            "type": "string",
+            "description": "Updated author name"
+          },
+          "website": {
+            "type": "string",
+            "description": "Updated website URL"
+          },
+          "category": {
+            "type": "string",
+            "description": "Updated category"
+          },
+          "explicit": {
+            "type": "boolean",
+            "description": "Updated explicit flag"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "archived"
+            ],
+            "description": "Updated status"
+          }
+        },
+        "required": [
+          "podcast_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_podcast",
+      "description": "Delete a podcast and all its episodes (cannot be undone)",
+      "method": "DELETE",
+      "path": "/delete-podcast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID to delete (required)"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force deletion even if podcast has episodes"
+          },
+          "permanent": {
+            "type": "boolean",
+            "default": false,
+            "description": "Permanently delete (true) or archive (false)"
+          }
+        },
+        "required": [
+          "podcast_id"
+        ]
+      }
+    },
+    {
+      "name": "create_episode",
+      "description": "Create a new podcast episode",
+      "method": "POST",
+      "path": "/create-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Episode title (required)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Episode description"
+          },
+          "season_number": {
+            "type": "integer",
+            "description": "Season number"
+          },
+          "episode_number": {
+            "type": "integer",
+            "description": "Episode number"
+          },
+          "episode_type": {
+            "type": "string",
+            "enum": [
+              "full",
+              "trailer",
+              "bonus"
+            ],
+            "default": "full",
+            "description": "Episode type"
+          },
+          "explicit": {
+            "type": "boolean",
+            "default": false,
+            "description": "Contains explicit content"
+          }
+        },
+        "required": [
+          "podcast_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "get_episode",
+      "description": "Retrieve episode details by ID",
+      "method": "GET",
+      "path": "/get-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID (required)"
+          },
+          "include_podcast": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include podcast information in response"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "list_episodes",
+      "description": "List episodes for a podcast with pagination",
+      "method": "GET",
+      "path": "/list-episodes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "status": {
+            "type": "string",
+            "default": "all",
+            "description": "Filter by episode status (all, draft, published, archived)"
+          },
+          "episode_type": {
+            "type": "string",
+            "enum": [
+              "full",
+              "trailer",
+              "bonus"
+            ],
+            "description": "Filter by episode type"
+          },
+          "season": {
+            "type": "integer",
+            "description": "Filter by season number"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in episode title"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Number of episodes to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Offset for pagination"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort order (created_at:desc, published_at:desc, etc.)"
+          }
+        },
+        "required": [
+          "podcast_id"
+        ]
+      }
+    },
+    {
+      "name": "publish_episode",
+      "description": "Publish an episode making it available in the RSS feed",
+      "method": "GET",
+      "path": "/publish-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID to publish (required)"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Schedule publish date/time (defaults to now)"
+          },
+          "update_rss": {
+            "type": "boolean",
+            "default": true,
+            "description": "Trigger RSS feed update after publishing"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_audio",
+      "description": "Upload audio file for an episode. Provide either audio_url (to download from URL) or audio_buffer (base64 encoded data). The file will be tagged with ID3 metadata and stored.",
+      "method": "POST",
+      "path": "/upload-audio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID (required)"
+          },
+          "audio_buffer": {
+            "type": "string",
+            "description": "Base64 encoded audio file data (provide either this or audio_url)"
+          },
+          "audio_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the audio file to download and upload (provide either this or audio_buffer)"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Original filename (optional - extracted from URL if using audio_url)"
+          },
+          "content_type": {
+            "type": "string",
+            "default": "audio/mpeg",
+            "enum": [
+              "audio/mpeg",
+              "audio/mp3",
+              "audio/mp4",
+              "audio/x-m4a",
+              "audio/wav",
+              "audio/ogg"
+            ],
+            "description": "Audio content type (auto-detected from response if using audio_url)"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_rss",
+      "description": "Generate or regenerate RSS feed for a podcast",
+      "method": "GET",
+      "path": "/generate-rss",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "max_episodes": {
+            "type": "integer",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Maximum number of episodes to include"
+          }
+        },
+        "required": [
+          "podcast_id"
+        ]
+      }
+    },
+    {
+      "name": "serve_media",
+      "description": "Get media file URL with optional analytics tracking",
+      "method": "GET",
+      "path": "/serve-media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID (required)"
+          },
+          "file_type": {
+            "type": "string",
+            "default": "audio",
+            "enum": [
+              "audio",
+              "image",
+              "transcript"
+            ],
+            "description": "Type of media file to serve"
+          }
+        },
+        "required": [
+          "podcast_id",
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "track_download",
+      "description": "Track episode download for analytics",
+      "method": "GET",
+      "path": "/track-download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID (required)"
+          },
+          "user_agent": {
+            "type": "string",
+            "description": "User agent string"
+          },
+          "ip_address": {
+            "type": "string",
+            "description": "IP address of downloader"
+          },
+          "referrer": {
+            "type": "string",
+            "description": "Referrer URL"
+          },
+          "client_type": {
+            "type": "string",
+            "enum": [
+              "app",
+              "web",
+              "rss",
+              "unknown"
+            ],
+            "description": "Type of client"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_episode",
+      "description": "Delete or archive a podcast episode",
+      "method": "DELETE",
+      "path": "/delete-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID to delete (required)"
+          },
+          "permanent": {
+            "type": "boolean",
+            "default": false,
+            "description": "Permanently delete (true) or archive (false)"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "unpublish_episode",
+      "description": "Unpublish a published episode, reverting it to draft status and optionally updating the RSS feed",
+      "method": "GET",
+      "path": "/unpublish-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID to unpublish (required)"
+          },
+          "update_rss": {
+            "type": "boolean",
+            "default": true,
+            "description": "Trigger RSS feed update after unpublishing"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "update_episode",
+      "description": "Update episode metadata such as title, description, season/episode numbers, type, and explicit flag",
+      "method": "PUT",
+      "path": "/update-episode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "episode_id": {
+            "type": "string",
+            "description": "Episode ID to update (required)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated episode title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated episode description"
+          },
+          "season_number": {
+            "type": "integer",
+            "description": "Updated season number"
+          },
+          "episode_number": {
+            "type": "integer",
+            "description": "Updated episode number"
+          },
+          "episode_type": {
+            "type": "string",
+            "enum": [
+              "full",
+              "trailer",
+              "bonus"
+            ],
+            "description": "Updated episode type"
+          },
+          "explicit": {
+            "type": "boolean",
+            "description": "Updated explicit content flag"
+          }
+        },
+        "required": [
+          "episode_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_cover",
+      "description": "Upload cover art for a podcast. Image must be at least 1400x1400 pixels and square (1:1 aspect ratio). Provide either image_url or image_buffer (base64).",
+      "method": "POST",
+      "path": "/upload-cover",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "podcast_id": {
+            "type": "string",
+            "description": "Podcast ID (required)"
+          },
+          "image_buffer": {
+            "type": "string",
+            "description": "Base64 encoded image data (provide either this or image_url)"
+          },
+          "image_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL of the image to download and upload (provide either this or image_buffer)"
+          },
+          "filename": {
+            "type": "string",
+            "description": "Original filename (optional, defaults to cover.jpg)"
+          },
+          "content_type": {
+            "type": "string",
+            "default": "image/jpeg",
+            "enum": [
+              "image/jpeg",
+              "image/png"
+            ],
+            "description": "Image content type"
+          }
+        },
+        "required": [
+          "podcast_id"
+        ]
+      }
+    }
+  ]
+}

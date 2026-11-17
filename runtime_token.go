@@ -22,6 +22,7 @@ package main
 // resolveRuntimeTokenConnection handles (2) via connections.legacy_provider_id.
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -106,10 +107,10 @@ func (s *Server) resolveRuntimeTokenConnection(userID, id int64) (runtimeConnect
 	return runtimeConnection{}, false
 }
 
-// writeConnectionRuntimeToken refreshes if needed and returns the token
-// in the exact shape core parses ({access_token, account_id}); the extra
-// fields match what the providers path emitted so any other reader sees
-// no difference.
+// writeConnectionRuntimeToken refreshes session credentials if needed and
+// returns the provider driver's runtime payload. The OpenAI Codex driver keeps
+// the exact legacy shape core parses ({access_token, account_id}); newer
+// session providers can add metadata without changing that compatibility path.
 func (s *Server) writeConnectionRuntimeToken(w http.ResponseWriter, conn runtimeConnection, force bool) {
 	plaintext, err := Decrypt(s.secret, conn.EncryptedCreds)
 	if err != nil {
@@ -122,27 +123,25 @@ func (s *Server) writeConnectionRuntimeToken(w http.ResponseWriter, conn runtime
 		return
 	}
 
-	if force || connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
-		if err := s.refreshConnectionCredentials(conn.ID, credentials, refreshIntegrationOpenAICodexCredentials); err != nil {
+	driver := connectionSessionAuthDriverFor(conn.AppSlug)
+	if driver == nil {
+		http.Error(w, "provider does not use session authentication", http.StatusBadRequest)
+		return
+	}
+	if force || driver.NeedsRefresh(credentials, 10*time.Minute) {
+		if err := s.refreshConnectionCredentials(conn.ID, credentials, func(current map[string]string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			return driver.Refresh(ctx, current)
+		}); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 	}
-
-	token := strings.TrimSpace(credentials["access_token"])
-	if token == "" {
-		http.Error(w, "OpenAI Codex auth is missing access_token", http.StatusBadRequest)
+	payload, err := driver.RuntimeToken(credentials)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	expiresAt := credentials["token_expires_at"]
-	if expiresAt == "" {
-		expiresAt = credentials["expires_at"]
-	}
-	writeJSON(w, map[string]any{
-		"provider":     openAICodexAuthProvider,
-		"token_type":   "Bearer",
-		"access_token": token,
-		"account_id":   credentials["account_id"],
-		"expires_at":   expiresAt,
-	})
+	writeJSON(w, payload)
 }

@@ -96,7 +96,7 @@ func (s *Server) refreshExpiringCodexConnectionStates(ctx context.Context, skew 
 		projectID string
 		encrypted string
 	}
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT id, user_id, COALESCE(project_id,''), encrypted_credentials
 		  FROM connections
 		 WHERE COALESCE(status,'active') = 'active'
@@ -174,7 +174,7 @@ func (s *Server) refreshOneCodexConnection(connectionID int64, expectedEncrypted
 	if err != nil {
 		return false, err
 	}
-	result, err := s.store.db.Exec(`
+	result, err := s.store.dbExec(`
 		UPDATE connections
 		   SET encrypted_credentials = ?
 		 WHERE id = ? AND encrypted_credentials = ?`, reEncrypted, connectionID, expectedEncrypted)
@@ -195,7 +195,7 @@ func (s *Server) refreshOneCodexConnection(connectionID int64, expectedEncrypted
 }
 
 func (s *Server) refreshExpiringCodexProviderStates(ctx context.Context, skew time.Duration) ([]codexProviderRefresh, int, int) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQueryContext(ctx, `
 		SELECT p.id, p.user_id, COALESCE(p.project_id,''), p.encrypted_data
 		  FROM providers p
 		  JOIN provider_types pt ON pt.id = p.provider_type_id
@@ -213,18 +213,34 @@ func (s *Server) refreshExpiringCodexProviderStates(ctx context.Context, skew ti
 	var refreshed []codexProviderRefresh
 	scanned := 0
 	failed := 0
-	for rows.Next() {
+	type databaseRecord struct {
+		providerID int64
+		userID     int64
+		projectID  string
+		encrypted  string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.providerID, &record.userID, &record.projectID, &record.encrypted); err != nil {
+			return record, err
+		}
+		return record, nil
+	})
+	if err != nil {
+		return nil, 0, 1
+	}
+	for _, record := range readRecords {
+		providerID := record.providerID
+		userID := record.userID
+		projectID := record.projectID
+		encrypted := record.encrypted
+
 		select {
 		case <-ctx.Done():
 			return refreshed, scanned, failed
 		default:
 		}
-		var providerID, userID int64
-		var projectID, encrypted string
-		if err := rows.Scan(&providerID, &userID, &projectID, &encrypted); err != nil {
-			failed++
-			continue
-		}
+
 		scanned++
 		changed, err := s.refreshOneCodexProvider(ctx, providerID, encrypted, skew)
 		if err != nil {
@@ -236,6 +252,7 @@ func (s *Server) refreshExpiringCodexProviderStates(ctx context.Context, skew ti
 			refreshed = append(refreshed, codexProviderRefresh{ProviderID: providerID, UserID: userID, ProjectID: projectID})
 		}
 	}
+
 	if err := rows.Err(); err != nil {
 		failed++
 		log.Printf("[PROVIDER-REFRESH] scan OpenAI Codex providers: %v", err)
@@ -314,7 +331,7 @@ func (s *Store) RunningAgentsUseCodexProvider() bool {
 		return false
 	}
 	var count int
-	err := s.db.QueryRow(`
+	err := s.dbQueryRow(`
 		SELECT COUNT(1)
 		  FROM agents a
 		 WHERE a.status = 'running'

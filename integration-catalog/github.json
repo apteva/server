@@ -1,0 +1,2682 @@
+{
+  "slug": "github",
+  "name": "GitHub",
+  "description": "GitHub REST API for agent-driven repository management: repositories, contents and atomic Git writes, branches and commits, issues, pull requests and reviews, Actions runs and artifacts, releases and assets, collaborators, organizations, webhooks, notifications, users, and search.",
+  "logo": "https://github.githubassets.com/favicons/favicon.svg",
+  "categories": [
+    "development",
+    "git",
+    "code",
+    "collaboration",
+    "github",
+    "oauth2"
+  ],
+  "base_url": "https://api.github.com",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Personal Access Token",
+        "description": "GitHub personal access token. Fine-grained tokens are preferred; grant only the repository and organization permissions required by the tools you will use.",
+        "required": true,
+        "type": "password"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://github.com/login/oauth/authorize",
+      "token_url": "https://github.com/login/oauth/access_token",
+      "scopes": [
+        "repo",
+        "public_repo",
+        "admin:repo_hook",
+        "workflow",
+        "read:org",
+        "notifications",
+        "delete_repo",
+        "read:user",
+        "user:email"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "ui_components": [
+    {
+      "name": "issue-card",
+      "entry": "/ui/IssueCard.mjs",
+      "slots": [
+        "chat.message_attachment"
+      ],
+      "props_schema": {
+        "type": "object",
+        "required": [
+          "repo",
+          "issue_number"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "description": "owner/name (e.g. acme-corp/billing-service)"
+          },
+          "issue_number": {
+            "type": "integer",
+            "description": "Issue number (#NN)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue title \u2014 pass from get_issue response"
+          },
+          "state": {
+            "type": "string",
+            "description": "open or closed"
+          },
+          "state_reason": {
+            "type": "string",
+            "description": "completed | not_planned | reopened"
+          },
+          "user_login": {
+            "type": "string",
+            "description": "Author login"
+          },
+          "user_avatar_url": {
+            "type": "string",
+            "description": "Author avatar URL"
+          },
+          "labels": {
+            "type": "string",
+            "description": "Comma-separated label names"
+          },
+          "assignees": {
+            "type": "string",
+            "description": "Comma-separated assignee logins"
+          },
+          "comments": {
+            "type": "integer",
+            "description": "Comments count"
+          }
+        }
+      },
+      "preview_props": {
+        "preview": true
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_authenticated_user",
+      "description": "Get the authenticated user's profile including login, name, email, bio, public repos count, followers, and account details",
+      "method": "GET",
+      "path": "/user",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "mock_response": {
+        "login": "apteva-bot",
+        "id": 100000001,
+        "type": "User",
+        "name": "Apteva Bot",
+        "company": null,
+        "public_repos": 12,
+        "followers": 3,
+        "following": 1,
+        "html_url": "https://github.com/apteva-bot"
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a user's public profile by their username",
+      "method": "GET",
+      "path": "/users/{username}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "GitHub username"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "list_repos",
+      "description": "List repositories for the authenticated user. Returns repos you own, collaborate on, or are a member of.",
+      "method": "GET",
+      "path": "/user/repos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Type of repos to list",
+            "enum": [
+              "all",
+              "owner",
+              "public",
+              "private",
+              "member"
+            ],
+            "default": "all"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["all", "public", "private"],
+            "description": "Repository visibility filter. Do not combine with type."
+          },
+          "affiliation": {
+            "type": "string",
+            "description": "Comma-separated affiliations: owner, collaborator, organization_member. Do not combine with type."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field",
+            "enum": [
+              "created",
+              "updated",
+              "pushed",
+              "full_name"
+            ],
+            "default": "updated"
+          },
+          "direction": {
+            "type": "string",
+            "description": "Sort direction",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "since": {
+            "type": "string",
+            "description": "Only repositories updated after this ISO 8601 timestamp."
+          },
+          "before": {
+            "type": "string",
+            "description": "Only repositories updated before this ISO 8601 timestamp."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_repo",
+      "description": "Get detailed information about a repository including description, stars, forks, language, default branch, and permissions",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner (user or org)"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      },
+      "mock_response": {
+        "id": 500000001,
+        "name": "demo",
+        "full_name": "apteva-bot/demo",
+        "private": false,
+        "owner": {
+          "login": "apteva-bot",
+          "id": 100000001,
+          "type": "User"
+        },
+        "html_url": "https://github.com/apteva-bot/demo",
+        "description": "Demo repository",
+        "default_branch": "main",
+        "open_issues_count": 2,
+        "stargazers_count": 7,
+        "forks_count": 1,
+        "language": "Go"
+      }
+    },
+    {
+      "name": "get_archive",
+      "description": "Download a repository as a gzipped tarball at a given ref (branch, tag, or SHA). Returns binary bytes. GitHub redirects to codeload.github.com; for private repos the redirect Location carries a short-lived signed token so the request succeeds even when the Authorization header is stripped on cross-subdomain redirect. Used by the Code app's import flow.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/tarball/{ref}",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner (user or org)"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Branch name, tag, or commit SHA. Defaults to the repo's default branch when omitted."
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "ref"
+        ]
+      }
+    },
+    {
+      "name": "list_user_repos",
+      "description": "List public repositories for a specific user",
+      "method": "GET",
+      "path": "/users/{username}/repos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "GitHub username"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field",
+            "enum": [
+              "created",
+              "updated",
+              "pushed",
+              "full_name"
+            ],
+            "default": "updated"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "username"
+        ]
+      }
+    },
+    {
+      "name": "search_repos",
+      "description": "Search for repositories using GitHub search syntax. Supports qualifiers like language:, stars:>, topic:, etc.",
+      "method": "GET",
+      "path": "/search/repositories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (supports qualifiers like language:python, stars:>100, topic:machine-learning)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field",
+            "enum": [
+              "stars",
+              "forks",
+              "help-wanted-issues",
+              "updated"
+            ],
+            "default": "stars"
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "search_code",
+      "description": "Search for code across all repositories. Supports qualifiers like repo:, path:, language:, extension:",
+      "method": "GET",
+      "path": "/search/code",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (e.g., 'addClass repo:jquery/jquery', 'filename:config.yml language:yaml')"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field (only 'indexed' supported). Note: GitHub has flagged sort/order on code search as 'closing down' \u2014 prefer omitting both for forward compatibility.",
+            "enum": [
+              "indexed"
+            ]
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order. Note: closing down per GitHub \u2014 prefer omitting.",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "get_contents",
+      "description": "Get a repository file or non-root directory listing. For the repository root, use list_root_contents. For files up to 1MB, content is base64 encoded.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/contents/{path}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "path": {
+            "type": "string",
+            "description": "Non-empty path to a file or directory. Use list_root_contents for the root."
+          },
+          "ref": {
+            "type": "string",
+            "description": "Branch, tag, or commit SHA (defaults to default branch)"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "create_or_update_file",
+      "description": "Create or update a file in a repository. Content must be base64 encoded. To update, include the SHA of the file being replaced (from get-contents).",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/contents/{path}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path for the file"
+          },
+          "message": {
+            "type": "string",
+            "description": "Commit message"
+          },
+          "content": {
+            "type": "string",
+            "description": "File content (base64 encoded)"
+          },
+          "sha": {
+            "type": "string",
+            "description": "SHA of file being replaced (required for updates, get from get-contents)"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch to commit to (defaults to default branch)"
+          },
+          "committer": {
+            "type": "object",
+            "properties": { "name": { "type": "string" }, "email": { "type": "string" } },
+            "required": ["name", "email"]
+          },
+          "author": {
+            "type": "object",
+            "properties": { "name": { "type": "string" }, "email": { "type": "string" } },
+            "required": ["name", "email"]
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "path",
+          "message",
+          "content"
+        ]
+      },
+      "mock_response": {
+        "content": {
+          "name": "file.txt",
+          "path": "file.txt",
+          "sha": "a1b2c3d4e5f6a7b8c9d0",
+          "size": 24,
+          "html_url": "https://github.com/apteva-bot/demo/blob/main/file.txt"
+        },
+        "commit": {
+          "sha": "f1e2d3c4b5a697887766",
+          "message": "(commit message)",
+          "html_url": "https://github.com/apteva-bot/demo/commit/f1e2d3c4b5a697887766"
+        }
+      }
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a file from a repository. Requires the file's SHA (from get-contents).",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/contents/{path}",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["message", "sha", "branch", "committer", "author"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path to the file to delete"
+          },
+          "message": {
+            "type": "string",
+            "description": "Commit message"
+          },
+          "sha": {
+            "type": "string",
+            "description": "SHA of file being deleted (from get-contents)"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch to commit to"
+          },
+          "committer": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "email": { "type": "string" }
+            },
+            "required": ["name", "email"]
+          },
+          "author": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "email": { "type": "string" }
+            },
+            "required": ["name", "email"]
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "path",
+          "message",
+          "sha"
+        ]
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "List branches in a repository",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "create_branch",
+      "description": "Create a new branch. First get the SHA of the source branch via list-branches or get-contents, then create a git ref.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/refs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Full git ref to create (e.g., refs/heads/my-new-branch)"
+          },
+          "sha": {
+            "type": "string",
+            "description": "SHA of the commit to branch from"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "ref",
+          "sha"
+        ]
+      },
+      "mock_response": {
+        "ref": "refs/heads/new-branch",
+        "node_id": "REF_kwDONewBranch",
+        "url": "https://api.github.com/repos/apteva-bot/demo/git/refs/heads/new-branch",
+        "object": {
+          "sha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          "type": "commit"
+        }
+      }
+    },
+    {
+      "name": "list_commits",
+      "description": "List commits in a repository. Can filter by branch, path, author, and date range.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/commits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "sha": {
+            "type": "string",
+            "description": "Branch name or commit SHA to start from"
+          },
+          "path": {
+            "type": "string",
+            "description": "Only commits containing this file path"
+          },
+          "author": {
+            "type": "string",
+            "description": "GitHub username or email to filter by"
+          },
+          "since": {
+            "type": "string",
+            "description": "ISO 8601 date \u2014 only commits after this date"
+          },
+          "until": {
+            "type": "string",
+            "description": "ISO 8601 date \u2014 only commits before this date"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      },
+      "mock_response": [
+        {
+          "sha": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+          "commit": {
+            "message": "Add login retry logic",
+            "author": {
+              "name": "Alice Martin",
+              "email": "alice@example.com",
+              "date": "2026-05-21T08:00:00Z"
+            }
+          },
+          "html_url": "https://github.com/apteva-bot/demo/commit/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+        }
+      ]
+    },
+    {
+      "name": "list_issues",
+      "description": "List issues in a repository. Filter by state, labels, assignee, milestone, and more.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "state": {
+            "type": "string",
+            "description": "Issue state filter",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ],
+            "default": "open"
+          },
+          "labels": {
+            "type": "string",
+            "description": "Comma-separated label names"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "Filter by assignee username (use * for any, none for unassigned)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field",
+            "enum": [
+              "created",
+              "updated",
+              "comments"
+            ],
+            "default": "created"
+          },
+          "direction": {
+            "type": "string",
+            "description": "Sort direction",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      },
+      "mock_response": [
+        {
+          "number": 42,
+          "title": "Fix login redirect bug",
+          "state": "open",
+          "user": {
+            "login": "alice"
+          },
+          "comments": 1,
+          "labels": [
+            {
+              "name": "bug",
+              "color": "d73a4a"
+            }
+          ],
+          "html_url": "https://github.com/apteva-bot/demo/issues/42",
+          "created_at": "2026-05-20T09:00:00Z"
+        },
+        {
+          "number": 41,
+          "title": "Add dark mode",
+          "state": "open",
+          "user": {
+            "login": "bob"
+          },
+          "comments": 0,
+          "labels": [
+            {
+              "name": "enhancement",
+              "color": "a2eeef"
+            }
+          ],
+          "html_url": "https://github.com/apteva-bot/demo/issues/41",
+          "created_at": "2026-05-19T14:30:00Z"
+        }
+      ]
+    },
+    {
+      "name": "get_issue",
+      "description": "Get a specific issue by number with full details including body, labels, assignees, and milestone",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "issue_number": {
+            "type": "integer",
+            "description": "Issue number"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "issue_number"
+        ]
+      },
+      "mock_response": {
+        "number": 42,
+        "title": "Fix login redirect bug",
+        "state": "open",
+        "body": "After logging in, the user is redirected to a blank page.",
+        "user": {
+          "login": "alice"
+        },
+        "comments": 1,
+        "labels": [
+          {
+            "name": "bug",
+            "color": "d73a4a"
+          }
+        ],
+        "html_url": "https://github.com/apteva-bot/demo/issues/42",
+        "created_at": "2026-05-20T09:00:00Z"
+      }
+    },
+    {
+      "name": "create_issue",
+      "description": "Create a new issue in a repository with title, body, labels, and assignees",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          },
+          "body": {
+            "type": "string",
+            "description": "Issue body (supports markdown)"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Label names to apply"
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Usernames to assign"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "title"
+        ]
+      },
+      "mock_response": {
+        "number": 43,
+        "title": "(created issue)",
+        "state": "open",
+        "body": "(issue body)",
+        "user": {
+          "login": "apteva-bot"
+        },
+        "comments": 0,
+        "labels": [],
+        "html_url": "https://github.com/apteva-bot/demo/issues/43",
+        "created_at": "2026-05-22T12:00:00Z"
+      }
+    },
+    {
+      "name": "update_issue",
+      "description": "Update an issue \u2014 change title, body, state, labels, or assignees",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "issue_number": {
+            "type": "integer",
+            "description": "Issue number"
+          },
+          "title": {
+            "type": "string",
+            "description": "New title"
+          },
+          "body": {
+            "type": "string",
+            "description": "New body (markdown)"
+          },
+          "state": {
+            "type": "string",
+            "description": "Issue state",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "state_reason": {
+            "type": "string",
+            "description": "Reason for the state change. Only valid when transitioning state.",
+            "enum": [
+              "completed",
+              "not_planned",
+              "duplicate",
+              "reopened"
+            ]
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Labels to set (replaces all existing labels)"
+          },
+          "assignees": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Assignees to set (replaces all existing)"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "issue_number"
+        ]
+      },
+      "mock_response": {
+        "number": 42,
+        "title": "Fix login redirect bug",
+        "state": "closed",
+        "user": {
+          "login": "alice"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/issues/42",
+        "updated_at": "2026-05-22T12:00:00Z"
+      }
+    },
+    {
+      "name": "list_issue_comments",
+      "description": "List comments on an issue or pull request",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "issue_number": {
+            "type": "integer",
+            "description": "Issue or PR number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "issue_number"
+        ]
+      },
+      "mock_response": [
+        {
+          "id": 900000000,
+          "body": "Thanks for reporting, looking into it.",
+          "user": {
+            "login": "alice"
+          },
+          "created_at": "2026-05-20T10:00:00Z",
+          "html_url": "https://github.com/apteva-bot/demo/issues/42#issuecomment-900000000"
+        }
+      ]
+    },
+    {
+      "name": "add_issue_comment",
+      "description": "Add a comment to an issue or pull request",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "issue_number": {
+            "type": "integer",
+            "description": "Issue or PR number"
+          },
+          "body": {
+            "type": "string",
+            "description": "Comment text (supports markdown)"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "issue_number",
+          "body"
+        ]
+      },
+      "mock_response": {
+        "id": 900000001,
+        "body": "(comment body)",
+        "user": {
+          "login": "apteva-bot"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/issues/42#issuecomment-900000001",
+        "created_at": "2026-05-22T12:00:00Z"
+      }
+    },
+    {
+      "name": "search_issues",
+      "description": "Search issues and pull requests across all repos. Supports qualifiers like repo:, is:pr, is:issue, label:, author:, state:",
+      "method": "GET",
+      "path": "/search/issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (e.g., 'bug label:bug is:open repo:owner/repo', 'is:pr author:username')"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field",
+            "enum": [
+              "comments",
+              "reactions",
+              "reactions-+1",
+              "reactions--1",
+              "reactions-smile",
+              "reactions-thinking_face",
+              "reactions-heart",
+              "reactions-tada",
+              "interactions",
+              "created",
+              "updated"
+            ],
+            "default": "created"
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort order",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "q"
+        ]
+      },
+      "mock_response": {
+        "total_count": 2,
+        "incomplete_results": false,
+        "items": [
+          {
+            "number": 42,
+            "title": "Fix login redirect bug",
+            "state": "open",
+            "html_url": "https://github.com/apteva-bot/demo/issues/42"
+          },
+          {
+            "number": 38,
+            "title": "Login fails on Safari",
+            "state": "closed",
+            "html_url": "https://github.com/apteva-bot/demo/issues/38"
+          }
+        ]
+      }
+    },
+    {
+      "name": "list_pulls",
+      "description": "List pull requests in a repository with state, branch, and sort filters",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "state": {
+            "type": "string",
+            "description": "PR state filter",
+            "enum": [
+              "open",
+              "closed",
+              "all"
+            ],
+            "default": "open"
+          },
+          "head": {
+            "type": "string",
+            "description": "Filter by head branch (format: user:branch)"
+          },
+          "base": {
+            "type": "string",
+            "description": "Filter by base branch"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field",
+            "enum": [
+              "created",
+              "updated",
+              "popularity",
+              "long-running"
+            ],
+            "default": "created"
+          },
+          "direction": {
+            "type": "string",
+            "description": "Sort direction",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "get_pull",
+      "description": "Get a specific pull request with full details including diff stats, mergeable status, and review status",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "pull_number": {
+            "type": "integer",
+            "description": "Pull request number"
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "pull_number"
+        ]
+      },
+      "mock_response": {
+        "number": 17,
+        "title": "(pull request)",
+        "state": "open",
+        "merged": false,
+        "mergeable": true,
+        "mergeable_state": "clean",
+        "commits": 3,
+        "additions": 120,
+        "deletions": 14,
+        "changed_files": 5,
+        "head": {
+          "ref": "feature-branch"
+        },
+        "base": {
+          "ref": "main"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/pull/17"
+      }
+    },
+    {
+      "name": "create_pull",
+      "description": "Create a new pull request from a head branch into a base branch",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/pulls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "title": {
+            "type": "string",
+            "description": "PR title"
+          },
+          "head": {
+            "type": "string",
+            "description": "Branch containing changes (e.g., 'feature-branch' or 'user:feature-branch' for cross-repo)"
+          },
+          "base": {
+            "type": "string",
+            "description": "Branch to merge into (e.g., 'main')"
+          },
+          "body": {
+            "type": "string",
+            "description": "PR description (supports markdown)"
+          },
+          "draft": {
+            "type": "boolean",
+            "description": "Create as draft PR",
+            "default": false
+          },
+          "maintainer_can_modify": {
+            "type": "boolean",
+            "description": "Allow maintainers of the base repository to push changes to the head branch."
+          },
+          "head_repo": {
+            "type": "string",
+            "description": "Head repository name for organization-owned forks when GitHub cannot infer it."
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "title",
+          "head",
+          "base"
+        ]
+      },
+      "mock_response": {
+        "number": 17,
+        "title": "(pull request)",
+        "state": "open",
+        "body": "(PR body)",
+        "merged": false,
+        "draft": false,
+        "user": {
+          "login": "apteva-bot"
+        },
+        "head": {
+          "ref": "feature-branch"
+        },
+        "base": {
+          "ref": "main"
+        },
+        "html_url": "https://github.com/apteva-bot/demo/pull/17",
+        "created_at": "2026-05-22T12:00:00Z"
+      }
+    },
+    {
+      "name": "merge_pull",
+      "description": "Merge a pull request. Choose merge method: merge commit, squash, or rebase.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "pull_number": {
+            "type": "integer",
+            "description": "Pull request number"
+          },
+          "commit_title": {
+            "type": "string",
+            "description": "Title for the merge commit"
+          },
+          "commit_message": {
+            "type": "string",
+            "description": "Extra detail for the merge commit"
+          },
+          "merge_method": {
+            "type": "string",
+            "description": "Merge method to use",
+            "enum": [
+              "merge",
+              "squash",
+              "rebase"
+            ],
+            "default": "merge"
+          },
+          "sha": {
+            "type": "string",
+            "description": "Only merge if the pull request head still matches this SHA."
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "pull_number"
+        ]
+      },
+      "mock_response": {
+        "sha": "e5bac5c5a1d9f0c3b2a1e0d9c8b7a6f5e4d3c2b1",
+        "merged": true,
+        "message": "Pull Request successfully merged"
+      }
+    },
+    {
+      "name": "list_pull_files",
+      "description": "List files changed in a pull request with patch/diff details",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "pull_number": {
+            "type": "integer",
+            "description": "Pull request number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "pull_number"
+        ]
+      }
+    },
+    {
+      "name": "list_releases",
+      "description": "List releases in a repository, ordered by creation date",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/releases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "create_release",
+      "description": "Create a new release with a tag, name, and release notes",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/releases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "tag_name": {
+            "type": "string",
+            "description": "Tag name for the release (e.g., v1.0.0)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Release title"
+          },
+          "body": {
+            "type": "string",
+            "description": "Release notes (supports markdown)"
+          },
+          "target_commitish": {
+            "type": "string",
+            "description": "Branch or commit SHA to tag (defaults to default branch)"
+          },
+          "draft": {
+            "type": "boolean",
+            "description": "Create as draft release",
+            "default": false
+          },
+          "prerelease": {
+            "type": "boolean",
+            "description": "Mark as pre-release",
+            "default": false
+          },
+          "generate_release_notes": {
+            "type": "boolean",
+            "description": "Auto-generate release notes from commits",
+            "default": false
+          },
+          "make_latest": {
+            "type": "string",
+            "enum": ["true", "false", "legacy"],
+            "description": "Control whether GitHub marks this as the latest release."
+          },
+          "discussion_category_name": {
+            "type": "string",
+            "description": "Create a linked discussion in this category when publishing."
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "tag_name"
+        ]
+      },
+      "mock_response": {
+        "id": 600000001,
+        "tag_name": "v1.2.0",
+        "name": "v1.2.0",
+        "body": "(release notes)",
+        "draft": false,
+        "prerelease": false,
+        "html_url": "https://github.com/apteva-bot/demo/releases/tag/v1.2.0",
+        "created_at": "2026-05-22T12:00:00Z"
+      }
+    },
+    {
+      "name": "list_workflows",
+      "description": "List GitHub Actions workflows in a repository",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/workflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "get_workflow",
+      "description": "Get one GitHub Actions workflow, including its path and enabled or disabled state. Use this before dispatching an Xcode deployment when the workflow filename or state is uncertain.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string", "description": "Repository owner" },
+          "repo": { "type": "string", "description": "Repository name" },
+          "workflow_id": { "type": "string", "description": "Workflow numeric ID or filename, such as ios-deploy.yml" }
+        },
+        "required": ["owner", "repo", "workflow_id"]
+      }
+    },
+    {
+      "name": "list_workflow_runs",
+      "description": "List recent runs for a specific workflow",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "workflow_id": {
+            "type": "string",
+            "description": "Workflow ID or filename (e.g., 'main.yml')"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status",
+            "enum": [
+              "completed",
+              "action_required",
+              "cancelled",
+              "failure",
+              "neutral",
+              "skipped",
+              "stale",
+              "success",
+              "timed_out",
+              "in_progress",
+              "queued",
+              "requested",
+              "waiting",
+              "pending"
+            ]
+          },
+          "branch": {
+            "type": "string",
+            "description": "Filter by branch"
+          },
+          "actor": { "type": "string", "description": "Filter by triggering user." },
+          "event": { "type": "string", "description": "Filter by triggering event." },
+          "created": { "type": "string", "description": "Date query such as >=2026-01-01." },
+          "exclude_pull_requests": { "type": "boolean" },
+          "check_suite_id": { "type": "integer" },
+          "head_sha": { "type": "string" },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "workflow_id"
+        ]
+      }
+    },
+    {
+      "name": "trigger_workflow",
+      "description": "Manually trigger a workflow_dispatch run and return its workflow_run_id, API run URL, and GitHub HTML URL. For an on-demand Xcode deployment, configure the repository workflow with runs-on: macos-15 or macos-15-intel, then pass that workflow filename and a branch or tag ref here. Follow with get_workflow_run, list_workflow_run_jobs, and list_workflow_run_artifacts.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+      "headers": {
+        "X-GitHub-Api-Version": "2026-03-10"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "workflow_id": {
+            "type": "string",
+            "description": "Workflow ID or filename (e.g., 'deploy.yml')"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Branch or tag to run the workflow on"
+          },
+          "inputs": {
+            "type": "object",
+            "description": "Up to 25 input parameters declared by workflow_dispatch in the workflow file. Values may be strings or booleans.",
+            "maxProperties": 25,
+            "additionalProperties": {
+              "type": ["string", "boolean", "number"]
+            }
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "workflow_id",
+          "ref"
+        ]
+      },
+      "mock_response": {
+        "workflow_run_id": 123456789,
+        "run_url": "https://api.github.com/repos/octocat/hello-world/actions/runs/123456789",
+        "html_url": "https://github.com/octocat/hello-world/actions/runs/123456789"
+      }
+    },
+    {
+      "name": "enable_workflow",
+      "description": "Enable a disabled GitHub Actions workflow so it can receive workflow_dispatch events.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/enable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "workflow_id": { "type": "string", "description": "Workflow numeric ID or filename" }
+        },
+        "required": ["owner", "repo", "workflow_id"]
+      }
+    },
+    {
+      "name": "disable_workflow",
+      "description": "Disable a GitHub Actions workflow. Existing runs are not deleted.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/actions/workflows/{workflow_id}/disable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "workflow_id": { "type": "string", "description": "Workflow numeric ID or filename" }
+        },
+        "required": ["owner", "repo", "workflow_id"]
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a repository webhook to receive event notifications",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/hooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "name": {
+            "type": "string",
+            "enum": ["web"],
+            "default": "web",
+            "description": "Webhook type; GitHub repository webhooks use web."
+          },
+          "config": {
+            "type": "object",
+            "description": "Webhook configuration",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Payload URL"
+              },
+              "content_type": {
+                "type": "string",
+                "description": "Content type (json or form)",
+                "enum": [
+                  "json",
+                  "form"
+                ],
+                "default": "json"
+              },
+              "secret": {
+                "type": "string",
+                "description": "Webhook secret for payload signing"
+              },
+              "insecure_ssl": {
+                "oneOf": [
+                  { "type": "string", "enum": ["0", "1"] },
+                  { "type": "number", "enum": [0, 1] }
+                ],
+                "description": "Use 0 to verify TLS certificates; 1 disables verification."
+              }
+            },
+            "required": [
+              "url"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Events to subscribe to (e.g., push, pull_request, issues). Use ['*'] for all.",
+            "default": [
+              "push"
+            ]
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether the webhook is active",
+            "default": true
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "config"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List webhooks configured for a repository",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/hooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "fork_repo",
+      "description": "Fork a repository to the authenticated user's account or a specified organization",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/forks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner to fork from"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name to fork"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization to fork into (omit to fork to your account)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Custom name for the fork (defaults to original name)"
+          },
+          "default_branch_only": {
+            "type": "boolean",
+            "description": "Fork only the default branch."
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "star_repo",
+      "description": "Star a repository for the authenticated user",
+      "method": "PUT",
+      "path": "/user/starred/{owner}/{repo}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      },
+      "mock_response": {
+        "success": true
+      }
+    },
+    {
+      "name": "unstar_repo",
+      "description": "Remove a star from a repository",
+      "method": "DELETE",
+      "path": "/user/starred/{owner}/{repo}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          }
+        },
+        "required": [
+          "owner",
+          "repo"
+        ]
+      }
+    },
+    {
+      "name": "compare_commits",
+      "description": "Compare two commits, branches, or tags. Shows files changed and diff stats between base and head.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/compare/{basehead}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Repository owner"
+          },
+          "repo": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "basehead": {
+            "type": "string",
+            "description": "Comparison in format base...head (e.g., main...feature-branch, v1.0.0...v2.0.0)"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 30
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          }
+        },
+        "required": [
+          "owner",
+          "repo",
+          "basehead"
+        ]
+      }
+    },
+    {
+      "name": "list_root_contents",
+      "description": "List files and directories at a repository root, optionally at a branch, tag, or commit SHA.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/contents",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "ref": { "type": "string" } }, "required": ["owner", "repo"] }
+    },
+    {
+      "name": "create_repo",
+      "description": "Create a repository for the authenticated user with initialization and merge-policy options.",
+      "method": "POST",
+      "path": "/user/repos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" }, "description": { "type": "string" }, "homepage": { "type": "string" }, "private": { "type": "boolean" },
+          "has_issues": { "type": "boolean" }, "has_projects": { "type": "boolean" }, "has_wiki": { "type": "boolean" }, "has_discussions": { "type": "boolean" },
+          "auto_init": { "type": "boolean" }, "gitignore_template": { "type": "string" }, "license_template": { "type": "string" },
+          "allow_squash_merge": { "type": "boolean" }, "allow_merge_commit": { "type": "boolean" }, "allow_rebase_merge": { "type": "boolean" },
+          "allow_auto_merge": { "type": "boolean" }, "delete_branch_on_merge": { "type": "boolean" }, "is_template": { "type": "boolean" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "list_org_repos",
+      "description": "List repositories belonging to an organization.",
+      "method": "GET",
+      "path": "/orgs/{org}/repos",
+      "input_schema": { "type": "object", "properties": { "org": { "type": "string" }, "type": { "type": "string", "enum": ["all", "public", "private", "forks", "sources", "member"] }, "sort": { "type": "string", "enum": ["created", "updated", "pushed", "full_name"] }, "direction": { "type": "string", "enum": ["asc", "desc"] }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["org"] }
+    },
+    {
+      "name": "create_org_repo",
+      "description": "Create a repository in an organization. The token must have permission to create organization repositories.",
+      "method": "POST",
+      "path": "/orgs/{org}/repos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" }, "homepage": { "type": "string" },
+          "private": { "type": "boolean" }, "visibility": { "type": "string", "enum": ["public", "private", "internal"] }, "team_id": { "type": "integer" },
+          "has_issues": { "type": "boolean" }, "has_projects": { "type": "boolean" }, "has_wiki": { "type": "boolean" },
+          "auto_init": { "type": "boolean" }, "gitignore_template": { "type": "string" }, "license_template": { "type": "string" },
+          "allow_squash_merge": { "type": "boolean" }, "allow_merge_commit": { "type": "boolean" }, "allow_rebase_merge": { "type": "boolean" },
+          "allow_auto_merge": { "type": "boolean" }, "delete_branch_on_merge": { "type": "boolean" }, "is_template": { "type": "boolean" }
+        },
+        "required": ["org", "name"]
+      }
+    },
+    {
+      "name": "update_repo",
+      "description": "Update repository metadata, visibility, feature flags, default branch, archive state, and pull-request merge policies.",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" }, "repo": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" }, "homepage": { "type": "string" },
+          "private": { "type": "boolean" }, "visibility": { "type": "string", "enum": ["public", "private"] }, "default_branch": { "type": "string" },
+          "has_issues": { "type": "boolean" }, "has_projects": { "type": "boolean" }, "has_wiki": { "type": "boolean" },
+          "allow_squash_merge": { "type": "boolean" }, "allow_merge_commit": { "type": "boolean" }, "allow_rebase_merge": { "type": "boolean" },
+          "allow_auto_merge": { "type": "boolean" }, "allow_update_branch": { "type": "boolean" }, "delete_branch_on_merge": { "type": "boolean" },
+          "archived": { "type": "boolean" }, "allow_forking": { "type": "boolean" }, "web_commit_signoff_required": { "type": "boolean" }
+        },
+        "required": ["owner", "repo"]
+      }
+    },
+    {
+      "name": "delete_repo",
+      "description": "Permanently delete a repository. This is destructive and requires repository administration permission.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" } }, "required": ["owner", "repo"] }
+    },
+    {
+      "name": "list_collaborators",
+      "description": "List repository collaborators and optionally filter by affiliation or permission level.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/collaborators",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "affiliation": { "type": "string", "enum": ["outside", "direct", "all"] }, "permission": { "type": "string", "enum": ["pull", "triage", "push", "maintain", "admin"] }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo"] }
+    },
+    {
+      "name": "add_collaborator",
+      "description": "Invite or update a repository collaborator with a specific permission level.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/collaborators/{username}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "username": { "type": "string" }, "permission": { "type": "string", "enum": ["pull", "triage", "push", "maintain", "admin"] } }, "required": ["owner", "repo", "username"] }
+    },
+    {
+      "name": "remove_collaborator",
+      "description": "Remove a collaborator's direct access to a repository.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/collaborators/{username}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "username": { "type": "string" } }, "required": ["owner", "repo", "username"] }
+    },
+    {
+      "name": "get_branch",
+      "description": "Get one branch, its head commit, protection status, and protection details visible to the token.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/branches/{branch}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "branch": { "type": "string" } }, "required": ["owner", "repo", "branch"] }
+    },
+    {
+      "name": "get_commit",
+      "description": "Get one repository commit with author, verification, parents, file changes, and diff statistics.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/commits/{ref}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "ref": { "type": "string" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "ref"] }
+    },
+    {
+      "name": "get_git_ref",
+      "description": "Get an exact Git reference such as heads/main or tags/v1.0.0 and its target SHA.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/git/ref/{ref}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "ref": { "type": "string", "description": "Reference without refs/ prefix, for example heads/main." } }, "required": ["owner", "repo", "ref"] }
+    },
+    {
+      "name": "update_git_ref",
+      "description": "Move an existing branch or tag reference to a commit SHA. Set force only for an intentional non-fast-forward update.",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/git/refs/{ref}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "ref": { "type": "string", "description": "Reference without refs/ prefix, for example heads/main." }, "sha": { "type": "string" }, "force": { "type": "boolean" } }, "required": ["owner", "repo", "ref", "sha"] }
+    },
+    {
+      "name": "delete_git_ref",
+      "description": "Delete a branch or tag Git reference. The repository default branch cannot be deleted.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/git/refs/{ref}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "ref": { "type": "string", "description": "Reference without refs/ prefix, for example heads/obsolete." } }, "required": ["owner", "repo", "ref"] }
+    },
+    {
+      "name": "create_git_blob",
+      "description": "Create a Git blob from UTF-8 or base64 file content. Use its SHA in create_git_tree for atomic multi-file commits.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/blobs",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "content": { "type": "string" }, "encoding": { "type": "string", "enum": ["utf-8", "base64"] } }, "required": ["owner", "repo", "content"] }
+    },
+    {
+      "name": "create_git_tree",
+      "description": "Create a Git tree from blob/tree SHAs or inline file content. Use base_tree to preserve unchanged files.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/trees",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" }, "repo": { "type": "string" }, "base_tree": { "type": "string" },
+          "tree": { "type": "array", "items": { "type": "object", "properties": { "path": { "type": "string" }, "mode": { "type": "string", "enum": ["100644", "100755", "040000", "160000", "120000"] }, "type": { "type": "string", "enum": ["blob", "tree", "commit"] }, "sha": { "type": ["string", "null"] }, "content": { "type": "string" } }, "required": ["path", "mode", "type"] } }
+        },
+        "required": ["owner", "repo", "tree"]
+      }
+    },
+    {
+      "name": "create_git_commit",
+      "description": "Create a Git commit object from a tree SHA and parent commit SHAs. Move a branch with update_git_ref after creation.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/git/commits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" }, "repo": { "type": "string" }, "message": { "type": "string" }, "tree": { "type": "string" }, "parents": { "type": "array", "items": { "type": "string" } },
+          "author": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "date": { "type": "string" } }, "required": ["name", "email"] },
+          "committer": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "date": { "type": "string" } }, "required": ["name", "email"] },
+          "signature": { "type": "string", "description": "ASCII-armored detached PGP signature over the commit payload." }
+        },
+        "required": ["owner", "repo", "message", "tree"]
+      }
+    },
+    {
+      "name": "create_commit_status",
+      "description": "Create a pending, success, failure, or error status for a commit SHA and named CI context.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/statuses/{sha}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "sha": { "type": "string" }, "state": { "type": "string", "enum": ["error", "failure", "pending", "success"] }, "target_url": { "type": "string" }, "description": { "type": "string" }, "context": { "type": "string" } }, "required": ["owner", "repo", "sha", "state"] }
+    },
+    {
+      "name": "update_issue_comment",
+      "description": "Edit an existing issue or pull-request conversation comment.",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/issues/comments/{comment_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "comment_id": { "type": "integer" }, "body": { "type": "string" } }, "required": ["owner", "repo", "comment_id", "body"] }
+    },
+    {
+      "name": "delete_issue_comment",
+      "description": "Permanently delete an issue or pull-request conversation comment.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/issues/comments/{comment_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "comment_id": { "type": "integer" } }, "required": ["owner", "repo", "comment_id"] }
+    },
+    {
+      "name": "list_labels",
+      "description": "List labels configured in a repository.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/labels",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo"] }
+    },
+    {
+      "name": "create_label",
+      "description": "Create a repository label with a six-character hexadecimal color.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/labels",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "name": { "type": "string" }, "color": { "type": "string", "pattern": "^[0-9a-fA-F]{6}$" }, "description": { "type": "string" } }, "required": ["owner", "repo", "name"] }
+    },
+    {
+      "name": "add_labels_to_issue",
+      "description": "Add labels to an issue or pull request without removing its existing labels.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}/labels",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "issue_number": { "type": "integer" }, "labels": { "type": "array", "items": { "type": "string" } } }, "required": ["owner", "repo", "issue_number", "labels"] }
+    },
+    {
+      "name": "lock_issue",
+      "description": "Lock conversation on an issue or pull request and optionally record a reason.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}/lock",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "issue_number": { "type": "integer" }, "lock_reason": { "type": "string", "enum": ["off-topic", "too heated", "resolved", "spam"] } }, "required": ["owner", "repo", "issue_number"] }
+    },
+    {
+      "name": "unlock_issue",
+      "description": "Unlock conversation on an issue or pull request.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/issues/{issue_number}/lock",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "issue_number": { "type": "integer" } }, "required": ["owner", "repo", "issue_number"] }
+    },
+    {
+      "name": "update_pull",
+      "description": "Update a pull request title, body, state, base branch, or maintainer-modification permission.",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "title": { "type": "string" }, "body": { "type": "string" }, "state": { "type": "string", "enum": ["open", "closed"] }, "base": { "type": "string" }, "maintainer_can_modify": { "type": "boolean" } }, "required": ["owner", "repo", "pull_number"] }
+    },
+    {
+      "name": "list_pull_commits",
+      "description": "List commits included in a pull request.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/commits",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "pull_number"] }
+    },
+    {
+      "name": "list_pull_reviews",
+      "description": "List submitted and pending reviews on a pull request.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "pull_number"] }
+    },
+    {
+      "name": "create_pull_review",
+      "description": "Create a pull-request review, optionally with inline comments, and submit APPROVE, REQUEST_CHANGES, COMMENT, or leave it pending.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "commit_id": { "type": "string" }, "body": { "type": "string" },
+          "event": { "type": "string", "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"] },
+          "comments": { "type": "array", "items": { "type": "object", "properties": { "path": { "type": "string" }, "position": { "type": "integer" }, "body": { "type": "string" }, "line": { "type": "integer" }, "side": { "type": "string", "enum": ["LEFT", "RIGHT"] }, "start_line": { "type": "integer" }, "start_side": { "type": "string", "enum": ["LEFT", "RIGHT"] } }, "required": ["path", "body"] } }
+        },
+        "required": ["owner", "repo", "pull_number"]
+      }
+    },
+    {
+      "name": "list_pull_review_comments",
+      "description": "List inline code review comments on a pull request.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/comments",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "sort": { "type": "string", "enum": ["created", "updated"] }, "direction": { "type": "string", "enum": ["asc", "desc"] }, "since": { "type": "string" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "pull_number"] }
+    },
+    {
+      "name": "create_pull_review_comment",
+      "description": "Create an inline review comment on a specific pull-request diff line.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/comments",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "body": { "type": "string" }, "commit_id": { "type": "string" }, "path": { "type": "string" }, "side": { "type": "string", "enum": ["LEFT", "RIGHT"] }, "line": { "type": "integer" }, "start_line": { "type": "integer" }, "start_side": { "type": "string", "enum": ["LEFT", "RIGHT"] }, "subject_type": { "type": "string", "enum": ["line", "file"] } }, "required": ["owner", "repo", "pull_number", "body", "commit_id", "path"] }
+    },
+    {
+      "name": "request_pull_reviewers",
+      "description": "Request reviews from users and organization teams.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "reviewers": { "type": "array", "items": { "type": "string" } }, "team_reviewers": { "type": "array", "items": { "type": "string" } } }, "required": ["owner", "repo", "pull_number"] }
+    },
+    {
+      "name": "remove_pull_reviewers",
+      "description": "Remove requested user or team reviewers from a pull request.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+      "request_transform": { "type": "json_wrap", "fields": ["reviewers", "team_reviewers"] },
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "reviewers": { "type": "array", "items": { "type": "string" } }, "team_reviewers": { "type": "array", "items": { "type": "string" } } }, "required": ["owner", "repo", "pull_number", "reviewers"] }
+    },
+    {
+      "name": "update_pull_branch",
+      "description": "Update a pull-request head branch with changes from its base branch.",
+      "method": "PUT",
+      "path": "/repos/{owner}/{repo}/pulls/{pull_number}/update-branch",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "pull_number": { "type": "integer" }, "expected_head_sha": { "type": "string", "description": "Optional concurrency guard; update only if the head still matches this SHA." } }, "required": ["owner", "repo", "pull_number"] }
+    },
+    {
+      "name": "list_repo_workflow_runs",
+      "description": "List Actions workflow runs across all workflows in a repository with status, branch, actor, event, date, and SHA filters.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "actor": { "type": "string" }, "branch": { "type": "string" }, "event": { "type": "string" }, "status": { "type": "string" }, "created": { "type": "string", "description": "GitHub date query such as >=2026-01-01." }, "exclude_pull_requests": { "type": "boolean" }, "check_suite_id": { "type": "integer" }, "head_sha": { "type": "string" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo"] }
+    },
+    {
+      "name": "get_workflow_run",
+      "description": "Get one Actions workflow run including status, conclusion, triggering event, head SHA, attempt, and URLs.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" }, "exclude_pull_requests": { "type": "boolean" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "cancel_workflow_run",
+      "description": "Cancel an in-progress Actions workflow run.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "rerun_workflow_run",
+      "description": "Rerun all jobs in an Actions workflow run, optionally enabling debug logging.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/rerun",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" }, "enable_debug_logging": { "type": "boolean" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "rerun_failed_workflow_jobs",
+      "description": "Rerun only failed jobs and their dependent jobs in a workflow run. Useful after diagnosing a failed Xcode build without repeating successful setup jobs.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "run_id": { "type": "integer" },
+          "enable_debug_logging": { "type": "boolean", "default": false }
+        },
+        "required": ["owner", "repo", "run_id"]
+      }
+    },
+    {
+      "name": "rerun_workflow_job",
+      "description": "Rerun one workflow job and its dependent jobs by job ID.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/jobs/{job_id}/rerun",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "job_id": { "type": "integer" },
+          "enable_debug_logging": { "type": "boolean", "default": false },
+          "enable_debugger": { "type": "boolean", "default": false }
+        },
+        "required": ["owner", "repo", "job_id"]
+      }
+    },
+    {
+      "name": "list_workflow_run_jobs",
+      "description": "List jobs and steps for an Actions workflow run, optionally selecting latest or all attempts.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/jobs",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" }, "filter": { "type": "string", "enum": ["latest", "all"] }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "download_workflow_run_logs",
+      "description": "Download a ZIP archive containing logs for every job in an Actions workflow run. Returns binary content.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/logs",
+      "timeout_ms": 120000,
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "download_workflow_job_logs",
+      "description": "Download the plain-text log for one workflow job. Prefer this over the full run ZIP when diagnosing a specific Xcode archive, signing, or upload failure.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "job_id": { "type": "integer" }
+        },
+        "required": ["owner", "repo", "job_id"]
+      }
+    },
+    {
+      "name": "get_workflow_pending_deployments",
+      "description": "List protected environments waiting for approval in a workflow run, including environment IDs and whether the current user can approve.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "run_id": { "type": "integer" }
+        },
+        "required": ["owner", "repo", "run_id"]
+      }
+    },
+    {
+      "name": "review_workflow_pending_deployments",
+      "description": "Approve or reject protected environments waiting in a workflow run. Get pending deployments first and pass the returned numeric environment IDs. GitHub can reject self-approval when the environment forbids it.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" },
+          "repo": { "type": "string" },
+          "run_id": { "type": "integer" },
+          "environment_ids": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 1
+          },
+          "state": { "type": "string", "enum": ["approved", "rejected"] },
+          "comment": { "type": "string" }
+        },
+        "required": ["owner", "repo", "run_id", "environment_ids", "state", "comment"]
+      }
+    },
+    {
+      "name": "list_repo_artifacts",
+      "description": "List Actions artifacts across a repository, optionally filtered by exact artifact name.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/artifacts",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "name": { "type": "string" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo"] }
+    },
+    {
+      "name": "list_workflow_run_artifacts",
+      "description": "List artifacts produced by one Actions workflow run.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/runs/{run_id}/artifacts",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "run_id": { "type": "integer" }, "name": { "type": "string" }, "direction": { "type": "string", "enum": ["asc", "desc"] }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "run_id"] }
+    },
+    {
+      "name": "get_artifact",
+      "description": "Get metadata for an Actions artifact including size, expiration, and workflow run.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/artifacts/{artifact_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "artifact_id": { "type": "integer" } }, "required": ["owner", "repo", "artifact_id"] }
+    },
+    {
+      "name": "download_artifact",
+      "description": "Download an Actions artifact as a ZIP archive. Returns binary content and follows GitHub's short-lived redirect.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/actions/artifacts/{artifact_id}/{archive_format}",
+      "timeout_ms": 120000,
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "artifact_id": { "type": "integer" }, "archive_format": { "type": "string", "enum": ["zip"] } }, "required": ["owner", "repo", "artifact_id", "archive_format"] }
+    },
+    {
+      "name": "delete_artifact",
+      "description": "Permanently delete an Actions artifact.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/actions/artifacts/{artifact_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "artifact_id": { "type": "integer" } }, "required": ["owner", "repo", "artifact_id"] }
+    },
+    {
+      "name": "get_release",
+      "description": "Get one release by numeric release ID, including its assets.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/releases/{release_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "release_id": { "type": "integer" } }, "required": ["owner", "repo", "release_id"] }
+    },
+    {
+      "name": "get_release_by_tag",
+      "description": "Get a release by its tag name.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/releases/tags/{tag}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "tag": { "type": "string" } }, "required": ["owner", "repo", "tag"] }
+    },
+    {
+      "name": "update_release",
+      "description": "Update a release's tag, target, title, notes, publication state, prerelease state, and latest-release behavior.",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/releases/{release_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "release_id": { "type": "integer" }, "tag_name": { "type": "string" }, "target_commitish": { "type": "string" }, "name": { "type": "string" }, "body": { "type": "string" }, "draft": { "type": "boolean" }, "prerelease": { "type": "boolean" }, "make_latest": { "type": "string", "enum": ["true", "false", "legacy"] }, "discussion_category_name": { "type": "string" } }, "required": ["owner", "repo", "release_id"] }
+    },
+    {
+      "name": "delete_release",
+      "description": "Permanently delete a GitHub release. This does not automatically delete its Git tag.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/releases/{release_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "release_id": { "type": "integer" } }, "required": ["owner", "repo", "release_id"] }
+    },
+    {
+      "name": "list_release_assets",
+      "description": "List binary assets attached to a release.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/releases/{release_id}/assets",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "release_id": { "type": "integer" }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["owner", "repo", "release_id"] }
+    },
+    {
+      "name": "upload_release_asset",
+      "description": "Upload binary content as a release asset through uploads.github.com. Pass a blob reference or binary value plus its filename.",
+      "method": "POST",
+      "base_url": "https://uploads.github.com",
+      "path": "/repos/{owner}/{repo}/releases/{release_id}/assets",
+      "query_params": ["name", "label"],
+      "body_binary_param": "file",
+      "timeout_ms": 120000,
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "release_id": { "type": "integer" }, "name": { "type": "string", "description": "Filename shown on the release." }, "label": { "type": "string", "description": "Optional human-readable asset label." }, "file": { "description": "Binary asset or blob reference. The binary MIME type becomes Content-Type." } }, "required": ["owner", "repo", "release_id", "name", "file"] }
+    },
+    {
+      "name": "delete_release_asset",
+      "description": "Permanently delete a binary release asset.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/releases/assets/{asset_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "asset_id": { "type": "integer" } }, "required": ["owner", "repo", "asset_id"] }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get one repository webhook and its configuration.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" } }, "required": ["owner", "repo", "hook_id"] }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update a repository webhook URL, signing secret, content type, event subscriptions, or active state.",
+      "method": "PATCH",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" },
+          "config": { "type": "object", "properties": { "url": { "type": "string" }, "content_type": { "type": "string", "enum": ["json", "form"] }, "secret": { "type": "string" }, "insecure_ssl": { "oneOf": [{ "type": "string", "enum": ["0", "1"] }, { "type": "number", "enum": [0, 1] }] } } },
+          "events": { "type": "array", "items": { "type": "string" } }, "add_events": { "type": "array", "items": { "type": "string" } }, "remove_events": { "type": "array", "items": { "type": "string" } }, "active": { "type": "boolean" }
+        },
+        "required": ["owner", "repo", "hook_id"]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Permanently delete a repository webhook.",
+      "method": "DELETE",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" } }, "required": ["owner", "repo", "hook_id"] }
+    },
+    {
+      "name": "ping_webhook",
+      "description": "Send a ping event to a repository webhook to verify delivery.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}/pings",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" } }, "required": ["owner", "repo", "hook_id"] }
+    },
+    {
+      "name": "list_webhook_deliveries",
+      "description": "List recent repository webhook delivery attempts and filter by success or failure.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}/deliveries",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" }, "status": { "type": "string", "enum": ["success", "failure"] }, "per_page": { "type": "integer", "maximum": 100 }, "cursor": { "type": "string" } }, "required": ["owner", "repo", "hook_id"] }
+    },
+    {
+      "name": "get_webhook_delivery",
+      "description": "Get request, response, duration, redelivery state, and payload metadata for one webhook delivery.",
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}/deliveries/{delivery_id}",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" }, "delivery_id": { "type": "integer" } }, "required": ["owner", "repo", "hook_id", "delivery_id"] }
+    },
+    {
+      "name": "redeliver_webhook_delivery",
+      "description": "Request redelivery of a previous repository webhook delivery.",
+      "method": "POST",
+      "path": "/repos/{owner}/{repo}/hooks/{hook_id}/deliveries/{delivery_id}/attempts",
+      "input_schema": { "type": "object", "properties": { "owner": { "type": "string" }, "repo": { "type": "string" }, "hook_id": { "type": "integer" }, "delivery_id": { "type": "integer" } }, "required": ["owner", "repo", "hook_id", "delivery_id"] }
+    },
+    {
+      "name": "get_organization",
+      "description": "Get an organization's public profile and settings visible to the authenticated user.",
+      "method": "GET",
+      "path": "/orgs/{org}",
+      "input_schema": { "type": "object", "properties": { "org": { "type": "string" } }, "required": ["org"] }
+    },
+    {
+      "name": "list_organization_members",
+      "description": "List organization members visible to the token, optionally filtered by role and two-factor state.",
+      "method": "GET",
+      "path": "/orgs/{org}/members",
+      "input_schema": { "type": "object", "properties": { "org": { "type": "string" }, "filter": { "type": "string", "enum": ["2fa_disabled", "all"] }, "role": { "type": "string", "enum": ["all", "admin", "member"] }, "per_page": { "type": "integer", "maximum": 100 }, "page": { "type": "integer" } }, "required": ["org"] }
+    },
+    {
+      "name": "list_notifications",
+      "description": "List notifications for the authenticated user, optionally including read notifications or only participating threads.",
+      "method": "GET",
+      "path": "/notifications",
+      "input_schema": { "type": "object", "properties": { "all": { "type": "boolean" }, "participating": { "type": "boolean" }, "since": { "type": "string" }, "before": { "type": "string" }, "per_page": { "type": "integer", "maximum": 50 }, "page": { "type": "integer" } } }
+    },
+    {
+      "name": "mark_notifications_read",
+      "description": "Mark notifications as read, optionally only through a given timestamp. Set read=false to mark notifications unread where supported.",
+      "method": "PUT",
+      "path": "/notifications",
+      "input_schema": { "type": "object", "properties": { "last_read_at": { "type": "string", "description": "ISO 8601 timestamp." }, "read": { "type": "boolean" } } }
+    },
+    {
+      "name": "get_notification_thread",
+      "description": "Get one notification thread and its subject/repository context.",
+      "method": "GET",
+      "path": "/notifications/threads/{thread_id}",
+      "input_schema": { "type": "object", "properties": { "thread_id": { "type": "integer" } }, "required": ["thread_id"] }
+    },
+    {
+      "name": "mark_notification_thread_read",
+      "description": "Mark one notification thread as read.",
+      "method": "PATCH",
+      "path": "/notifications/threads/{thread_id}",
+      "input_schema": { "type": "object", "properties": { "thread_id": { "type": "integer" } }, "required": ["thread_id"] }
+    },
+    {
+      "name": "get_rate_limit",
+      "description": "Get current REST, search, GraphQL, code-scanning, and other GitHub API rate-limit usage for the token.",
+      "method": "GET",
+      "path": "/rate_limit",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-hub-signature-256",
+    "registration": {
+      "manual_setup": "GitHub repository webhooks require an owner and repository in the registration path. Use github_create_webhook with the subscription callback URL, selected events, and generated secret; use github_delete_webhook to unregister it."
+    },
+    "events": [
+      {
+        "name": "push",
+        "description": "Any push to a repository branch or tag"
+      },
+      {
+        "name": "pull_request",
+        "description": "Pull request opened, closed, merged, reopened, or synchronized"
+      },
+      {
+        "name": "issues",
+        "description": "Issue opened, edited, deleted, closed, reopened, assigned, or labeled"
+      },
+      {
+        "name": "issue_comment",
+        "description": "Comment created, edited, or deleted on an issue or pull request"
+      },
+      {
+        "name": "create",
+        "description": "Branch or tag created"
+      },
+      {
+        "name": "delete",
+        "description": "Branch or tag deleted"
+      },
+      {
+        "name": "release",
+        "description": "Release published, unpublished, created, edited, or deleted"
+      },
+      {
+        "name": "workflow_run",
+        "description": "GitHub Actions workflow run requested, completed, or in progress"
+      },
+      {
+        "name": "pull_request_review",
+        "description": "Pull request review submitted, edited, or dismissed"
+      },
+      {
+        "name": "star",
+        "description": "Repository starred or unstarred"
+      },
+      {
+        "name": "fork",
+        "description": "Repository forked"
+      },
+      {
+        "name": "deployment_status",
+        "description": "Deployment status updated"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_authenticated_user"
+  }
+}

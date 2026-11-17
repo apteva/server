@@ -1,0 +1,359 @@
+{
+  "slug": "cleanster",
+  "name": "Cleanster",
+  "description": "MCP server for Cleanster - vacation rental cleaning management, task scheduling, and cleaner coordination",
+  "logo": "https://www.google.com/s2/favicons?domain=cleanster.com&sz=128",
+  "categories": [
+    "vacation-rental",
+    "cleaning",
+    "property-management",
+    "airbnb",
+    "scheduling",
+    "housekeeping"
+  ],
+  "base_url": "https://api.cleanster.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Cleanster API Key (get from Cleanster dashboard > Integrations)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "properties_list",
+      "description": "List all properties in your account",
+      "method": "GET",
+      "path": "/properties-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "property_get",
+      "description": "Get details for a specific property",
+      "method": "GET",
+      "path": "/property-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          }
+        },
+        "required": [
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "property_create",
+      "description": "Create a new property",
+      "method": "GET",
+      "path": "/property-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Property name"
+          },
+          "address": {
+            "type": "string",
+            "description": "Street address"
+          },
+          "city": {
+            "type": "string",
+            "description": "City"
+          },
+          "state": {
+            "type": "string",
+            "description": "State/Province"
+          },
+          "zip_code": {
+            "type": "string",
+            "description": "ZIP/Postal code"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country"
+          },
+          "bedrooms": {
+            "type": "number",
+            "description": "Number of bedrooms"
+          },
+          "bathrooms": {
+            "type": "number",
+            "description": "Number of bathrooms"
+          },
+          "square_feet": {
+            "type": "number",
+            "description": "Property size in square feet"
+          },
+          "property_type": {
+            "type": "string",
+            "description": "Type of property (house, apartment, condo, etc.)"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Additional notes for cleaners"
+          }
+        },
+        "required": [
+          "name",
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "cleaners_nearby",
+      "description": "Find available cleaners near a property (within 50km)",
+      "method": "GET",
+      "path": "/cleaners-nearby",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "Property ID to find cleaners near"
+          },
+          "latitude": {
+            "type": "number",
+            "description": "Latitude coordinate"
+          },
+          "longitude": {
+            "type": "number",
+            "description": "Longitude coordinate"
+          },
+          "radius_km": {
+            "type": "number",
+            "description": "Search radius in kilometers (default 50)"
+          }
+        }
+      }
+    },
+    {
+      "name": "cleaner_assign",
+      "description": "Assign a cleaner to a property as primary or backup",
+      "method": "GET",
+      "path": "/cleaner-assign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          },
+          "cleaner_id": {
+            "type": "string",
+            "description": "The cleaner ID"
+          },
+          "role": {
+            "type": "string",
+            "description": "Role: 'primary' or 'backup'",
+            "enum": [
+              "primary",
+              "backup"
+            ]
+          }
+        },
+        "required": [
+          "property_id",
+          "cleaner_id"
+        ]
+      }
+    },
+    {
+      "name": "tasks_list",
+      "description": "List cleaning tasks/jobs",
+      "method": "GET",
+      "path": "/tasks-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "Filter by property ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (scheduled, in_progress, completed, cancelled)"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Filter from date (YYYY-MM-DD)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Filter to date (YYYY-MM-DD)"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "task_get",
+      "description": "Get details for a specific cleaning task",
+      "method": "GET",
+      "path": "/task-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "task_create",
+      "description": "Create a new cleaning task/job",
+      "method": "GET",
+      "path": "/task-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          },
+          "cleaner_id": {
+            "type": "string",
+            "description": "Assigned cleaner ID (optional)"
+          },
+          "scheduled_date": {
+            "type": "string",
+            "description": "Scheduled date (YYYY-MM-DD)"
+          },
+          "scheduled_time": {
+            "type": "string",
+            "description": "Scheduled time (HH:MM)"
+          },
+          "task_type": {
+            "type": "string",
+            "description": "Type of cleaning (checkout_cleaning, checkin_prep, deep_clean, etc.)"
+          },
+          "duration_hours": {
+            "type": "number",
+            "description": "Estimated duration in hours"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Special instructions"
+          },
+          "checklist_id": {
+            "type": "string",
+            "description": "Cleaning checklist ID"
+          },
+          "reservation_id": {
+            "type": "string",
+            "description": "Associated reservation ID"
+          }
+        },
+        "required": [
+          "property_id",
+          "scheduled_date"
+        ]
+      }
+    },
+    {
+      "name": "task_update",
+      "description": "Update a cleaning task status or details",
+      "method": "GET",
+      "path": "/task-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "The task ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "New status (scheduled, in_progress, completed, cancelled)"
+          },
+          "cleaner_id": {
+            "type": "string",
+            "description": "Reassign to different cleaner"
+          },
+          "scheduled_date": {
+            "type": "string",
+            "description": "New scheduled date (YYYY-MM-DD)"
+          },
+          "scheduled_time": {
+            "type": "string",
+            "description": "New scheduled time (HH:MM)"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Updated notes"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "hours_calculate",
+      "description": "Calculate required cleaning hours by project cost for auto-booking",
+      "method": "GET",
+      "path": "/hours-calculate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_cost": {
+            "type": "number",
+            "description": "Project cost to calculate hours for"
+          },
+          "property_id": {
+            "type": "string",
+            "description": "Property ID for size-based calculation"
+          },
+          "bedrooms": {
+            "type": "number",
+            "description": "Number of bedrooms"
+          },
+          "bathrooms": {
+            "type": "number",
+            "description": "Number of bathrooms"
+          },
+          "square_feet": {
+            "type": "number",
+            "description": "Property size in square feet"
+          }
+        }
+      }
+    }
+  ]
+}

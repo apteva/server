@@ -1,0 +1,121 @@
+{
+  "slug": "bigquery",
+  "name": "Google BigQuery",
+  "description": "MCP server for BigQuery - datasets, tables, queries, jobs",
+  "logo": "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=128",
+  "categories": ["data-warehouse", "analytics", "database", "google-cloud"],
+  "base_url": "https://bigquery.googleapis.com/bigquery/v2",
+  "auth": {
+    "types": ["oauth2", "bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "OAuth Access Token" },
+      { "name": "projectId", "label": "GCP Project ID" },
+      { "name": "serviceAccountJson", "label": "Service Account JSON", "description": "Optional - for JWT auth" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "run_query",
+      "description": "Run a synchronous SQL query",
+      "method": "POST",
+      "path": "/projects/{project_id}/queries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "query": { "type": "string" },
+          "useLegacySql": { "type": "boolean" },
+          "maxResults": { "type": "number" },
+          "defaultDataset": { "type": "object" }
+        },
+        "required": ["project_id", "query"]
+      }
+    },
+    {
+      "name": "list_datasets",
+      "description": "List datasets in a project",
+      "method": "GET",
+      "path": "/projects/{project_id}/datasets",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "create_dataset",
+      "description": "Create a dataset",
+      "method": "POST",
+      "path": "/projects/{project_id}/datasets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "datasetReference": { "type": "object" },
+          "location": { "type": "string" }
+        },
+        "required": ["project_id", "datasetReference"]
+      }
+    },
+    {
+      "name": "list_tables",
+      "description": "List tables in a dataset",
+      "method": "GET",
+      "path": "/projects/{project_id}/datasets/{dataset_id}/tables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "dataset_id": { "type": "string" }
+        },
+        "required": ["project_id", "dataset_id"]
+      }
+    },
+    {
+      "name": "get_table",
+      "description": "Get table metadata + schema",
+      "method": "GET",
+      "path": "/projects/{project_id}/datasets/{dataset_id}/tables/{table_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "dataset_id": { "type": "string" },
+          "table_id": { "type": "string" }
+        },
+        "required": ["project_id", "dataset_id", "table_id"]
+      }
+    },
+    {
+      "name": "insert_rows",
+      "description": "Stream rows into a table",
+      "method": "POST",
+      "path": "/projects/{project_id}/datasets/{dataset_id}/tables/{table_id}/insertAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "dataset_id": { "type": "string" },
+          "table_id": { "type": "string" },
+          "rows": { "type": "array" }
+        },
+        "required": ["project_id", "dataset_id", "table_id", "rows"]
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get a job status",
+      "method": "GET",
+      "path": "/projects/{project_id}/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "job_id": { "type": "string" }
+        },
+        "required": ["project_id", "job_id"]
+      }
+    }
+  ]
+}

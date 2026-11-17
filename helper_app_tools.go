@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,34 +33,55 @@ type helperToolRef struct {
 }
 
 func (s *Server) signHelperTool(ref helperToolRef) string {
-	body, _ := json.Marshal(ref)
-	mac := hmac.New(sha256.New, []byte(s.instanceSecret))
-	mac.Write(body)
-	return base64.RawURLEncoding.EncodeToString(body) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	// A short, random handle is easier for a model to copy accurately than a
+	// signed serialization of the full caller, project, and schema context.
+	// The context stays server-side and is rechecked when the handle is used.
+	handle := "r_" + generateToken(16)
+	s.helperToolRefsMu.Lock()
+	defer s.helperToolRefsMu.Unlock()
+	if s.helperToolRefs == nil {
+		s.helperToolRefs = make(map[string]helperToolRef)
+	}
+	now := time.Now().Unix()
+	for key, existing := range s.helperToolRefs {
+		if existing.Expires < now {
+			delete(s.helperToolRefs, key)
+		}
+	}
+	// Bound memory even if a caller searches continuously during the TTL.
+	for len(s.helperToolRefs) >= 8192 {
+		for key := range s.helperToolRefs {
+			delete(s.helperToolRefs, key)
+			break
+		}
+	}
+	s.helperToolRefs[handle] = ref
+	return handle
 }
 func (s *Server) readHelperTool(raw string) (helperToolRef, error) {
 	var ref helperToolRef
-	parts := strings.Split(raw, ".")
-	if len(parts) != 2 || len(raw) > 4096 {
+	if len(raw) != 34 || !strings.HasPrefix(raw, "r_") {
 		return ref, fmt.Errorf("invalid tool reference")
 	}
-	body, e1 := base64.RawURLEncoding.DecodeString(parts[0])
-	sig, e2 := base64.RawURLEncoding.DecodeString(parts[1])
-	mac := hmac.New(sha256.New, []byte(s.instanceSecret))
-	mac.Write(body)
-	if e1 != nil || e2 != nil || !hmac.Equal(sig, mac.Sum(nil)) || json.Unmarshal(body, &ref) != nil || ref.Expires < time.Now().Unix() {
+	s.helperToolRefsMu.Lock()
+	ref, ok := s.helperToolRefs[raw]
+	if ok && ref.Expires < time.Now().Unix() {
+		delete(s.helperToolRefs, raw)
+		ok = false
+	}
+	s.helperToolRefsMu.Unlock()
+	if !ok {
 		return ref, fmt.Errorf("invalid or expired reference; search again")
 	}
 	return ref, nil
 }
 
-// A bounded in-process proxy response preserves existing app routing, admission,
+// An in-process proxy response preserves existing app routing, admission,
 // user/project checks and caller identity without exposing service credentials.
 type helperProxyResponse struct {
-	header   http.Header
-	body     bytes.Buffer
-	status   int
-	overflow bool
+	header http.Header
+	body   bytes.Buffer
+	status int
 }
 
 func (w *helperProxyResponse) Header() http.Header { return w.header }
@@ -74,10 +93,6 @@ func (w *helperProxyResponse) WriteHeader(status int) {
 func (w *helperProxyResponse) Write(b []byte) (int, error) {
 	if w.status == 0 {
 		w.status = 200
-	}
-	if w.body.Len()+len(b) > 256*1024 {
-		w.overflow = true
-		return 0, fmt.Errorf("app result exceeds 256 KiB")
 	}
 	return w.body.Write(b)
 }
@@ -93,9 +108,6 @@ func (s *Server) helperAppRequest(parent *http.Request, agent *Agent, project, t
 	req.Header.Set("Content-Type", "application/json")
 	rec := &helperProxyResponse{header: make(http.Header)}
 	s.handleAppProxy(rec, req)
-	if rec.overflow {
-		return nil, fmt.Errorf("app result too large; narrow the query")
-	}
 	if rec.status < 200 || rec.status >= 300 {
 		return nil, fmt.Errorf("app request rejected (HTTP %d)", rec.status)
 	}
@@ -113,7 +125,7 @@ func (s *Server) helperOperatorScope(r *http.Request, agent *Agent, thread, proj
 	}
 	var install int64
 	var app string
-	err := s.store.db.QueryRow(`SELECT i.id,a.name FROM agent_thread_scopes t JOIN app_installs i ON i.id=t.source_install_id JOIN apps a ON a.id=i.app_id WHERE t.agent_id=? AND t.thread_id=? AND t.project_id=? AND i.status='running'`, agent.ID, thread, project).Scan(&install, &app)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT i.id,a.name FROM agent_thread_scopes t JOIN app_installs i ON i.id=t.source_install_id JOIN apps a ON a.id=i.app_id WHERE t.agent_id=? AND t.thread_id=? AND t.project_id=? AND i.status='running'`, agent.ID, thread, project).Scan(&install, &app)
 	if err != nil || app != "conversations" {
 		return fmt.Errorf("trusted Conversations binding required")
 	}
@@ -133,14 +145,16 @@ func (s *Server) helperOperatorScope(r *http.Request, agent *Agent, thread, proj
 }
 
 type helperAppCandidate struct {
-	Install    int64
-	App        string
-	Tools      map[string]bool
-	SearchText string
+	Install     int64
+	App         string
+	DisplayName string
+	Description string
+	Tools       map[string]bool
+	SearchText  string
 }
 
 func (s *Server) helperAppCandidates(project string) ([]helperAppCandidate, error) {
-	rows, err := s.store.db.Query(`SELECT i.id,a.name,m.allowed_tools FROM app_installs i JOIN apps a ON a.id=i.app_id JOIN mcp_servers m ON m.upstream_id='app:'||i.id AND m.source='app' WHERE i.project_id=? AND i.status='running' AND m.status='running' ORDER BY a.name,i.id`, project)
+	rows, err := s.store.dbQuery(`SELECT i.id,a.name,m.allowed_tools FROM app_installs i JOIN apps a ON a.id=i.app_id JOIN mcp_servers m ON m.upstream_id='app:'||i.id AND m.source='app' WHERE i.project_id=? AND i.status='running' AND m.status='running' ORDER BY a.name,i.id`, project)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +173,9 @@ func (s *Server) helperAppCandidates(project string) ([]helperAppCandidate, erro
 		var names []string
 		_ = json.Unmarshal([]byte(allowed), &names)
 		c.Tools = map[string]bool{}
-		c.SearchText = strings.ToLower(c.App)
+		c.DisplayName = entry.Manifest.DisplayName
+		c.Description = entry.Manifest.Description
+		c.SearchText = strings.ToLower(c.App + " " + c.DisplayName + " " + c.Description)
 		for _, tool := range agentVisibleMCPTools(entry.Manifest.Provides.MCPTools) {
 			for _, name := range names {
 				if tool.Name == name {
@@ -276,7 +292,7 @@ func (s *Server) handleHelperAppTool(w http.ResponseWriter, r *http.Request, age
 				description, _ := tool["description"].(string)
 				score := 0
 				for _, word := range words {
-					if strings.Contains(strings.ToLower(c.App+" "+name+" "+description), word) {
+					if strings.Contains(strings.ToLower(c.App+" "+c.DisplayName+" "+c.Description+" "+name+" "+description), word) {
 						score++
 					}
 				}
@@ -284,7 +300,7 @@ func (s *Server) handleHelperAppTool(w http.ResponseWriter, r *http.Request, age
 					continue
 				}
 				ref := s.signHelperTool(helperToolRef{agent.ID, thread, project, c.Install, name, helperSchemaHash(tool), time.Now().Add(15 * time.Minute).Unix()})
-				hits = append(hits, hit{score, map[string]any{"app": c.App, "installation_id": c.Install, "name": name, "description": description, "inputSchema": tool["inputSchema"], "annotations": tool["annotations"], "reference": ref}})
+				hits = append(hits, hit{score, map[string]any{"app": c.App, "app_display_name": c.DisplayName, "app_description": gatewayCompactText(c.Description, gatewayDescriptionSize), "installation_id": c.Install, "name": name, "description": description, "inputSchema": tool["inputSchema"], "annotations": tool["annotations"], "reference": ref}})
 			}
 		}
 		sort.SliceStable(hits, func(i, j int) bool { return hits[i].score > hits[j].score })

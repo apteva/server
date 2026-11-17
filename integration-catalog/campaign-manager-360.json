@@ -1,0 +1,264 @@
+{
+  "slug": "campaign-manager-360",
+  "name": "Campaign Manager 360",
+  "description": "Google Campaign Manager 360 (DCM/DFA) Reporting & Trafficking API v4 — manage advertisers, campaigns, placements, ads, creatives, and run reports for Google's ad-server / measurement product. Distinct from Google Ads and DV360.",
+  "logo": "https://www.google.com/s2/favicons?domain=campaignmanager.google.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "google",
+    "ad-server",
+    "trafficking",
+    "measurement"
+  ],
+  "base_url": "https://dfareporting.googleapis.com/dfareporting/v4",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "profile_id",
+        "label": "Default User Profile ID",
+        "description": "CM360 user profile id — required as the {profileId} path param on every call. Discover via list_user_profiles."
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "scopes": [
+        "https://www.googleapis.com/auth/dfatrafficking",
+        "https://www.googleapis.com/auth/dfareporting",
+        "https://www.googleapis.com/auth/ddmconversions"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_user_profiles",
+      "description": "List CM360 user profiles available to the authenticated user. Each profile binds the user to one CM360 account; profileId is required by every other endpoint.",
+      "method": "GET",
+      "path": "/userprofiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_advertisers",
+      "description": "List advertisers under the user profile. Filter by ids, status (APPROVED|ON_HOLD), subaccountId, floodlightConfigurationIds.",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/advertisers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string", "enum": ["APPROVED", "ON_HOLD"] },
+          "subaccountId": { "type": "string" },
+          "searchString": { "type": "string", "description": "Substring match on name (use *)" },
+          "maxResults": { "type": "integer", "default": 1000 },
+          "pageToken": { "type": "string" }
+        },
+        "required": ["profileId"]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under a user profile. Common filters: advertiserIds, archived, ids, searchString.",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "advertiserIds": { "type": "array", "items": { "type": "string" } },
+          "archived": { "type": "boolean" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "searchString": { "type": "string" },
+          "maxResults": { "type": "integer", "default": 1000 },
+          "pageToken": { "type": "string" }
+        },
+        "required": ["profileId"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Insert a new campaign. Required: advertiserId, name, startDate (yyyy-MM-dd), endDate, defaultLandingPageId. Optional: archived, billingInvoiceCode, comment, eventTagOverrides, audienceSegmentGroups, additionalCreativeOptimizationConfigurations.",
+      "method": "POST",
+      "path": "/userprofiles/{profileId}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "advertiserId": { "type": "string" },
+          "name": { "type": "string" },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "defaultLandingPageId": { "type": "string" },
+          "archived": { "type": "boolean", "default": false },
+          "comment": { "type": "string" }
+        },
+        "required": ["profileId", "advertiserId", "name", "startDate", "endDate", "defaultLandingPageId"]
+      }
+    },
+    {
+      "name": "list_placements",
+      "description": "List placements (the inventory + size + targeting unit). Filter by campaignIds, advertiserIds, paymentSource, contentCategoryIds.",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/placements",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "campaignIds": { "type": "array", "items": { "type": "string" } },
+          "advertiserIds": { "type": "array", "items": { "type": "string" } },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "archived": { "type": "boolean" },
+          "searchString": { "type": "string" },
+          "maxResults": { "type": "integer", "default": 1000 },
+          "pageToken": { "type": "string" }
+        },
+        "required": ["profileId"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads (the entity that ties a creative to a placement). Filter by campaignIds, advertiserIds, type (AD_SERVING_STANDARD_AD|AD_SERVING_TRACKING|...), active.",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "campaignIds": { "type": "array", "items": { "type": "string" } },
+          "advertiserId": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "active": { "type": "boolean" },
+          "archived": { "type": "boolean" },
+          "type": { "type": "array", "items": { "type": "string" } },
+          "maxResults": { "type": "integer", "default": 1000 },
+          "pageToken": { "type": "string" }
+        },
+        "required": ["profileId"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Insert a new ad. Required: name, campaignId, type, startTime, endTime, deliverySchedule (priority, hardCutoff?), placementAssignments[], creativeRotation, deliveryMode.",
+      "method": "POST",
+      "path": "/userprofiles/{profileId}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "name": { "type": "string" },
+          "campaignId": { "type": "string" },
+          "type": { "type": "string" },
+          "startTime": { "type": "string" },
+          "endTime": { "type": "string" },
+          "deliverySchedule": { "type": "object" },
+          "placementAssignments": { "type": "array", "items": { "type": "object" } },
+          "creativeRotation": { "type": "object" },
+          "active": { "type": "boolean", "default": false }
+        },
+        "required": ["profileId", "name", "campaignId", "type", "startTime", "endTime", "placementAssignments"]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "List creatives under the user profile. Filter by advertiserId, campaignId, types, active, archived.",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "advertiserId": { "type": "string" },
+          "campaignId": { "type": "string" },
+          "ids": { "type": "array", "items": { "type": "string" } },
+          "active": { "type": "boolean" },
+          "archived": { "type": "boolean" },
+          "types": { "type": "array", "items": { "type": "string" } },
+          "maxResults": { "type": "integer", "default": 1000 },
+          "pageToken": { "type": "string" }
+        },
+        "required": ["profileId"]
+      }
+    },
+    {
+      "name": "list_reports",
+      "description": "List saved CM360 reports (Reporting API).",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "scope": { "type": "string", "enum": ["ALL", "MINE"], "default": "MINE" },
+          "maxResults": { "type": "integer", "default": 10 },
+          "pageToken": { "type": "string" },
+          "sortField": { "type": "string", "enum": ["ID", "LAST_MODIFIED_TIME", "NAME"], "default": "LAST_MODIFIED_TIME" },
+          "sortOrder": { "type": "string", "enum": ["ASCENDING", "DESCENDING"], "default": "DESCENDING" }
+        },
+        "required": ["profileId"]
+      }
+    },
+    {
+      "name": "run_report",
+      "description": "Trigger a synchronous run of an existing report. Returns a Report File resource; poll its status until REPORT_AVAILABLE, then GET its file.urls.apiUrl to download.",
+      "method": "POST",
+      "path": "/userprofiles/{profileId}/reports/{reportId}/run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "reportId": { "type": "string" },
+          "synchronous": { "type": "boolean", "default": false, "description": "If true, the call blocks until the file is ready (slow)" }
+        },
+        "required": ["profileId", "reportId"]
+      }
+    },
+    {
+      "name": "get_report_file",
+      "description": "Get the metadata + download URL for a generated report file.",
+      "method": "GET",
+      "path": "/userprofiles/{profileId}/reports/{reportId}/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": { "type": "string" },
+          "reportId": { "type": "string" },
+          "fileId": { "type": "string" }
+        },
+        "required": ["profileId", "reportId", "fileId"]
+      }
+    }
+  ]
+}

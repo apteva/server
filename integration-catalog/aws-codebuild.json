@@ -1,0 +1,139 @@
+{
+  "slug": "aws-codebuild",
+  "name": "AWS CodeBuild",
+  "description": "Managed CI build runner on AWS — pay per build-minute (~$0.005/min for general1.small). Each build spins up a container, runs a buildspec.yml against source from S3 / GitHub / CodeCommit, uploads artifacts to S3, streams logs to CloudWatch, then tears down. SigV4-signed JSON-RPC API; every call POSTs to the regional endpoint with `X-Amz-Target: CodeBuild_20161006.<Operation>`.",
+  "logo": "https://a0.awsstatic.com/libra-css/images/logos/aws_logo_smile_1200x630.png",
+  "categories": ["aws", "build", "ci", "containers", "devops"],
+  "base_url": "https://codebuild.{{region}}.amazonaws.com",
+  "auth": {
+    "types": ["aws_sigv4"],
+    "aws_sigv4": { "service": "codebuild" },
+    "headers": {
+      "Content-Type": "application/x-amz-json-1.1"
+    },
+    "credential_fields": [
+      { "name": "access_key_id", "label": "AWS Access Key ID", "description": "IAM access key with codebuild:* and (for cross-service flow) s3:Get/PutObject + logs:GetLogEvents on the build log group", "required": true, "type": "text" },
+      { "name": "secret_access_key", "label": "AWS Secret Access Key", "required": true, "type": "password" },
+      { "name": "region", "label": "AWS Region", "description": "Region where the CodeBuild project lives (us-east-1, eu-west-1, …)", "required": true, "type": "text" },
+      { "name": "session_token", "label": "AWS Session Token", "description": "Required only with temporary STS credentials.", "required": false, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List CodeBuild project names in the region.",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.ListProjects" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sortBy": { "type": "string", "enum": ["NAME", "CREATED_TIME", "LAST_MODIFIED_TIME"] },
+          "sortOrder": { "type": "string", "enum": ["ASCENDING", "DESCENDING"] },
+          "nextToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "batch_get_projects",
+      "description": "Get full project definitions by name. Args: names (array).",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.BatchGetProjects" },
+      "input_schema": {
+        "type": "object",
+        "properties": { "names": { "type": "array", "items": { "type": "string" } } },
+        "required": ["names"]
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Start a build for a project. Returns build_id you poll with batch_get_builds. Args: projectName, sourceLocationOverride? (e.g. s3://bucket/key.zip), buildspecOverride?, environmentVariablesOverride?, computeTypeOverride?, idempotencyToken?.",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.StartBuild" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectName": { "type": "string" },
+          "sourceLocationOverride": { "type": "string" },
+          "buildspecOverride": { "type": "string" },
+          "environmentVariablesOverride": { "type": "array", "items": { "type": "object" } },
+          "computeTypeOverride": { "type": "string" },
+          "idempotencyToken": { "type": "string" }
+        },
+        "required": ["projectName"]
+      }
+    },
+    {
+      "name": "batch_get_builds",
+      "description": "Get build status/details by id. Poll this to track progress. Args: ids (array of build IDs).",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.BatchGetBuilds" },
+      "input_schema": {
+        "type": "object",
+        "properties": { "ids": { "type": "array", "items": { "type": "string" } } },
+        "required": ["ids"]
+      }
+    },
+    {
+      "name": "list_builds_for_project",
+      "description": "List recent build IDs for a project. Args: projectName, sortOrder? (ASCENDING|DESCENDING), nextToken?.",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.ListBuildsForProject" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectName": { "type": "string" },
+          "sortOrder": { "type": "string" },
+          "nextToken": { "type": "string" }
+        },
+        "required": ["projectName"]
+      }
+    },
+    {
+      "name": "stop_build",
+      "description": "Cancel a running build. Args: id.",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.StopBuild" },
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a CodeBuild project. Args: name, source ({type: S3|GITHUB|CODECOMMIT|..., location}), artifacts ({type: S3|NO_ARTIFACTS, location?}), environment ({type, image, computeType, environmentVariables?}), serviceRole (IAM role ARN).",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.CreateProject" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "source": { "type": "object" },
+          "artifacts": { "type": "object" },
+          "environment": { "type": "object" },
+          "serviceRole": { "type": "string" }
+        },
+        "required": ["name", "source", "artifacts", "environment", "serviceRole"]
+      }
+    },
+    {
+      "name": "delete_project",
+      "description": "Delete a CodeBuild project (build history retained). Args: name.",
+      "method": "POST",
+      "path": "/",
+      "headers": { "X-Amz-Target": "CodeBuild_20161006.DeleteProject" },
+      "input_schema": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    }
+  ]
+}

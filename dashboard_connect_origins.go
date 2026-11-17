@@ -20,7 +20,7 @@ import (
 func (s *Server) dashboardConnectAllowed(installID int64) bool {
 	var owner int64
 	var status string
-	if err := s.store.db.QueryRow(`SELECT installed_by, status FROM app_installs WHERE id=?`, installID).Scan(&owner, &status); err != nil {
+	if err := s.store.dbQueryRow(`SELECT installed_by, status FROM app_installs WHERE id=?`, installID).Scan(&owner, &status); err != nil {
 		return false
 	}
 	return (status == "pending" || status == "running") && owner > 0 && s.isAdmin(owner) && installHasPermission(s, installID, sdk.PermDashboardConnect)
@@ -151,7 +151,7 @@ func (s *Server) handleCallbackDashboardConnectOrigins(w http.ResponseWriter, r 
 				return
 			}
 		}
-		tx, err := s.store.db.Begin()
+		tx, err := s.store.dbBeginTx(r.Context(), nil)
 		if err != nil {
 			http.Error(w, "could not save destinations", 500)
 			return
@@ -182,7 +182,7 @@ func (s *Server) handleCallbackDashboardConnectOrigins(w http.ResponseWriter, r 
 }
 
 func (s *Server) listDashboardConnectOrigins(installID int64, key string) ([]sdk.DashboardConnectOriginRegistration, error) {
-	rows, err := s.store.db.Query(`SELECT registration_key,origin FROM app_dashboard_connect_origins WHERE install_id=? AND (?='' OR registration_key=?) ORDER BY registration_key,origin`, installID, key, key)
+	rows, err := s.store.dbQuery(`SELECT registration_key,origin FROM app_dashboard_connect_origins WHERE install_id=? AND (?='' OR registration_key=?) ORDER BY registration_key,origin`, installID, key, key)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +204,7 @@ func (s *Server) listDashboardConnectOrigins(installID int64, key string) ([]sdk
 func (s *Server) dashboardConnectOrigins() ([]string, error) {
 	// Read rows before checking permissions: the store can have a single DB
 	// connection, so nested queries while rows are open could deadlock.
-	rows, err := s.store.db.Query(`SELECT DISTINCT install_id,origin FROM app_dashboard_connect_origins`)
+	rows, err := s.store.dbQuery(`SELECT DISTINCT install_id,origin FROM app_dashboard_connect_origins`)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +234,16 @@ func (s *Server) dashboardConnectOrigins() ([]string, error) {
 				seen[origin] = true
 				out = append(out, origin)
 			}
+		}
+	}
+	managed, err := s.dashboardRuntimeOrigins()
+	if err != nil {
+		return nil, err
+	}
+	for _, origin := range managed {
+		if !seen[origin] {
+			seen[origin] = true
+			out = append(out, origin)
 		}
 	}
 	sort.Strings(out)

@@ -1,0 +1,482 @@
+{
+  "slug": "clipkit",
+  "name": "ClipKit",
+  "description": "Transform any video instantly - Extract clips, resize for social media, create GIFs, compress videos, and more",
+  "logo": "https://www.google.com/s2/favicons?domain=clipkit.io&sz=128",
+  "categories": [
+    "video",
+    "media",
+    "processing",
+    "social-media",
+    "transcoding",
+    "compression",
+    "audio",
+    "gif",
+    "clips",
+    "resize"
+  ],
+  "base_url": "https://api.clipkit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your ClipKit API Key for authentication"
+      },
+      {
+        "name": "projectId",
+        "label": "Project Id",
+        "description": "Default project ID for all operations (can be overridden per request)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "extract_audio",
+      "description": "Extract audio track from video file with configurable format, sample rate, and channels",
+      "method": "GET",
+      "path": "/extract-audio",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video file ID"
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp3",
+              "wav",
+              "flac",
+              "m4a",
+              "aac"
+            ],
+            "description": "Audio output format",
+            "default": "mp3"
+          },
+          "sample_rate": {
+            "type": "integer",
+            "enum": [
+              16000,
+              22050,
+              44100,
+              48000
+            ],
+            "description": "Audio sample rate (16000 for transcription, 44100+ for quality)",
+            "default": 16000
+          },
+          "channels": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "Audio channels (1=mono, 2=stereo)",
+            "default": 1
+          },
+          "bit_rate": {
+            "type": "string",
+            "description": "Audio bitrate (e.g., '128k', '192k', '256k')",
+            "default": "128k"
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_screenshots",
+      "description": "Extract multiple frames from video at specific timestamps, intervals, or evenly-spaced positions",
+      "method": "GET",
+      "path": "/extract-screenshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video file ID"
+          },
+          "timestamps": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Specific timestamps in seconds (e.g., [2.5, 5.0, 10.5])"
+          },
+          "interval": {
+            "type": "number",
+            "description": "Extract frame every N seconds (e.g., 30 for every 30s)"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Number of evenly-spaced frames to extract",
+            "minimum": 1,
+            "maximum": 20
+          },
+          "percentage": {
+            "type": "boolean",
+            "description": "Extract at 0%, 25%, 50%, 75%, 100% of video duration",
+            "default": false
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "jpg",
+              "png"
+            ],
+            "description": "Image output format",
+            "default": "jpg"
+          },
+          "output_size": {
+            "type": "string",
+            "description": "Output size: 'thumbnail' (320x180), 'preview' (640x360), 'hd' (1280x720), or custom 'WxH'",
+            "default": "preview"
+          },
+          "quality": {
+            "type": "integer",
+            "description": "JPEG quality (1-31, lower=better)",
+            "minimum": 1,
+            "maximum": 31,
+            "default": 2
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "extract_clip",
+      "description": "Extract a segment from video or audio file at specific time interval",
+      "method": "GET",
+      "path": "/extract-clip",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video/audio file ID"
+          },
+          "start_time": {
+            "type": "number",
+            "description": "Start time in seconds",
+            "default": 0,
+            "minimum": 0
+          },
+          "end_time": {
+            "type": "number",
+            "description": "End time in seconds"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Duration in seconds (alternative to end_time)",
+            "minimum": 0.1
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Output format (mp4, webm, mov, mp3, wav, etc.)"
+          },
+          "include_audio": {
+            "type": "boolean",
+            "description": "Include audio track",
+            "default": true
+          },
+          "include_video": {
+            "type": "boolean",
+            "description": "Include video track",
+            "default": true
+          },
+          "fast_copy": {
+            "type": "boolean",
+            "description": "Use fast copy (no re-encoding) for exact cuts",
+            "default": false
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "resize_video",
+      "description": "Resize video to different resolution and aspect ratio - perfect for social media (landscape to portrait, square, etc.)",
+      "method": "GET",
+      "path": "/resize-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video file ID"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Target resolution (e.g., '1280x720', '1920x1080')",
+            "pattern": "^\\d+x\\d+$"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "1:1",
+              "4:3",
+              "3:4",
+              "21:9"
+            ],
+            "description": "Target aspect ratio"
+          },
+          "width": {
+            "type": "integer",
+            "description": "Target width (use with aspect_ratio)",
+            "minimum": 128,
+            "maximum": 4096
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "social-vertical",
+              "social-square",
+              "social-landscape"
+            ],
+            "description": "Use preset: social-vertical (9:16, 1080x1920), social-square (1:1, 1080x1080), social-landscape (16:9, 1920x1080)"
+          },
+          "crop_mode": {
+            "type": "string",
+            "enum": [
+              "center",
+              "top",
+              "bottom",
+              "left",
+              "right"
+            ],
+            "description": "Crop position",
+            "default": "center"
+          },
+          "fit_mode": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "contain",
+              "fill"
+            ],
+            "description": "cover=crop to fill, contain=letterbox, fill=stretch",
+            "default": "cover"
+          },
+          "crf": {
+            "type": "integer",
+            "description": "Quality (18-28, lower=better)",
+            "minimum": 18,
+            "maximum": 28,
+            "default": 23
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "compress_video",
+      "description": "Reduce video file size while maintaining quality - perfect for storage optimization and faster uploads",
+      "method": "GET",
+      "path": "/compress-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video file ID"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "description": "Compression quality: high (CRF 20, larger), medium (CRF 23, balanced), low (CRF 28, smaller)",
+            "default": "medium"
+          },
+          "crf": {
+            "type": "integer",
+            "description": "Custom CRF value (18-28, overrides quality preset)",
+            "minimum": 18,
+            "maximum": 28
+          },
+          "maintain_resolution": {
+            "type": "boolean",
+            "description": "Keep original dimensions",
+            "default": true
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_gif",
+      "description": "Convert video segment to animated GIF - perfect for social media, previews, and reactions",
+      "method": "POST",
+      "path": "/create-gif",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video file ID"
+          },
+          "start_time": {
+            "type": "number",
+            "description": "Start time in seconds",
+            "default": 0,
+            "minimum": 0
+          },
+          "duration": {
+            "type": "number",
+            "description": "Duration in seconds (max 10 recommended)",
+            "default": 5,
+            "minimum": 0.5,
+            "maximum": 10
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Quality preset: low (10fps, 320px), medium (10fps, 320px), high (15fps, 480px)",
+            "default": "medium"
+          },
+          "fps": {
+            "type": "integer",
+            "description": "Custom frame rate (overrides quality)",
+            "minimum": 5,
+            "maximum": 30
+          },
+          "size": {
+            "type": "integer",
+            "description": "Custom width in pixels (overrides quality)",
+            "minimum": 200,
+            "maximum": 800
+          }
+        },
+        "required": [
+          "file_id"
+        ]
+      }
+    },
+    {
+      "name": "burn_subtitles",
+      "description": "Permanently embed subtitle track into video - perfect for social media auto-play and accessibility",
+      "method": "GET",
+      "path": "/burn-subtitles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "integer",
+            "description": "Source video file ID"
+          },
+          "subtitle_file_id": {
+            "type": "integer",
+            "description": "Subtitle file ID (SRT, VTT, ASS, SSA)"
+          },
+          "font_size": {
+            "type": "integer",
+            "description": "Font size in pixels",
+            "default": 24,
+            "minimum": 12,
+            "maximum": 72
+          },
+          "font_color": {
+            "type": "string",
+            "description": "Font color (e.g., 'white', 'yellow', '#FFFFFF')",
+            "default": "white"
+          },
+          "position": {
+            "type": "string",
+            "enum": [
+              "bottom",
+              "top",
+              "center"
+            ],
+            "description": "Subtitle position",
+            "default": "bottom"
+          }
+        },
+        "required": [
+          "file_id",
+          "subtitle_file_id"
+        ]
+      }
+    },
+    {
+      "name": "create_video_grid",
+      "description": "Combine multiple videos into single layout - picture-in-picture, side-by-side, and grid layouts",
+      "method": "POST",
+      "path": "/create-video-grid",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file_id": {
+                  "type": "integer",
+                  "description": "Video file ID"
+                },
+                "position": {
+                  "type": "string",
+                  "description": "Position in layout (e.g., 'main', 'overlay', 'top-right')"
+                }
+              },
+              "required": [
+                "file_id"
+              ]
+            },
+            "description": "Array of video files to combine (minimum 2)",
+            "minItems": 2,
+            "maxItems": 4
+          },
+          "layout": {
+            "type": "string",
+            "enum": [
+              "picture-in-picture",
+              "side-by-side",
+              "grid-2x2"
+            ],
+            "description": "Layout type (currently only picture-in-picture is fully implemented)",
+            "default": "picture-in-picture"
+          },
+          "pip_position": {
+            "type": "string",
+            "enum": [
+              "top-right",
+              "top-left",
+              "bottom-right",
+              "bottom-left"
+            ],
+            "description": "Picture-in-picture overlay position",
+            "default": "top-right"
+          }
+        },
+        "required": [
+          "video_files"
+        ]
+      }
+    }
+  ]
+}

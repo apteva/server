@@ -1,0 +1,257 @@
+{
+  "slug": "postmark",
+  "name": "Postmark",
+  "description": "MCP server for Postmark email operations - sending, templates, and analytics",
+  "logo": "https://www.google.com/s2/favicons?domain=postmarkapp.com&sz=128",
+  "categories": [
+    "email",
+    "postmark",
+    "transactional",
+    "smtp"
+  ],
+  "base_url": "https://api.postmarkapp.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_email",
+      "description": "Send an email via Postmark",
+      "method": "POST",
+      "path": "/send-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "From": {
+            "type": "string",
+            "description": "From address"
+          },
+          "To": {
+            "type": "string",
+            "description": "To address(es)"
+          },
+          "Subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "TextBody": {
+            "type": "string",
+            "description": "Plain text body"
+          },
+          "HtmlBody": {
+            "type": "string",
+            "description": "HTML body"
+          },
+          "Cc": {
+            "type": "string",
+            "description": "CC address(es)"
+          },
+          "Bcc": {
+            "type": "string",
+            "description": "BCC address(es)"
+          },
+          "Tag": {
+            "type": "string",
+            "description": "Tag for tracking"
+          },
+          "ReplyTo": {
+            "type": "string",
+            "description": "Reply-to address"
+          },
+          "TrackOpens": {
+            "type": "boolean",
+            "description": "Track opens"
+          },
+          "TrackLinks": {
+            "type": "string",
+            "description": "Track links (None, HtmlAndText, HtmlOnly, TextOnly)"
+          }
+        },
+        "required": [
+          "From",
+          "To",
+          "Subject"
+        ]
+      }
+    },
+    {
+      "name": "send_template",
+      "description": "Send an email using a Postmark template",
+      "method": "POST",
+      "path": "/send-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TemplateId": {
+            "type": "number",
+            "description": "Template ID"
+          },
+          "TemplateAlias": {
+            "type": "string",
+            "description": "Template alias"
+          },
+          "TemplateModel": {
+            "type": "object",
+            "description": "Template variables"
+          },
+          "From": {
+            "type": "string",
+            "description": "From address"
+          },
+          "To": {
+            "type": "string",
+            "description": "To address(es)"
+          },
+          "Tag": {
+            "type": "string",
+            "description": "Tag for tracking"
+          },
+          "TrackOpens": {
+            "type": "boolean",
+            "description": "Track opens"
+          },
+          "TrackLinks": {
+            "type": "string",
+            "description": "Track links setting"
+          }
+        },
+        "required": [
+          "From",
+          "To"
+        ]
+      }
+    },
+    {
+      "name": "send_batch",
+      "description": "Send multiple emails in batch via Postmark",
+      "method": "POST",
+      "path": "/send-batch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "description": "Array of email message objects"
+          }
+        },
+        "required": [
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List email templates from Postmark",
+      "method": "GET",
+      "path": "/list-templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "offset": {
+            "type": "number",
+            "description": "Results to skip",
+            "default": 0
+          },
+          "templateType": {
+            "type": "string",
+            "description": "Template type (Standard, Layout)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_server",
+      "description": "Get Postmark server information",
+      "method": "GET",
+      "path": "/get-server",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_bounces",
+      "description": "List bounced emails from Postmark",
+      "method": "GET",
+      "path": "/list-bounces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "offset": {
+            "type": "number",
+            "description": "Results to skip",
+            "default": 0
+          },
+          "type": {
+            "type": "string",
+            "description": "Bounce type filter"
+          },
+          "inactive": {
+            "type": "boolean",
+            "description": "Filter by inactive status"
+          },
+          "emailFilter": {
+            "type": "string",
+            "description": "Filter by email"
+          },
+          "tag": {
+            "type": "string",
+            "description": "Filter by tag"
+          },
+          "fromdate": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "todate": {
+            "type": "string",
+            "description": "End date"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_stats",
+      "description": "Get delivery statistics from Postmark",
+      "method": "GET",
+      "path": "/get-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "Filter by tag"
+          },
+          "fromdate": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "todate": {
+            "type": "string",
+            "description": "End date"
+          }
+        }
+      }
+    }
+  ]
+}

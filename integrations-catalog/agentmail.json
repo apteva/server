@@ -1,0 +1,244 @@
+{
+  "slug": "agentmail",
+  "name": "AgentMail",
+  "description": "Create AgentMail inboxes and send, read, and reply to email.",
+  "logo": "https://www.google.com/s2/favicons?domain=agentmail.to&sz=128",
+  "categories": [
+    "email",
+    "communication"
+  ],
+  "base_url": "https://api.agentmail.to/v0",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "AgentMail API key from the AgentMail console."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_inboxes"
+  },
+  "tools": [
+    {
+      "name": "list_inboxes",
+      "description": "List AgentMail inboxes available to this API key.",
+      "method": "GET",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of results to return."
+          },
+          "page_token": { "type": "string", "description": "Next page token from the previous response." },
+          "ascending": { "type": "boolean", "description": "Sort by creation time in ascending order." }
+        }
+      }
+    },
+    {
+      "name": "create_inbox",
+      "description": "Create an AgentMail inbox. Omit username for a generated address.",
+      "method": "POST",
+      "path": "/inboxes",
+      "request_transform": { "type": "json_wrap", "fields": ["username", "domain", "display_name", "client_id"] },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Local part of the email address." },
+          "domain": { "type": "string", "description": "Verified domain. Defaults to agentmail.to." },
+          "display_name": { "type": "string", "description": "Sender display name." },
+          "client_id": { "type": "string", "description": "Optional client ID for the inbox." }
+        }
+      }
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get an AgentMail inbox by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List messages in an AgentMail inbox with optional filters.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of results to return."
+          },
+          "page_token": { "type": "string", "description": "Next page token from the previous response." },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by message labels."
+          },
+          "before": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Return messages before this timestamp."
+          },
+          "after": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Return messages after this timestamp."
+          },
+          "from": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Sender substring filters. All values must match."
+          },
+          "subject": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Subject substring filters. All values must match."
+          }
+        },
+        "required": ["inbox_id"]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Read an AgentMail message by ID.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/messages/{message_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." }
+        },
+        "required": ["inbox_id", "message_id"]
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Send an email from an AgentMail inbox. Provide text or html.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "Recipient email address or list of addresses."
+          },
+          "subject": { "type": "string", "description": "Email subject." },
+          "text": { "type": "string", "description": "Plain text email body." },
+          "html": { "type": "string", "description": "HTML email body." },
+          "cc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "CC address or list of addresses."
+          },
+          "bcc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "BCC address or list of addresses."
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "Address or addresses that should receive replies."
+          },
+          "idempotency_key": { "type": "string", "description": "Reuse this key when retrying the same send." }
+        },
+        "required": ["inbox_id", "to", "subject"]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "reply_to_message",
+      "description": "Send a threaded reply from an AgentMail inbox. Provide text or html.",
+      "method": "POST",
+      "path": "/inboxes/{inbox_id}/messages/{message_id}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": { "type": "string", "description": "Inbox ID returned by list_inboxes or create_inbox." },
+          "message_id": { "type": "string", "description": "Message ID returned by the provider." },
+          "text": { "type": "string", "description": "Plain text email body." },
+          "html": { "type": "string", "description": "HTML email body." },
+          "reply_all": { "type": "boolean", "description": "Reply to all original recipients." },
+          "idempotency_key": { "type": "string", "description": "Reuse this key when retrying the same reply." }
+        },
+        "required": ["inbox_id", "message_id"]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    }
+  ]
+}

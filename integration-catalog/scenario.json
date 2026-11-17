@@ -1,0 +1,152 @@
+{
+  "slug": "scenario",
+  "name": "Scenario",
+  "description": "Scenario's public generative media API for game-production workflows. Discover custom models, run model-specific image generation, monitor jobs, and find generated assets for characters, environments, items, and UI art.",
+  "logo": "https://www.google.com/s2/favicons?domain=scenario.com&sz=128",
+  "categories": ["game-development", "generative-ai", "game-assets", "image-generation", "art"],
+  "base_url": "https://api.cloud.scenario.com/v1",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Scenario API key from your account's API Keys page.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "api_secret",
+        "label": "API Secret",
+        "description": "Scenario API secret paired with the API key.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": { "tool": "get_current_user" },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get the Scenario account associated with the supplied API key and secret.",
+      "method": "GET",
+      "path": "/user",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_models",
+      "description": "List Scenario foundation and custom models with privacy, type, status, tag, project, and pagination filters.",
+      "method": "GET",
+      "path": "/models",
+      "query_params": ["privacy", "pageSize", "paginationToken", "sortBy", "sortDirection", "tags", "type", "projectId", "collectionId", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "privacy": { "type": "string", "enum": ["public", "private"] },
+          "pageSize": { "type": "integer", "minimum": 1, "maximum": 500 },
+          "paginationToken": { "type": "string" },
+          "sortBy": { "type": "string" },
+          "sortDirection": { "type": "string", "enum": ["asc", "desc"] },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "type": { "type": "string" },
+          "projectId": { "type": "string" },
+          "collectionId": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_model",
+      "description": "Get a Scenario model and its current model-specific generation input schema.",
+      "method": "GET",
+      "path": "/models/{modelId}",
+      "query_params": ["originalAssets", "projectId"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string" },
+          "originalAssets": { "type": "boolean" },
+          "projectId": { "type": "string" }
+        },
+        "required": ["modelId"]
+      }
+    },
+    {
+      "name": "run_model",
+      "description": "Run a Scenario model using its documented model-specific parameters. Call get_model first and pass the returned input fields inside parameters.",
+      "method": "POST",
+      "path": "/generate/custom/{modelId}",
+      "query_params": ["projectId", "dryRun", "ipDetection"],
+      "body_root_param": "parameters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string" },
+          "projectId": { "type": "string" },
+          "dryRun": { "type": "boolean", "description": "Validate the request without starting a paid generation." },
+          "ipDetection": { "type": "boolean" },
+          "parameters": { "type": "object", "description": "Model-specific generation request body obtained from get_model." }
+        },
+        "required": ["modelId", "parameters"]
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get the state, progress, errors, and generated asset references for a Scenario generation job.",
+      "method": "GET",
+      "path": "/jobs/{jobId}",
+      "query_params": ["projectId"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "jobId": { "type": "string" }, "projectId": { "type": "string" } },
+        "required": ["jobId"]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List generated and uploaded Scenario assets with project and cursor pagination controls.",
+      "method": "GET",
+      "path": "/assets",
+      "query_params": ["projectId", "pageSize", "paginationToken"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string" },
+          "pageSize": { "type": "integer", "minimum": 1, "maximum": 500 },
+          "paginationToken": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_asset",
+      "description": "Get metadata and delivery URLs for a single Scenario asset.",
+      "method": "GET",
+      "path": "/assets/{assetId}",
+      "query_params": ["projectId"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "assetId": { "type": "string" }, "projectId": { "type": "string" } },
+        "required": ["assetId"]
+      }
+    },
+    {
+      "name": "search_assets",
+      "description": "Search Scenario assets using the public asset-search request shape, including project, collection, tag, and generation filters supported by the API.",
+      "method": "POST",
+      "path": "/search/assets",
+      "body_root_param": "search_request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search_request": { "type": "object", "description": "Scenario asset search request body from the public API reference." }
+        },
+        "required": ["search_request"]
+      }
+    }
+  ]
+}

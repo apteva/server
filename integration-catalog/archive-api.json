@@ -1,0 +1,104 @@
+{
+  "slug": "archive-api",
+  "name": "Archive API (ArchiveAPI.com)",
+  "description": "Compress and extract files using ArchiveAPI.com SaaS. Supports ZIP format with password protection.",
+  "logo": "https://www.google.com/s2/favicons?domain=archiveapi.com&sz=128",
+  "categories": [
+    "archive",
+    "compression",
+    "zip",
+    "files",
+    "saas"
+  ],
+  "base_url": "https://archive.org",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Your ArchiveAPI.com secret key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "compress",
+      "description": "Compress multiple files into a ZIP archive using ArchiveAPI.com. Provide file URLs and get back a base64-encoded ZIP.",
+      "method": "GET",
+      "path": "/compress",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ArchiveAPI.com secret key"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of file URLs to compress"
+          },
+          "file": {
+            "type": "string",
+            "description": "Single file URL (alternative to files array)"
+          },
+          "password": {
+            "type": "string",
+            "description": "Optional password to encrypt the archive"
+          },
+          "compressionLevel": {
+            "type": "number",
+            "description": "Compression level 1-9 (default: 5)",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "archiveName": {
+            "type": "string",
+            "description": "Output archive filename (default: archive.zip)"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "extract",
+      "description": "Extract files from a ZIP archive using ArchiveAPI.com. Provide archive URL and get extracted file data.",
+      "method": "GET",
+      "path": "/extract",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "ArchiveAPI.com secret key"
+          },
+          "file": {
+            "type": "string",
+            "description": "URL to the ZIP archive to extract"
+          },
+          "file_url": {
+            "type": "string",
+            "description": "Alternative parameter for archive URL"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password if archive is encrypted"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    }
+  ]
+}

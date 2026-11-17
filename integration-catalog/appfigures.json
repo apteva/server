@@ -1,0 +1,129 @@
+{
+  "slug": "appfigures",
+  "name": "Appfigures",
+  "description": "App intelligence for product discovery, store metadata, current and historical rankings, and modeled download and revenue estimates across the App Store and other supported stores.",
+  "logo": "https://www.google.com/s2/favicons?domain=appfigures.com&sz=128",
+  "categories": ["app-intelligence", "mobile-apps", "ios", "android", "rankings", "market-research", "analytics"],
+  "base_url": "https://api.appfigures.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}", "Accept": "application/json" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token", "description": "Appfigures Personal Access Token created for an API Client. Enable public:read and the Public Data API/App Intelligence access required by the tools you plan to use.", "type": "password", "required": true }
+    ]
+  },
+  "health_check": { "tool": "list_countries" },
+  "tools": [
+    {
+      "name": "list_countries",
+      "description": "List country codes and metadata supported by Appfigures.",
+      "method": "GET",
+      "path": "/data/countries",
+      "input_schema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "list_categories",
+      "description": "List Appfigures store category IDs, devices, and supported subcharts such as free, paid, and topgrossing. Use these IDs with rank snapshots.",
+      "method": "GET",
+      "path": "/data/categories",
+      "input_schema": { "type": "object", "properties": {}, "additionalProperties": false }
+    },
+    {
+      "name": "search_products",
+      "description": "Search Appfigures products by app or developer name. Competitor/public products require the Public Data API add-on and public:read scope.",
+      "method": "GET",
+      "path": "/products/search/{term}",
+      "query_params": ["storefronts", "page", "count", "meta"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "term": { "type": "string", "minLength": 1, "description": "Product or developer search term; prefix with @name= or @developer= for field-specific search." },
+          "storefronts": { "type": "string", "description": "Semicolon-separated storefront slugs, for example apple;google_play." },
+          "page": { "type": "integer", "minimum": 1 },
+          "count": { "type": "integer", "minimum": 1 },
+          "meta": { "type": "boolean", "description": "Include extended metadata; consumes additional credits." }
+        },
+        "required": ["term"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_product_by_store_id",
+      "description": "Resolve an app from its native store ID, such as an Apple numeric app ID or Google Play package name, and return its Appfigures product ID and metadata.",
+      "method": "GET",
+      "path": "/products/{store}/{store_id}",
+      "query_params": ["meta"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "store": { "type": "string", "enum": ["apple", "google_play", "amazon_appstore", "windows10"] },
+          "store_id": { "type": "string", "description": "Native store identifier: Apple app ID, Google package name, or equivalent." },
+          "meta": { "type": "boolean", "description": "Include extended metadata and categories; consumes additional credits." }
+        },
+        "required": ["store", "store_id"],
+        "additionalProperties": false
+      },
+      "timeout_ms": 120000
+    },
+    {
+      "name": "get_rank_snapshot",
+      "description": "Get a current or recent full ranking snapshot for a country, Appfigures category ID, and free, paid, or topgrossing subchart. Requires the Public Data API add-on.",
+      "method": "GET",
+      "path": "/ranks/snapshots/{time}/{country}/{category}/{subcategory}",
+      "query_params": ["count", "start"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "time": { "type": "string", "description": "Use current or a timestamp from the last 24 hours in yyyy-MM-ddTHH format." },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "category": { "type": "integer", "description": "Appfigures category ID from list_categories." },
+          "subcategory": { "type": "string", "enum": ["free", "paid", "topgrossing"] },
+          "count": { "type": "integer", "minimum": 1, "maximum": 1000 },
+          "start": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["time", "country", "category", "subcategory"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_rank_history",
+      "description": "Get hourly or daily rank history for one or more Appfigures product IDs. Competitor apps require the Public Data API add-on.",
+      "method": "GET",
+      "path": "/ranks/{product_ids}/{granularity}/{start_date}/{end_date}",
+      "query_params": ["countries", "filter", "tz"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_ids": { "type": "string", "description": "Comma-separated Appfigures product IDs." },
+          "granularity": { "type": "string", "enum": ["hourly", "daily"] },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "countries": { "type": "string", "description": "Country codes separated as accepted by Appfigures." },
+          "filter": { "type": "integer", "minimum": 1, "maximum": 1000, "description": "Only include ranks within the top N." },
+          "tz": { "type": "string", "enum": ["user", "utc", "est"] }
+        },
+        "required": ["product_ids", "granularity", "start_date", "end_date"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_download_revenue_estimates",
+      "description": "Get proprietary estimated downloads and net app-store revenue for selected products and countries. This endpoint is available only on eligible App Intelligence plans/licenses.",
+      "method": "GET",
+      "path": "/reports/estimates",
+      "query_params": ["start_date", "end_date", "group_by", "products", "countries"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": { "type": "string", "description": "yyyy-MM-dd or a relative value such as -30." },
+          "end_date": { "type": "string", "description": "yyyy-MM-dd or a supported relative value." },
+          "group_by": { "type": "string", "description": "Comma-separated pivots from product, country, date, store." },
+          "products": { "type": "string", "description": "Comma-separated Appfigures product IDs." },
+          "countries": { "type": "string", "description": "Semicolon-separated country codes." }
+        },
+        "required": ["start_date", "end_date", "products"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

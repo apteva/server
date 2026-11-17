@@ -1,0 +1,183 @@
+{
+  "slug": "anthropic-admin",
+  "name": "Anthropic Admin",
+  "description": "Claude organization Admin API for usage and cost reporting. Use this with an Anthropic Admin API key to inspect monthly spend, token usage, model usage, workspace usage, service tiers, and API key/account attribution.",
+  "logo": "https://www.google.com/s2/favicons?domain=anthropic.com&sz=128",
+  "categories": ["ai", "anthropic", "claude", "admin", "billing", "usage"],
+  "base_url": "https://api.anthropic.com/v1",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{admin_api_key}}",
+      "anthropic-version": "2023-06-01"
+    },
+    "credential_fields": [
+      {
+        "name": "admin_api_key",
+        "label": "Admin API Key",
+        "description": "Anthropic Admin API key from organization settings. Normal Claude model API keys usually cannot access organization usage or cost reports."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_cost_report",
+      "description": "Get Claude organization cost by day. Use this for monthly dollar reporting. `starting_at` is required and must be RFC3339, for example 2026-06-01T00:00:00Z. `amount` is returned in lowest currency units, so for USD the value is cents; `123.45` represents $1.23. Group by workspace_id and/or description for attribution.",
+      "method": "GET",
+      "path": "/organizations/cost_report",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "starting_at": {
+            "type": "string",
+            "description": "Inclusive lower bound RFC3339 timestamp, for example 2026-06-01T00:00:00Z."
+          },
+          "ending_at": {
+            "type": "string",
+            "description": "Exclusive upper bound RFC3339 timestamp, for example 2026-07-01T00:00:00Z."
+          },
+          "bucket_width": {
+            "type": "string",
+            "enum": ["1d"],
+            "description": "Time granularity. Cost reports currently support 1d."
+          },
+          "group_by": {
+            "type": "array",
+            "description": "Fields to group by. Official values: workspace_id, description.",
+            "items": {
+              "type": "string",
+              "enum": ["workspace_id", "description"]
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of time buckets to return."
+          },
+          "page": {
+            "type": "string",
+            "description": "next_page token from the previous response."
+          }
+        },
+        "required": ["starting_at"]
+      },
+      "query_params": ["starting_at", "ending_at", "bucket_width", "limit", "page"],
+      "query_param_aliases": {
+        "group_by": "group_by[]"
+      }
+    },
+    {
+      "name": "get_messages_usage_report",
+      "description": "Get Claude Messages API usage for an organization. Use this to analyze input/output/cache tokens, web search requests, model usage, workspace usage, API key/account usage, service tier, context window, and inference geo over time. `starting_at` is required and must be RFC3339.",
+      "method": "GET",
+      "path": "/organizations/usage_report/messages",
+      "timeout_ms": 60000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "starting_at": {
+            "type": "string",
+            "description": "Inclusive lower bound RFC3339 timestamp, for example 2026-06-01T00:00:00Z."
+          },
+          "ending_at": {
+            "type": "string",
+            "description": "Exclusive upper bound RFC3339 timestamp, for example 2026-07-01T00:00:00Z."
+          },
+          "bucket_width": {
+            "type": "string",
+            "enum": ["1d", "1h", "1m"],
+            "description": "Time granularity. Limits depend on the bucket width: 1d up to 31 days, 1h up to 168 hours, 1m up to 1440 minutes."
+          },
+          "group_by": {
+            "type": "array",
+            "description": "Fields to group by. Official values include api_key_id, workspace_id, model, service_tier, context_window, inference_geo, account_id, and service_account_id.",
+            "items": {
+              "type": "string",
+              "enum": ["api_key_id", "workspace_id", "model", "service_tier", "context_window", "inference_geo", "account_id", "service_account_id"]
+            }
+          },
+          "models": {
+            "type": "array",
+            "description": "Restrict usage to these model ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "workspace_ids": {
+            "type": "array",
+            "description": "Restrict usage to these workspace ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "api_key_ids": {
+            "type": "array",
+            "description": "Restrict usage to these API key ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "account_ids": {
+            "type": "array",
+            "description": "Restrict usage to these user account ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "service_account_ids": {
+            "type": "array",
+            "description": "Restrict usage to these service account ids.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "service_tiers": {
+            "type": "array",
+            "description": "Restrict usage to service tiers such as standard, batch, priority, priority_on_demand, flex, or flex_discount.",
+            "items": {
+              "type": "string",
+              "enum": ["standard", "batch", "priority", "priority_on_demand", "flex", "flex_discount"]
+            }
+          },
+          "context_window": {
+            "type": "array",
+            "description": "Restrict usage to context windows.",
+            "items": {
+              "type": "string",
+              "enum": ["0-200k", "200k-1M"]
+            }
+          },
+          "inference_geos": {
+            "type": "array",
+            "description": "Restrict usage by inference geo.",
+            "items": {
+              "type": "string",
+              "enum": ["global", "us", "not_available"]
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of time buckets to return."
+          },
+          "page": {
+            "type": "string",
+            "description": "next_page token from the previous response."
+          }
+        },
+        "required": ["starting_at"]
+      },
+      "query_params": ["starting_at", "ending_at", "bucket_width", "limit", "page"],
+      "query_param_aliases": {
+        "group_by": "group_by[]",
+        "models": "models[]",
+        "workspace_ids": "workspace_ids[]",
+        "api_key_ids": "api_key_ids[]",
+        "account_ids": "account_ids[]",
+        "service_account_ids": "service_account_ids[]",
+        "service_tiers": "service_tiers[]",
+        "context_window": "context_window[]",
+        "inference_geos": "inference_geos[]"
+      }
+    }
+  ]
+}

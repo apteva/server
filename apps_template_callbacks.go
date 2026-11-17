@@ -11,7 +11,7 @@ import (
 func (s *Server) callbackInstallCanReadProject(installID int64, projectID string) bool {
 	var installProject string
 	var installedBy int64
-	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id,''),COALESCE(installed_by,0) FROM app_installs WHERE id=?`, installID).
+	if err := s.store.dbQueryRow(`SELECT COALESCE(project_id,''),COALESCE(installed_by,0) FROM app_installs WHERE id=?`, installID).
 		Scan(&installProject, &installedBy); err != nil {
 		return false
 	}

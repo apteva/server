@@ -1,0 +1,82 @@
+{
+  "slug": "zapper",
+  "name": "Zapper",
+  "description": "Multi-chain DeFi portfolio — wallet balances, protocol positions, NFTs, and app data across all EVM chains.",
+  "logo": "https://www.google.com/s2/favicons?domain=zapper.xyz&sz=128",
+  "categories": [
+    "defi",
+    "portfolio",
+    "wallet",
+    "nft",
+    "multi-chain"
+  ],
+  "base_url": "https://api.zapper.xyz/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Zapper API key (base64 encoded, from https://studio.zapper.xyz/)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_balances",
+      "description": "Get token balances and DeFi positions for a wallet across all supported chains.",
+      "method": "GET",
+      "path": "/balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address (0x...)"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_apps",
+      "description": "Get list of all supported DeFi apps/protocols on Zapper.",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_app_balances",
+      "description": "Get positions in a specific DeFi app for a wallet.",
+      "method": "GET",
+      "path": "/apps/{appId}/balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "description": "App/protocol ID (e.g., uniswap-v3, aave-v3, lido)"
+          },
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          }
+        },
+        "required": [
+          "appId",
+          "address"
+        ]
+      }
+    }
+  ]
+}

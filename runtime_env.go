@@ -36,6 +36,7 @@ import (
 // instead of labelling boxes with raw env var names the way the old
 // provider-types form did.
 type RuntimeCatalogEntry struct {
+	ServiceTiers     []string          `json:"service_tiers,omitempty"`
 	Slug             string            `json:"slug"`
 	Name             string            `json:"name"`
 	Description      string            `json:"description"`
@@ -95,14 +96,14 @@ func (s *Store) ListRuntimeConnections(userID int64, projectID ...string) ([]run
 		err error
 	)
 	if len(projectID) > 0 && projectID[0] != "" {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT `+cols+` FROM connections
 			 WHERE user_id = ? AND (project_id = ? OR project_id = '') AND COALESCE(status,'active') = 'active'
 			 ORDER BY CASE WHEN project_id = ? THEN 0 ELSE 1 END, is_primary DESC, id ASC`,
 			userID, projectID[0], projectID[0],
 		)
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT `+cols+` FROM connections
 			 WHERE user_id = ? AND COALESCE(status,'active') = 'active'
 			 ORDER BY is_primary DESC, id ASC`,
@@ -312,7 +313,16 @@ func (s *Server) runtimeAppFor(conn runtimeConnection) *AppTemplate {
 	if strings.TrimSpace(app.Runtime.Role) == "" || strings.TrimSpace(app.Runtime.ProviderKey) == "" {
 		return nil
 	}
+	// A separately shipped catalog can prepare a provider before Core knows
+	// it. Apply the same gate to discovery and credentials as to config.json.
+	if !runtimeSupported(app.Runtime) {
+		return nil
+	}
 	return app
+}
+
+func runtimeSupported(runtime *AppRuntimeConfig) bool {
+	return runtime != nil && (!strings.EqualFold(runtime.Role, "llm") || isLLMKey(runtime.ProviderKey))
 }
 
 // runtimeEnvFromConnections builds the env map contributed by every
@@ -390,7 +400,7 @@ func (s *Server) providerSuppliedLLMKeys(userID int64, projectID ...string) map[
 // blob. Used when a Codex connection's model catalog is hydrated at boot
 // so the fetch does not repeat on every agent start.
 func (s *Store) UpdateConnectionRuntimeConfig(connID int64, runtimeConfig string) error {
-	_, err := s.db.Exec("UPDATE connections SET runtime_config = ? WHERE id = ?", runtimeConfig, connID)
+	_, err := s.dbExec("UPDATE connections SET runtime_config = ? WHERE id = ?", runtimeConfig, connID)
 	return err
 }
 
@@ -492,9 +502,12 @@ func (s *Server) runtimePoolFromConnections(userID int64, shadowed map[string]bo
 
 		info := ProviderInfo{
 			Type:                providerKey,
+			ServiceTier:         stringValue(state["service_tier"]),
+			ServiceTiers:        app.Runtime.ServiceTiers,
 			ModelLarge:          normalizeStaleModel(providerKey, stringValue(state["model_large"])),
 			ModelMedium:         normalizeStaleModel(providerKey, stringValue(state["model_medium"])),
 			ModelSmall:          normalizeStaleModel(providerKey, stringValue(state["model_small"])),
+			Builtins:            runtimeBuiltins(state),
 			BuiltinTools:        runtimeBuiltinTools(state),
 			ModelCapabilities:   runtimeModelCapabilities(state),
 			ModelPolicy:         app.Runtime.ModelPolicy,
@@ -614,6 +627,26 @@ func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, 
 		s.persistRuntimeModels(conn, state)
 		return nil
 	}
+	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
+		credentials := map[string]string{
+			"access_token":  stringValue(src.credentials["access_token"]),
+			"account_id":    stringValue(src.credentials["account_id"]),
+			"account_email": stringValue(src.credentials["account_email"]),
+			"user_id":       stringValue(src.credentials["user_id"]),
+			"principal_id":  stringValue(src.credentials["principal_id"]),
+		}
+		if strings.TrimSpace(credentials["access_token"]) == "" {
+			return nil
+		}
+		fetched, err := fetchGrokBuildModelCatalog(ctx, credentials, false)
+		if err != nil {
+			log.Printf("[RUNTIME-MODELS] connection=%d Grok Build catalog unavailable; retaining saved models: %v", conn.ID, err)
+			return nil
+		}
+		applyGrokBuildCatalogToState(state, fetched)
+		s.persistRuntimeModels(conn, state)
+		return nil
+	}
 
 	apiKey := runtimeAPIKeyFor(app.Runtime, src)
 	if apiKey == "" {
@@ -714,7 +747,7 @@ func (s *Server) runtimeCatalogForRole(role string) []RuntimeCatalogEntry {
 	var out []RuntimeCatalogEntry
 	for _, summary := range s.catalog.List() {
 		app := s.catalog.Get(summary.Slug)
-		if app == nil || app.Runtime == nil {
+		if app == nil || !runtimeSupported(app.Runtime) {
 			continue
 		}
 		if role != "" && !strings.EqualFold(app.Runtime.Role, role) {
@@ -730,6 +763,7 @@ func (s *Server) runtimeCatalogForRole(role string) []RuntimeCatalogEntry {
 			AuthTypes:        app.Auth.Types,
 			CredentialFields: app.Auth.CredentialFields,
 			Capabilities:     app.Runtime.Capabilities,
+			ServiceTiers:     app.Runtime.ServiceTiers,
 			EnvVars:          sortedEnvNames(app.Runtime.Env),
 		})
 	}

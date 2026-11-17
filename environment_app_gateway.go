@@ -110,7 +110,8 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 			req.Header.Set("X-Apteva-Project-ID", environmentID)
 		}
 	}
-	proxy.ServeHTTP(w, r)
+	configureAppClientIP(proxy, r, token)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "environment_app", App: inst.AppName, InstallID: inst.InstallID})
 }
 
 // environmentAppMCPURL is the mcp_servers URL an in-environment agent uses to reach a
@@ -200,7 +201,8 @@ func (s *Server) proxyEnvironmentInstall(w http.ResponseWriter, r *http.Request,
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Del("X-Apteva-Operator-ID")
 	}
-	proxy.ServeHTTP(w, r)
+	configureAppClientIP(proxy, r, token)
+	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "environment_app", App: inst.AppName, InstallID: inst.InstallID})
 }
 
 func (s *Server) runtimePlatformURL(runtimeID string) string {

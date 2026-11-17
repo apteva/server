@@ -1,0 +1,231 @@
+{
+  "slug": "spotify-ads",
+  "name": "Spotify Ad Studio",
+  "description": "Spotify Ad Studio Partner API — manage ad accounts, campaigns, ad sets, ads, and pull audio/video/podcast ad reports. Access is gated: applicants must join Spotify's Advertising Partner Program (https://ads.spotify.com/en-US/partner-program/) before API credentials are issued. Until granted, treat this template as a stub: shape, scopes, and base_url are accurate; the platform may rename endpoints when they release a public version.",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.spotify.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "audio-ads",
+    "podcast-ads",
+    "spotify",
+    "streaming"
+  ],
+  "base_url": "https://ads.spotify.com/api/v1",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "ad_account_id",
+        "label": "Default Ad Account ID"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://accounts.spotify.com/authorize",
+      "token_url": "https://accounts.spotify.com/api/token",
+      "scopes": [
+        "ads-api-read",
+        "ads-api-write"
+      ],
+      "client_id_required": true,
+      "pkce": true
+    }
+  },
+  "tools": [
+    {
+      "name": "list_ad_accounts",
+      "description": "List ad accounts the authenticated partner user can access.",
+      "method": "GET",
+      "path": "/ad_accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an ad account.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "ARCHIVED", "DRAFT"] },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. objective: AUDIO_REACH | VIDEO_VIEWS | PODCAST_AWARENESS | WEBSITE_VISITS | CONVERSIONS. Required: name, objective, budget {amount, currency, type: DAILY|LIFETIME}, start_date, status.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "name": { "type": "string" },
+          "objective": { "type": "string", "enum": ["AUDIO_REACH", "VIDEO_VIEWS", "PODCAST_AWARENESS", "WEBSITE_VISITS", "CONVERSIONS"] },
+          "budget": { "type": "object" },
+          "start_date": { "type": "string", "description": "yyyy-MM-dd" },
+          "end_date": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["ad_account_id", "name", "objective", "budget", "start_date"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a campaign by id (PATCH semantics).",
+      "method": "PATCH",
+      "path": "/ad_accounts/{ad_account_id}/campaigns/{campaign_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "name": { "type": "string" },
+          "budget": { "type": "object" },
+          "end_date": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "ARCHIVED"] }
+        },
+        "required": ["ad_account_id", "campaign_id"]
+      }
+    },
+    {
+      "name": "list_ad_sets",
+      "description": "List ad sets (audience + targeting + bidding) under a campaign.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/campaigns/{campaign_id}/ad_sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["ad_account_id", "campaign_id"]
+      }
+    },
+    {
+      "name": "create_ad_set",
+      "description": "Create an ad set under a campaign. Required: name, targeting {countries[], age_ranges[], genders[], languages[]}, bidding {strategy (CPC|CPM|CPCV), bid_amount?}, ad_format (AUDIO|VIDEO|PODCAST), placements[].",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/campaigns/{campaign_id}/ad_sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "name": { "type": "string" },
+          "targeting": { "type": "object" },
+          "bidding": { "type": "object" },
+          "ad_format": { "type": "string", "enum": ["AUDIO", "VIDEO", "PODCAST"] },
+          "placements": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["ad_account_id", "campaign_id", "name", "targeting", "bidding", "ad_format"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under an ad set.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/ad_sets/{ad_set_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "ad_set_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["ad_account_id", "ad_set_id"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create an ad. creative_id references an asset uploaded via the Asset Manager. Required: name, creative_id, click_url, status.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/ad_sets/{ad_set_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "ad_set_id": { "type": "string" },
+          "name": { "type": "string" },
+          "creative_id": { "type": "string" },
+          "click_url": { "type": "string" },
+          "voice_track_url": { "type": "string", "description": "For audio ads — pre-uploaded MP3" },
+          "companion_image_url": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["ad_account_id", "ad_set_id", "name", "creative_id", "click_url"]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "List creatives (uploaded audio, video, image, podcast assets) under an ad account.",
+      "method": "GET",
+      "path": "/ad_accounts/{ad_account_id}/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "type": { "type": "string", "enum": ["AUDIO", "VIDEO", "IMAGE", "PODCAST"] },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["ad_account_id"]
+      }
+    },
+    {
+      "name": "campaign_report",
+      "description": "Pull campaign-level performance. metrics: impressions, listens, completion_rate, clicks, ctr, spend, frequency, reach, cpm, cpc, video_completions. granularity: TOTAL|DAILY|WEEKLY|MONTHLY. breakdown: gender, age, country, device, placement.",
+      "method": "POST",
+      "path": "/ad_accounts/{ad_account_id}/reports/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": { "type": "string" },
+          "campaign_ids": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string", "description": "yyyy-MM-dd" },
+          "end_date": { "type": "string" },
+          "metrics": { "type": "array", "items": { "type": "string" } },
+          "granularity": { "type": "string", "enum": ["TOTAL", "DAILY", "WEEKLY", "MONTHLY"], "default": "DAILY" },
+          "breakdown": { "type": "string", "enum": ["gender", "age", "country", "device", "placement"] }
+        },
+        "required": ["ad_account_id", "start_date", "end_date", "metrics"]
+      }
+    }
+  ]
+}

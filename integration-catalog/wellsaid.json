@@ -1,0 +1,227 @@
+{
+  "slug": "wellsaid",
+  "name": "WellSaid Labs",
+  "description": "Enterprise AI voice platform with high-quality text-to-speech, clip management, and pronunciation libraries",
+  "logo": "https://www.google.com/s2/favicons?domain=wellsaid.io&sz=128",
+  "categories": [
+    "ai",
+    "voice",
+    "text-to-speech",
+    "tts",
+    "audio",
+    "enterprise"
+  ],
+  "base_url": "https://api.wellsaidlabs.com/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Api-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_speech",
+      "description": "Convert text to speech with high-quality AI voices via streaming TTS",
+      "method": "POST",
+      "path": "/tts/stream",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech (required)"
+          },
+          "speaker_id": {
+            "type": "string",
+            "description": "Voice/speaker avatar ID (required). Use list-avatars to find available speakers."
+          }
+        },
+        "required": [
+          "apiKey",
+          "text",
+          "speaker_id"
+        ]
+      }
+    },
+    {
+      "name": "create_clip",
+      "description": "Create an audio clip asynchronously for longer text content",
+      "method": "POST",
+      "path": "/clips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech (required)"
+          },
+          "speaker_id": {
+            "type": "string",
+            "description": "Voice/speaker avatar ID (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "text",
+          "speaker_id"
+        ]
+      }
+    },
+    {
+      "name": "list_avatars",
+      "description": "Get available voice avatars and their metadata",
+      "method": "GET",
+      "path": "/avatars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "list_clips",
+      "description": "List recent audio clips with their status and metadata",
+      "method": "GET",
+      "path": "/clips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          }
+        },
+        "required": [
+          "apiKey"
+        ]
+      }
+    },
+    {
+      "name": "get_clip",
+      "description": "Get details and download URL for a specific audio clip",
+      "method": "GET",
+      "path": "/clips/{clip_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          },
+          "clip_id": {
+            "type": "string",
+            "description": "Clip ID to retrieve (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "clip_id"
+        ]
+      }
+    },
+    {
+      "name": "combine_clips",
+      "description": "Merge multiple audio clips into a single audio file with optional pauses between them",
+      "method": "POST",
+      "path": "/clips/combine",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          },
+          "clip_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of clip IDs to combine in order (required)"
+          },
+          "pause_ms": {
+            "type": "integer",
+            "description": "Pause duration in milliseconds between clips"
+          }
+        },
+        "required": [
+          "apiKey",
+          "clip_ids"
+        ]
+      }
+    },
+    {
+      "name": "word_timing",
+      "description": "Generate speech with word-level timing data for subtitles and synchronization",
+      "method": "POST",
+      "path": "/tts/word-timing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text to convert to speech (required)"
+          },
+          "speaker_id": {
+            "type": "string",
+            "description": "Voice/speaker avatar ID (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "text",
+          "speaker_id"
+        ]
+      }
+    },
+    {
+      "name": "create_replacement_library",
+      "description": "Create a pronunciation replacement library for custom word pronunciations",
+      "method": "POST",
+      "path": "/replacement-libraries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apiKey": {
+            "type": "string",
+            "description": "WellSaid Labs API key (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the replacement library (required)"
+          }
+        },
+        "required": [
+          "apiKey",
+          "name"
+        ]
+      }
+    }
+  ]
+}

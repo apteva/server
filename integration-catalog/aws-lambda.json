@@ -1,0 +1,377 @@
+{
+  "slug": "aws-lambda",
+  "name": "AWS Lambda",
+  "description": "MCP server for AWS Lambda - serverless functions, versions, aliases",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "lambda",
+    "serverless",
+    "functions",
+    "compute"
+  ],
+  "base_url": "https://lambda.{region}.amazonaws.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_functions",
+      "description": "List Lambda functions",
+      "method": "GET",
+      "path": "/list-functions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_items": {
+            "type": "number"
+          },
+          "marker": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_function",
+      "description": "Get function details",
+      "method": "GET",
+      "path": "/get-function",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "qualifier": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "invoke",
+      "description": "Invoke a Lambda function",
+      "method": "GET",
+      "path": "/invoke",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object"
+          },
+          "invocation_type": {
+            "type": "string"
+          },
+          "log_type": {
+            "type": "string"
+          },
+          "qualifier": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "create_function",
+      "description": "Create a new Lambda function",
+      "method": "POST",
+      "path": "/create-function",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "handler": {
+            "type": "string"
+          },
+          "code": {
+            "type": "object"
+          },
+          "description": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "number"
+          },
+          "memory_size": {
+            "type": "number"
+          },
+          "environment": {
+            "type": "object"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name",
+          "runtime",
+          "role",
+          "handler",
+          "code"
+        ]
+      }
+    },
+    {
+      "name": "update_function_code",
+      "description": "Update function code",
+      "method": "PUT",
+      "path": "/update-function-code",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "s3_bucket": {
+            "type": "string"
+          },
+          "s3_key": {
+            "type": "string"
+          },
+          "zip_file": {
+            "type": "string"
+          },
+          "image_uri": {
+            "type": "string"
+          },
+          "publish": {
+            "type": "boolean"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "update_function_config",
+      "description": "Update function configuration",
+      "method": "PUT",
+      "path": "/update-function-config",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "handler": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "number"
+          },
+          "memory_size": {
+            "type": "number"
+          },
+          "environment": {
+            "type": "object"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_function",
+      "description": "Delete a Lambda function",
+      "method": "DELETE",
+      "path": "/delete-function",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "qualifier": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "list_versions",
+      "description": "List function versions",
+      "method": "GET",
+      "path": "/list-versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "max_items": {
+            "type": "number"
+          },
+          "marker": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "publish_version",
+      "description": "Publish a new version",
+      "method": "GET",
+      "path": "/publish-version",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "create_alias",
+      "description": "Create a function alias",
+      "method": "POST",
+      "path": "/create-alias",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "function_version": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name",
+          "name",
+          "function_version"
+        ]
+      }
+    },
+    {
+      "name": "list_aliases",
+      "description": "List function aliases",
+      "method": "GET",
+      "path": "/list-aliases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string"
+          },
+          "function_version": {
+            "type": "string"
+          },
+          "max_items": {
+            "type": "number"
+          },
+          "marker": {
+            "type": "string"
+          },
+          "aws_region": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "function_name"
+        ]
+      }
+    }
+  ]
+}

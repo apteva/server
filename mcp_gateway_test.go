@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +29,19 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 			r.URL.Path = "/instances/" + strings.TrimPrefix(r.URL.Path, "/agents/")
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/instances/")
+		// Match the production item router's resource/role check.
+		agentID, err := strconv.ParseInt(strings.SplitN(path, "/", 2)[0], 10, 64)
+		if err != nil {
+			http.Error(w, "invalid agent id", http.StatusBadRequest)
+			return
+		}
+		need := ProjectViewer
+		if r.Method != http.MethodGet {
+			need = ProjectEditor
+		}
+		if _, ok := s.requireAgentAccess(w, r, agentID, need); !ok {
+			return
+		}
 		switch {
 		case strings.HasSuffix(path, "/config"):
 			s.handleUpdateConfig(w, r)
@@ -43,7 +57,10 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 	}))
 	root := http.NewServeMux()
 	root.Handle("/api/", http.StripPrefix("/api", apiMux))
-	return httptest.NewServer(root)
+	ts := httptest.NewServer(root)
+	parsed, _ := url.Parse(ts.URL)
+	s.port = parsed.Port()
+	return ts
 }
 
 func newGatewayAppAPITestServer(s *Server) *httptest.Server {
@@ -115,6 +132,11 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	if row["name"] != "CRM Helper" {
 		t.Fatalf("expected created agent name from API response, got %#v", row["name"])
 	}
+	for _, forbidden := range []string{"directive", "config", "port", "pid", "user_id"} {
+		if _, leaked := row[forbidden]; leaked {
+			t.Fatalf("created-agent receipt leaked %s: %#v", forbidden, row)
+		}
+	}
 	idFloat, ok := row["id"].(float64)
 	if !ok || idFloat <= 0 {
 		t.Fatalf("expected numeric created agent id, got %#v", row["id"])
@@ -145,9 +167,13 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agents_list returned error: %v", err)
 	}
-	rows, ok := listResult.([]any)
+	listPage, ok := listResult.(map[string]any)
 	if !ok {
-		t.Fatalf("expected list result array, got %T", listResult)
+		t.Fatalf("expected paginated list result, got %T", listResult)
+	}
+	rows, ok := listPage["agents"].([]any)
+	if !ok {
+		t.Fatalf("expected agents array, got %#v", listPage)
 	}
 	found := false
 	for _, item := range rows {
@@ -252,20 +278,43 @@ provides:
 	if err != nil {
 		t.Fatalf("apps_list returned error: %v", err)
 	}
-	rows, ok := listed.([]any)
+	listPage, ok := listed.(map[string]any)
 	if !ok {
-		t.Fatalf("expected list array, got %T", listed)
+		t.Fatalf("expected paginated apps result, got %T", listed)
+	}
+	rows, ok := listPage["apps"].([]any)
+	if !ok {
+		t.Fatalf("expected apps array, got %#v", listPage)
 	}
 	found := false
 	for _, row := range rows {
 		obj, ok := row.(map[string]any)
 		if ok && obj["name"] == "tiny-bills" && obj["project_id"] == "proj-a" {
+			if obj["description"] != "Minimal app fixture for gateway tests." {
+				t.Fatalf("compact app description missing: %#v", obj)
+			}
+			if _, heavy := obj["ui_components"]; heavy {
+				t.Fatalf("apps_list leaked dashboard UI schemas: %#v", obj)
+			}
 			found = true
 			break
 		}
 	}
 	if !found {
 		t.Fatalf("apps_list did not include project install: %#v", listed)
+	}
+	detail, err := handleGatewayAppTool("apps_get", map[string]any{"install_id": installID}, "proj-a", client)
+	if err != nil {
+		t.Fatalf("apps_get returned error: %v", err)
+	}
+	detailRow := detail.(map[string]any)
+	if detailRow["description"] != "Minimal app fixture for gateway tests." || detailRow["surfaces"] == nil {
+		t.Fatalf("unexpected app detail: %#v", detailRow)
+	}
+	for _, forbidden := range []string{"ui_components", "ui_panels", "ui_surfaces", "imports"} {
+		if _, heavy := detailRow[forbidden]; heavy {
+			t.Fatalf("apps_get leaked dashboard field %s: %#v", forbidden, detailRow)
+		}
 	}
 
 	if _, err := handleGatewayAppTool("apps_uninstall", map[string]any{
@@ -360,6 +409,9 @@ func TestGatewayAppsMarketplaceAndUpgrade(t *testing.T) {
 	if entry["name"] != "tiny-market" || entry["installed"] != true {
 		t.Fatalf("expected installed tiny-market entry, got %#v", entry)
 	}
+	if _, heavy := entry["surfaces"]; heavy {
+		t.Fatalf("marketplace leaked full surface model: %#v", entry)
+	}
 
 	upgraded, err := handleGatewayAppTool("apps_upgrade", map[string]any{
 		"install_id": strconv.FormatInt(installID, 10),
@@ -439,7 +491,7 @@ func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {
 	if updated.Name != "Renamed CRM Helper" {
 		t.Fatalf("expected renamed agent, got %q", updated.Name)
 	}
-	if updated.Directive != withAgentBehavior("Updated directive from MCP.", "learn") {
+	if updated.Directive != "Updated directive from MCP." {
 		t.Fatalf("expected directive update, got %q", updated.Directive)
 	}
 	if updated.Mode != "learn" {
@@ -754,8 +806,9 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
-	if len(all) != 5 {
-		t.Fatalf("expected all 5 MCP servers, got %d: %#v", len(all), all)
+	// Inventory also contains the selectable built-in Apteva Server.
+	if len(all) != 6 {
+		t.Fatalf("expected 5 registered MCP servers plus Apteva Server, got %d: %#v", len(all), all)
 	}
 	byID := map[int64]gatewayMCPServer{}
 	for _, row := range all {
@@ -779,20 +832,20 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 	if got := byID[custom.ID].Kind; got != "custom" {
 		t.Fatalf("custom MCP kind = %q, want custom", got)
 	}
-	if got := byID[custom.ID].MCPURL; got != authorizeMCPURL("http://127.0.0.1:5280/mcp/custom/"+strconv.FormatInt(custom.ID, 10), s.instanceSecret) {
-		t.Fatalf("custom MCP must use the server bridge, got %q", got)
-	}
-	if _, leaked := byID[custom.ID].ProxyConfig["command"]; leaked {
-		t.Fatalf("custom subprocess command leaked to agent config: %#v", byID[custom.ID].ProxyConfig)
+	if byID[custom.ID].MCPURL != "" || byID[custom.ID].ProxyConfig != nil {
+		t.Fatalf("custom MCP runtime capability leaked: %#v", byID[custom.ID])
 	}
 	if byID[appOwnedMCPID].CreatedVia != "app_install" || byID[appOwnedMCPID].OwnerAppInstallID != 77 {
 		t.Fatalf("expected app-owned metadata, got created_via=%q owner=%d", byID[appOwnedMCPID].CreatedVia, byID[appOwnedMCPID].OwnerAppInstallID)
 	}
-	if byID[operatorMCPID].MCPURL != authorizeMCPURL("http://127.0.0.1:5280/mcp/"+strconv.FormatInt(operatorMCPID, 10), s.instanceSecret) {
-		t.Fatalf("unexpected operator mcp_url: %q", byID[operatorMCPID].MCPURL)
+	if byID[operatorMCPID].MCPURL != "" || byID[directApp.ID].MCPURL != "" {
+		t.Fatalf("MCP capability URL leaked in summaries: operator=%q app=%q", byID[operatorMCPID].MCPURL, byID[directApp.ID].MCPURL)
 	}
-	if got := byID[directApp.ID].MCPURL; !strings.Contains(got, "project_id=proj-a") {
-		t.Fatalf("expected direct app mcp_url to include project id, got %q", got)
+	raw, _ := json.Marshal(all)
+	for _, forbidden := range []string{"mcp_token", "127.0.0.1", "manual-mcp", "--stdio", "mcp_url", "proxy_config"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("MCP inventory leaked %q: %s", forbidden, raw)
+		}
 	}
 
 	appOnly, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "app"}, "5280", s.instanceSecret)
@@ -828,5 +881,30 @@ func TestGatewayListMCPServersClassifiesAndFiltersKinds(t *testing.T) {
 
 	if _, err := listGatewayMCPServers(s.store, 1, "proj-a", map[string]any{"kind": "bogus"}, "5280", s.instanceSecret); err == nil {
 		t.Fatalf("expected invalid kind to return an error")
+	}
+}
+
+func TestGatewayAppDiscoveryExplainsAttachmentAndPreservesDescription(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	install := seedAppWithTools(t, s, "processes", "", []string{"processes_get"})
+	ts := newGatewayAppAPITestServer(s)
+	defer ts.Close()
+	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: s.instanceSecret}
+	list, err := handleGatewayAppTool("apps_list", map[string]any{}, "", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := list.(map[string]any)
+	if !strings.Contains(page["agent_usage"].(string), "bound_app_install_ids") {
+		t.Fatalf("list missing attachment guidance: %#v", list)
+	}
+	detail, err := handleGatewayAppTool("apps_get", map[string]any{"install_id": install}, "", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := detail.(map[string]any)
+	if row["description"] != "Test app for processes" || !strings.Contains(row["agent_usage"].(string), "coordination") {
+		t.Fatalf("app discovery lost description or guidance: %#v", row)
 	}
 }

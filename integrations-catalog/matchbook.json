@@ -1,0 +1,644 @@
+{
+  "slug": "matchbook",
+  "name": "Matchbook Exchange",
+  "description": "Self-service exchange API available to registered Matchbook customers, subject to account and country eligibility. Read events/prices and balances; submit, edit, cancel and track back/lay offers and settled bets. Configure session-token obtained from POST https://api.matchbook.com/bpapi/rest/security/session with username/password and mfa-code if required. Sessions last approximately six hours; reuse and update the credential when expired. Automatic login/refresh is not configured. Reads can incur API usage charges and matched bets incur commission. Docs: https://developers.matchbook.com",
+  "logo": "https://www.google.com/s2/favicons?domain=matchbook.com&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "exchange",
+    "odds"
+  ],
+  "base_url": "https://api.matchbook.com",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "session-token": "{{session_token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "session_token",
+        "label": "Session Token",
+        "type": "password",
+        "required": true,
+        "description": "Value of session-token returned by the Matchbook login endpoint. Reuse for approximately six hours; replace after expiry."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_account",
+      "description": "Get the account information for the user currently logged in.\n\nThis API requires authentication and will return a 401 in case the session expired or no session token is provided.\n\nAPI GROUP : ACCOUNT Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get the balance for the user currently logged in.\n\nThis API requires authentication and will return a 401 in case the session expired or no session token is provided.\n\nAPI GROUP : ACCOUNT Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/account/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_sports",
+      "description": "Get the list of sports supported by Matchbook.\n\nAPI GROUP : NAVIGATION Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/lookups/sports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "description": "Used for paging. The offset of the first entry in the response."
+          },
+          "per-page": {
+            "type": "integer",
+            "description": "Used for paging. The number of entries to return in a single response."
+          },
+          "order": {
+            "type": "string",
+            "description": "Used for sorting results by *name* or *id* in ascending or descending order. Allowed values: *name asc*, *name desc*, *id asc*, *id desc*."
+          },
+          "status": {
+            "type": "string",
+            "description": "A comma separated list of statuses. Only sports with status in the provided list are included in the response."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "Get a list of events available on Matchbook ordered by start time.\n\nAPI GROUP : EVENTS Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "string",
+            "description": "Used for paging. The offset of the first entry in the response."
+          },
+          "per-page": {
+            "type": "string",
+            "description": "Used for paging. The number of entries to return in a single response."
+          },
+          "after": {
+            "type": "integer",
+            "description": "A unix epoch timestamp. Only events starting after the timestamp will be returned."
+          },
+          "before": {
+            "type": "integer",
+            "description": "A unix epoch timestamp. Only events starting before the timestamp will be returned."
+          },
+          "category-ids": {
+            "type": "string",
+            "description": "A comma separated list of category ids. Only events on the provided categories are included in the response."
+          },
+          "ids": {
+            "type": "string",
+            "description": "A comma separated list of event ids. Only events with id in the provided list are included in the response."
+          },
+          "sport-ids": {
+            "type": "string",
+            "description": "A comma separated list of sport ids. Only events with sport in the provided list are included in the response."
+          },
+          "states": {
+            "type": "string",
+            "description": "A comma separated list of event states. Only events with status in the provided list are included in the response. Allowed values: open, suspended, closed, graded."
+          },
+          "tag-url-names": {
+            "type": "string",
+            "description": "A comma separated list of *url-name*s. Only events with tags having *url-name* in the provided list are included in the response."
+          },
+          "exchange-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *exchange-type*. Allowed values: *back-lay*, *binary*."
+          },
+          "odds-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *odds-type*. Allowed values: *DECIMAL*, *US*, *HK*, *MALAY*, *INDO*, *%*."
+          },
+          "include-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return the prices for the events."
+          },
+          "price-depth": {
+            "type": "integer",
+            "description": "Value indicating, for each runner, the maximum number of prices that will be returned in the response for each side."
+          },
+          "price-mode": {
+            "type": "string",
+            "description": "Allowed values are: *expanded*, *aggregated*. With *expanded* all prices available on the runner are returned up to the defined *price-depth*. With *aggregated* at most three prices are returned. First and second are identical to the first two prices returned with by the *expanded* mode. Third price is an aggregation of the liquidity on the third and following layers calculated to optimise the liquidity displayed."
+          },
+          "side": {
+            "type": "string",
+            "description": "Only prices on the specified side are included in the response. Allowed values are: *back*, *lay* or *win*, *lose*. Both sides are returned if no side is specified."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Prices are returned in the specified *currency*. Allowed values: *USD*, *EUR*, *GBP*, *AUD*, *CAD*. *HKD*"
+          },
+          "minimum-liquidity": {
+            "type": "number",
+            "description": "Only prices with *available-amount* greater than or equal to this value are included in the response. The default is 2."
+          },
+          "include-event-participants": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return the event participants information."
+          },
+          "markets-limit": {
+            "type": "integer",
+            "description": "The maximum number of markets to return for each event."
+          },
+          "exclude-mirrored-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return only the originator prices for binary markets (similar to non binary markets) or to include also mirrored prices."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "API GROUP : EVENTS Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/events/{event_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "description": "The id of the event to return in the response."
+          },
+          "exchange-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *exchange-type*. Allowed values: *back-lay*, *binary*."
+          },
+          "odds-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *odds-type*. Allowed values: *DECIMAL*, *US*, *HK*, *MALAY*, *INDO*, *%*."
+          },
+          "include-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return the prices for the event."
+          },
+          "price-depth": {
+            "type": "string",
+            "description": "Value indicating, for each runner, the maximum number of prices that will be returned in the response for each side."
+          },
+          "price-mode": {
+            "type": "string",
+            "description": "Allowed values are: *expanded*, *aggregated*. With *expanded* all prices available on the runner are returned. With *aggregated* at most three prices are returned. First and second are identical to the first two prices returned with by the *expanded* mode. Third price is an aggregation of the liquidity on the third and following layers calculated to optimise the liquidity displayed."
+          },
+          "side": {
+            "type": "string",
+            "description": "Only prices on the specified side are included in the response. Allowed values are: *back*, *lay* or *win*, *lose*. Both sides are returned if no side is specified."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Prices are returned in the specified *currency*. Allowed values: *USD*, *EUR*, *GBP*, *AUD*, *CAD*. *HKD*"
+          },
+          "minimum-liquidity": {
+            "type": "number",
+            "description": "Only prices with *available-amount* greater than or equal to this value are included in the response. The default is 2."
+          },
+          "include-event-participants": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return the event participants information."
+          },
+          "markets-limit": {
+            "type": "integer",
+            "description": "The maximum number of markets to return within the event."
+          },
+          "exclude-mirrored-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return only the originator prices for binary markets (similar to non binary markets) or to include also mirrored prices."
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "list_markets",
+      "description": "API GROUP : EVENTS Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/events/{event_id}/markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "description": "The id of the event for which markets are to be returned in the response."
+          },
+          "offset": {
+            "type": "string",
+            "description": "Used for paging. The offset of the first entry in the response."
+          },
+          "per-page": {
+            "type": "string",
+            "description": "Used for paging. The number of entries to return in a single response."
+          },
+          "names": {
+            "type": "string",
+            "description": "A comma separated list of market names. Only markets with name in the provided list are included in the response."
+          },
+          "states": {
+            "type": "string",
+            "description": "A comma separated list of market states. Only markets with status in the provided list are included in the response."
+          },
+          "types": {
+            "type": "string",
+            "description": "A comma separated list of market types. Only markets with type in the provided list are included in the response."
+          },
+          "exchange-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *exchange-type*. Allowed values: *back-lay*, *binary*."
+          },
+          "odds-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *odds-type*. Allowed values: *DECIMAL*, *US*, *HK*, *MALAY*, *INDO*, *%*."
+          },
+          "include-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return the prices for the markets."
+          },
+          "price-depth": {
+            "type": "string",
+            "description": "Value indicating, for each runner, the maximum number of prices that will be returned in the response for each side."
+          },
+          "price-mode": {
+            "type": "string",
+            "description": "Allowed values are: *expanded*, *aggregated*. With *expanded* all prices available on the runner are returned up to the defined *price-depth*. With *aggregated* at most three prices are returned. First and second are identical to the first two prices returned with by the *expanded* mode. Third price is an aggregation of the liquidity on the third and following layers calculated to optimise the liquidity displayed."
+          },
+          "side": {
+            "type": "string",
+            "description": "Only prices on the specified side are included in the response. Allowed values are: *back*, *lay* or *win*, *lose*. Both sides are returned if no side is specified."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Prices are returned in the specified *currency*. Allowed values: *USD*, *EUR*, *GBP*, *AUD*, *CAD*. *HKD*"
+          },
+          "minimum-liquidity": {
+            "type": "number",
+            "description": "Only prices with *available-amount* greater than or equal to this value are included in the response. The default is 2."
+          },
+          "exclude-mirrored-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return only the originator prices for binary markets (similar to non binary markets) or to include also mirrored prices."
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      }
+    },
+    {
+      "name": "list_runners",
+      "description": "API GROUP : EVENTS Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/events/{event_id}/markets/{market_id}/runners",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "description": "The id of the event for which market is to be returned in the response."
+          },
+          "market_id": {
+            "type": "integer",
+            "description": "The id of the market for which runners are to be returned in the response."
+          },
+          "states": {
+            "type": "string",
+            "description": "A comma separated list of runner states. Only runners with status in the provided list are included in the response."
+          },
+          "include-withdrawn": {
+            "type": "boolean",
+            "description": "A boolean for returning or not the withdrawn runners in the response."
+          },
+          "include-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return the prices for the runners."
+          },
+          "price-depth": {
+            "type": "integer",
+            "description": "Value indicating, for each runner, the maximum number of prices that will be returned in the response for each side."
+          },
+          "price-mode": {
+            "type": "string",
+            "description": "Allowed values are: *expanded*, *aggregated*. With *expanded* all prices available on the runner are returned up to the defined *price-depth*. With *aggregated* at most three prices are returned. First and second are identical to the first two prices returned with by the *expanded* mode. Third price is an aggregation of the liquidity on the third and following layers calculated to optimise the liquidity displayed."
+          },
+          "exchange-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *exchange-type*. Allowed values: *back-lay*, *binary*."
+          },
+          "odds-type": {
+            "type": "string",
+            "description": "Prices are returned in accordance with the specified *odds-type*. Allowed values: *DECIMAL*, *US*, *HK*, *MALAY*, *INDO*, *%*."
+          },
+          "side": {
+            "type": "string",
+            "description": "Only prices on the specified side are included in the response. Allowed values are: *back*, *lay* or *win*, *lose*. Both sides are returned if no side is specified."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Prices are returned in the specified *currency*. Allowed values: *USD*, *EUR*, *GBP*, *AUD*, *CAD*. *HKD*"
+          },
+          "minimum-liquidity": {
+            "type": "number",
+            "description": "Only prices with *available-amount* greater than or equal to this value are included in the response. The default is 2."
+          },
+          "exclude-mirrored-prices": {
+            "type": "boolean",
+            "description": "A boolean indicating whether to return only the originator prices for binary markets (similar to non binary markets) or to include also mirrored prices."
+          }
+        },
+        "required": [
+          "event_id",
+          "market_id"
+        ]
+      }
+    },
+    {
+      "name": "list_offers",
+      "description": "Get the current unsettled offers. This can include offers in all statuses.\n\nAPI GROUP : BETTING_READ Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/v2/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "description": "Used for paging. The offset of the first entry in the response."
+          },
+          "per-page": {
+            "type": "integer",
+            "description": "Used for paging. The number of entries to return in a single response."
+          },
+          "sport-ids": {
+            "type": "string",
+            "description": "A comma separated list of sport ids. Only offers on those sports are included in the response."
+          },
+          "event-ids": {
+            "type": "string",
+            "description": "A comma separated list of event ids. Only offers on the provided events are included in the response."
+          },
+          "market-ids": {
+            "type": "string",
+            "description": "A comma separated list of market ids. Only offers on the provided markets are included in the response."
+          },
+          "runner-ids": {
+            "type": "string",
+            "description": "A comma separated list of runner ids. Only offers on the provided runners are included in the response."
+          },
+          "side": {
+            "type": "string",
+            "description": "Only offers on the side are included in the response. Valid values are back, lay, win or lose."
+          },
+          "status": {
+            "type": "string",
+            "description": "A comma separated list of statuses. Only offers with one of the provided statuses are included in the response. Valid values are: open, cancelled, edited, flushed, matched and unmatched. Matched and unmatched are special values. Matched will return offers that are partially or fully matched. Unmatched will return offers that have got some amount of stake available to be matched i.e. offers that are open and edited."
+          },
+          "interval": {
+            "type": "integer",
+            "description": "Only include offers in the response that have been submitted or have changed within the specified number of seconds."
+          },
+          "include-edits": {
+            "type": "boolean",
+            "description": "If true, the offers in the response will include the edits applied on them."
+          },
+          "cancellation-reason": {
+            "type": "string",
+            "description": "On cancelled offers specifies reason of cancellation. Valid values are: user_request and heartbeat_expiry."
+          },
+          "aggregation-type": {
+            "type": "string",
+            "description": "Can be summary | average : if one of these two values is specified, offers will be returned in one of the aggregated modes. `stake` will be the total stake of all aggregated offers; each offer will have one and only one matched bet for the aggregated matched odds and the matched stake. The unmatched amount is under the `remaining` field of the offer and the unmatched odds are the offer main odds. There is no `id` field obviously but there is an `ids` field listing all actual aggreagated offer ids."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_offer",
+      "description": "Get a single specific unsettled offer.\n\nAPI GROUP : BETTING_READ Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/v2/offers/{offer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "integer",
+            "description": "The id of the offer to return in the response."
+          },
+          "include-edits": {
+            "type": "boolean",
+            "description": "If true, the offer in the response will include the edits applied on it."
+          }
+        },
+        "required": [
+          "offer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_settled_bets",
+      "description": "API GROUP : REPORTS Full provider response is preserved.",
+      "method": "GET",
+      "path": "/edge/rest/reports/v2/bets/settled",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "description": "Used for paging. The offset of the first entry in the response."
+          },
+          "per-page": {
+            "type": "integer",
+            "description": "Used for paging. The number of entries to return in a single response."
+          },
+          "event-ids": {
+            "type": "string",
+            "description": "A comma separated list of event ids. Only bets on the provided events are included in the response."
+          },
+          "sport-ids": {
+            "type": "string",
+            "description": "A comma separated list of sport ids. Only bets on the provided sports are included in the response."
+          },
+          "market-ids": {
+            "type": "string",
+            "description": "A comma separated list of market ids. Only bets on the provided markets are included in the response."
+          },
+          "after": {
+            "type": "string",
+            "description": "An ISO8601 timestamp e.g. 2017-01-01T12:00:00.000Z. Only bets settled after the timestamp will be returned."
+          },
+          "before": {
+            "type": "string",
+            "description": "An ISO8601 timestamp e.g. 2017-01-01T12:00:00.000Z. Only bets settled before the timestamp will be returned."
+          }
+        }
+      }
+    },
+    {
+      "name": "cancel_offer",
+      "description": "Cancel only an unmatched open or edited offer. Already matched stakes cannot be cancelled. Inspect returned status and errors.",
+      "method": "DELETE",
+      "path": "/edge/rest/v2/offers/{offer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offer_id": {
+            "type": "integer",
+            "description": "The id of the offer that you want to cancel."
+          }
+        },
+        "required": [
+          "offer_id"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 0
+      }
+    },
+    {
+      "name": "edit_offers",
+      "description": "Edit offers using current odds/stake and new odds/stake. Inspect each returned offer status and errors. Do not repeat automatically after an ambiguous timeout.",
+      "method": "PUT",
+      "path": "/edge/rest/v2/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "current-odds": {
+                  "type": "number"
+                },
+                "new-odds": {
+                  "type": "number"
+                },
+                "current-stake": {
+                  "type": "number"
+                },
+                "new-stake": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "current-odds",
+                "new-odds",
+                "current-stake",
+                "new-stake"
+              ]
+            }
+          }
+        },
+        "required": [
+          "offers"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 0
+      },
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    },
+    {
+      "name": "submit_offers",
+      "description": "Place real back/lay betting offers. The response can contain failed, delayed, open or matched offers; HTTP success alone does not prove a match or settlement. Inspect every offer status and error. No documented idempotency key: do not repeat an ambiguous submission without reconciling existing offers.",
+      "method": "POST",
+      "path": "/edge/rest/v2/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "odds-type": {
+            "type": "string",
+            "enum": [
+              "DECIMAL",
+              "US",
+              "HK",
+              "MALAY",
+              "INDO",
+              "%"
+            ]
+          },
+          "exchange-type": {
+            "type": "string",
+            "enum": [
+              "back-lay"
+            ]
+          },
+          "offers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "runner-id": {
+                  "type": "integer"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": [
+                    "back",
+                    "lay"
+                  ]
+                },
+                "odds": {
+                  "type": "number"
+                },
+                "stake": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "keep-in-play": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "runner-id",
+                "side",
+                "odds",
+                "stake"
+              ]
+            }
+          }
+        },
+        "required": [
+          "odds-type",
+          "offers"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 0
+      },
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_balance"
+  }
+}

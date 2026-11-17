@@ -1,0 +1,266 @@
+{
+  "slug": "apple-search-ads",
+  "name": "Apple Search Ads",
+  "description": "Apple Search Ads Campaign Management API v5 — App Store search-result ads. Two-leg auth: sign a JWT (ES256) with your team's private key + key id + Apple client_id (audience: appleid.apple.com), POST it to https://appleid.apple.com/auth/oauth2/token as client_assertion to get an access_token. Every API call needs Authorization: Bearer + X-AP-Context: orgId={orgId}.",
+  "logo": "https://www.google.com/s2/favicons?domain=searchads.apple.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "apple",
+    "app-store",
+    "search-ads",
+    "mobile-ads"
+  ],
+  "base_url": "https://api.searchads.apple.com/api/v5",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "X-AP-Context": "orgId={{org_id}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password",
+        "description": "Bearer token from POST /auth/oauth2/token. Lifetime 1 hour."
+      },
+      {
+        "name": "org_id",
+        "label": "Org ID",
+        "description": "Apple Search Ads org/account id (numeric). Required in X-AP-Context."
+      },
+      {
+        "name": "client_id",
+        "label": "Apple Client ID",
+        "description": "Client ID from Search Ads UI > Account Settings > API. Format: SEARCHADS.<uuid>"
+      },
+      {
+        "name": "team_id",
+        "label": "Team ID",
+        "description": "Team ID from Search Ads UI > Account Settings > API. Same value as Apple Client ID for most orgs."
+      },
+      {
+        "name": "key_id",
+        "label": "Key ID",
+        "description": "ES256 key identifier (kid) from Search Ads UI > Account Settings > API"
+      },
+      {
+        "name": "private_key",
+        "label": "Private Key (PEM)",
+        "type": "password",
+        "description": "EC private key (P-256). Used to sign the JWT client_assertion. PEM format starting with -----BEGIN EC PRIVATE KEY-----."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under the current org. Supports limit/offset paging and a sort + filter (Conditions[]) body.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 100, "description": "Max 1000" },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "find_campaigns",
+      "description": "POST search for campaigns with conditions/orderBy/pagination. conditions[] entries: {field, operator (EQUALS|CONTAINS|GREATER_THAN|...), values}.",
+      "method": "POST",
+      "path": "/campaigns/find",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conditions": { "type": "array", "items": { "type": "object" } },
+          "orderBy": { "type": "array", "items": { "type": "object" } },
+          "pagination": { "type": "object", "description": "{\"offset\": 0, \"limit\": 100}" }
+        }
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Required: orgId (numeric), name, adamId (the iTunes app ID being promoted), countriesOrRegions, budgetAmount {amount, currency}, dailyBudgetAmount, billingEvent ('TAPS'), adChannelType (SEARCH|DISPLAY), supplySources (['APPSTORE_SEARCH_RESULTS'] for the default placement).",
+      "method": "POST",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orgId": { "type": "integer" },
+          "name": { "type": "string" },
+          "adamId": { "type": "integer", "description": "iTunes app ID being promoted" },
+          "countriesOrRegions": { "type": "array", "items": { "type": "string" }, "description": "ISO country codes, e.g. [\"US\",\"CA\"]" },
+          "budgetAmount": { "type": "object", "description": "{\"amount\": \"1000\", \"currency\": \"USD\"}" },
+          "dailyBudgetAmount": { "type": "object" },
+          "billingEvent": { "type": "string", "enum": ["TAPS"], "default": "TAPS" },
+          "adChannelType": { "type": "string", "enum": ["SEARCH", "DISPLAY"], "default": "SEARCH" },
+          "supplySources": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["APPSTORE_SEARCH_RESULTS", "APPSTORE_SEARCH_TAB", "APPSTORE_TODAY_TAB", "APPSTORE_PRODUCT_PAGES_BROWSE"] }
+          },
+          "status": { "type": "string", "enum": ["ENABLED", "PAUSED"], "default": "PAUSED" }
+        },
+        "required": ["orgId", "name", "adamId", "countriesOrRegions", "budgetAmount", "dailyBudgetAmount"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a campaign. Pass campaignId in path; body wraps fields under \"campaign\" plus a clearGeoTargetingOnCountryOrRegionChange flag when changing countries.",
+      "method": "PUT",
+      "path": "/campaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "campaign": { "type": "object", "description": "Fields to update — name, dailyBudgetAmount, status, etc." },
+          "clearGeoTargetingOnCountryOrRegionChange": { "type": "boolean", "default": false }
+        },
+        "required": ["campaignId", "campaign"]
+      }
+    },
+    {
+      "name": "list_ad_groups",
+      "description": "List ad groups under a campaign.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}/adgroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["campaignId"]
+      }
+    },
+    {
+      "name": "create_ad_group",
+      "description": "Create an ad group inside a campaign. Required: name, defaultBidAmount {amount, currency}, startTime (ISO8601), automatedKeywordsOptIn (true|false), pricingModel ('CPC'). targetingDimensions optionally narrow audience (gender, age range, device class, locality).",
+      "method": "POST",
+      "path": "/campaigns/{campaignId}/adgroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "name": { "type": "string" },
+          "defaultBidAmount": { "type": "object" },
+          "startTime": { "type": "string", "description": "ISO 8601 datetime" },
+          "endTime": { "type": "string" },
+          "automatedKeywordsOptIn": { "type": "boolean", "default": false },
+          "pricingModel": { "type": "string", "enum": ["CPC"], "default": "CPC" },
+          "targetingDimensions": { "type": "object" },
+          "status": { "type": "string", "enum": ["ENABLED", "PAUSED"], "default": "PAUSED" }
+        },
+        "required": ["campaignId", "name", "defaultBidAmount", "startTime", "automatedKeywordsOptIn"]
+      }
+    },
+    {
+      "name": "list_targeting_keywords",
+      "description": "List keywords (targeting) under an ad group.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}/adgroups/{adGroupId}/targetingkeywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "adGroupId": { "type": "integer" },
+          "limit": { "type": "integer", "default": 1000 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["campaignId", "adGroupId"]
+      }
+    },
+    {
+      "name": "create_targeting_keywords",
+      "description": "Bulk-add keywords to an ad group. Each item: text, matchType (EXACT|BROAD), bidAmount {amount, currency}, status (ACTIVE|PAUSED).",
+      "method": "POST",
+      "path": "/campaigns/{campaignId}/adgroups/{adGroupId}/targetingkeywords/bulk",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "adGroupId": { "type": "integer" },
+          "keywords": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["campaignId", "adGroupId", "keywords"]
+      }
+    },
+    {
+      "name": "list_negative_keywords",
+      "description": "List negative keywords scoped to a campaign.",
+      "method": "GET",
+      "path": "/campaigns/{campaignId}/negativekeywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "limit": { "type": "integer", "default": 1000 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["campaignId"]
+      }
+    },
+    {
+      "name": "campaign_report",
+      "description": "Run a campaign-level performance report. groupBy (e.g. [\"countryOrRegion\"]) and granularity (DAILY|WEEKLY|MONTHLY|HOURLY) shape the result. selector lets you filter (conditions, fields, orderBy, pagination).",
+      "method": "POST",
+      "path": "/reports/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startTime": { "type": "string", "description": "YYYY-MM-DD" },
+          "endTime": { "type": "string", "description": "YYYY-MM-DD" },
+          "selector": { "type": "object" },
+          "groupBy": { "type": "array", "items": { "type": "string" } },
+          "timeZone": { "type": "string", "enum": ["UTC", "ORTZ"], "default": "ORTZ" },
+          "returnRecordsWithNoMetrics": { "type": "boolean", "default": false },
+          "returnRowTotals": { "type": "boolean", "default": true },
+          "returnGrandTotals": { "type": "boolean", "default": true },
+          "granularity": { "type": "string", "enum": ["HOURLY", "DAILY", "WEEKLY", "MONTHLY"], "default": "DAILY" }
+        },
+        "required": ["startTime", "endTime"]
+      }
+    },
+    {
+      "name": "ad_group_report",
+      "description": "Run an ad-group-level performance report under a campaign.",
+      "method": "POST",
+      "path": "/reports/campaigns/{campaignId}/adgroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "startTime": { "type": "string" },
+          "endTime": { "type": "string" },
+          "selector": { "type": "object" },
+          "granularity": { "type": "string", "enum": ["HOURLY", "DAILY", "WEEKLY", "MONTHLY"], "default": "DAILY" },
+          "returnRecordsWithNoMetrics": { "type": "boolean", "default": false }
+        },
+        "required": ["campaignId", "startTime", "endTime"]
+      }
+    },
+    {
+      "name": "keyword_report",
+      "description": "Run a keyword-level performance report (search terms, ROAS, CPA, install rate) under a campaign.",
+      "method": "POST",
+      "path": "/reports/campaigns/{campaignId}/keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "startTime": { "type": "string" },
+          "endTime": { "type": "string" },
+          "selector": { "type": "object" },
+          "granularity": { "type": "string", "enum": ["HOURLY", "DAILY", "WEEKLY", "MONTHLY"], "default": "DAILY" }
+        },
+        "required": ["campaignId", "startTime", "endTime"]
+      }
+    }
+  ]
+}

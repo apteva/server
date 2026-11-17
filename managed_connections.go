@@ -157,7 +157,7 @@ func (s *Server) handleCallbackManagedConnectionRotate(w http.ResponseWriter, r 
 		http.Error(w, "credential encryption failed", http.StatusInternalServerError)
 		return
 	}
-	result, err := s.store.db.Exec(`UPDATE connections
+	result, err := s.store.dbExecContext(r.Context(), `UPDATE connections
 		SET encrypted_credentials=?, status='active'
 		WHERE id=? AND user_id=? AND owner_app_install_id=?
 		  AND credential_management='app' AND credential_export_policy='never'`,
@@ -194,7 +194,7 @@ func (s *Server) handleCallbackManagedConnectionRevoke(w http.ResponseWriter, r 
 		http.Error(w, "managed connection not owned by this app", http.StatusForbidden)
 		return
 	}
-	result, err := s.store.db.Exec(`DELETE FROM connections
+	result, err := s.store.dbExecContext(r.Context(), `DELETE FROM connections
 		WHERE id=? AND user_id=? AND owner_app_install_id=?
 		  AND credential_management='app' AND credential_export_policy='never'`,
 		connID, userID, installID)
@@ -220,7 +220,7 @@ func (s *Server) authorizeManagedConnectionMutation(w http.ResponseWriter, r *ht
 		http.Error(w, "missing permission: "+string(sdk.PermConnectionsManageOwnedCredentials), http.StatusForbidden)
 		return 0, 0, "", false
 	}
-	if err := s.store.db.QueryRow(`SELECT COALESCE(installed_by,0), COALESCE(project_id,'')
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(installed_by,0), COALESCE(project_id,'')
 		FROM app_installs WHERE id=? AND status='running'`, installID).Scan(&userID, &installProject); err != nil || userID <= 0 {
 		http.Error(w, "running app installation not found", http.StatusForbidden)
 		return 0, 0, "", false
@@ -257,7 +257,7 @@ func (s *Server) ensureManagedConnection(in ConnectionInput) (*Connection, bool,
 		if existing.UserID != in.UserID || existing.AppSlug != in.AppSlug || existing.ProjectID != in.ProjectID || existing.CredentialManagement != "app" || existing.CredentialExportPolicy != "never" {
 			return nil, false, errManagedConnectionConflict
 		}
-		_, err = s.store.db.Exec(`UPDATE connections SET name=?, auth_type=?, encrypted_credentials=?, status='active', app_name=?
+		_, err = s.store.dbExec(`UPDATE connections SET name=?, auth_type=?, encrypted_credentials=?, status='active', app_name=?
 			WHERE id=? AND owner_app_install_id=? AND managed_key=?`,
 			in.Name, in.AuthType, in.EncryptedCreds, in.AppName, existing.ID, in.OwnerAppInstallID, in.ManagedKey)
 		if err != nil {
@@ -290,7 +290,7 @@ func (s *Server) reloadManagedConnection(ownerID int64, key string, created bool
 
 func (s *Store) getManagedConnection(ownerID int64, key string) (*Connection, string, error) {
 	var userID, connID int64
-	err := s.db.QueryRow(`SELECT user_id, id FROM connections WHERE owner_app_install_id=? AND managed_key=?`, ownerID, key).Scan(&userID, &connID)
+	err := s.dbQueryRow(`SELECT user_id, id FROM connections WHERE owner_app_install_id=? AND managed_key=?`, ownerID, key).Scan(&userID, &connID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -325,7 +325,7 @@ func (s *Server) recordManagedConnectionEvent(conn *Connection, installID int64,
 	if conn == nil {
 		return
 	}
-	_, _ = s.store.db.Exec(`INSERT INTO managed_connection_events
+	_, _ = s.store.dbExec(`INSERT INTO managed_connection_events
 		(connection_id, owner_app_install_id, action, app_slug, project_id, managed_key)
 		VALUES (?, ?, ?, ?, ?, ?)`, conn.ID, installID, action, conn.AppSlug, conn.ProjectID, conn.ManagedKey)
 }

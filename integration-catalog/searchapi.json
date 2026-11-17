@@ -1,0 +1,212 @@
+{
+  "slug": "searchapi",
+  "name": "SearchApi.io",
+  "description": "Real-time structured search and ad-library data from Google, Bing, app stores, marketplaces, Meta, LinkedIn, TikTok, and other public web sources. Public API-key signup includes 100 free requests with no credit card.",
+  "logo": "https://www.google.com/s2/favicons?domain=searchapi.io&sz=128",
+  "categories": ["search", "serp", "seo", "scraping", "advertising", "ad-library", "app-store"],
+  "base_url": "https://www.searchapi.io",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{api_key}}" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "description": "SearchApi.io API key. Create an account at searchapi.io; the key is injected as a Bearer token automatically." }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Run a real-time search against a query-based SearchApi engine. For app stores and ad libraries, prefer the dedicated tools because their parameters differ.",
+      "method": "GET",
+      "path": "/api/v1/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engine": { "type": "string", "description": "Engine such as google, google_light, google_ai_mode, google_news, google_images, google_maps, google_shopping, google_scholar, google_jobs, bing, bing_news, yahoo, baidu, yandex, duckduckgo, naver, youtube, amazon, ebay, walmart, or bestbuy." },
+          "q": { "type": "string" },
+          "location": { "type": "string" },
+          "gl": { "type": "string", "description": "Country code." },
+          "hl": { "type": "string", "description": "UI language code." },
+          "device": { "type": "string", "enum": ["desktop", "mobile", "tablet"] },
+          "num": { "type": "integer", "minimum": 1 },
+          "page": { "type": "integer", "minimum": 1 },
+          "next_page_token": { "type": "string" },
+          "zero_retention": { "type": "boolean", "description": "Enterprise-only zero-data-retention mode." }
+        },
+        "required": ["engine", "q"]
+      }
+    },
+    {
+      "name": "apple_app_store_search",
+      "description": "Search iPhone/iPad or Mac apps in an Apple App Store country storefront.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=apple_app_store",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "term": { "type": "string" },
+          "country": { "type": "string", "default": "us" },
+          "device": { "type": "string", "enum": ["mobile", "desktop"], "default": "mobile" },
+          "page": { "type": "integer", "minimum": 1 },
+          "zero_retention": { "type": "boolean" }
+        },
+        "required": ["term"]
+      }
+    },
+    {
+      "name": "apple_app_store_top_charts",
+      "description": "Retrieve real-time Apple App Store top-free or top-paid charts by country, device, and category, including game subcategories.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=apple_app_store_top_charts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string", "default": "us" },
+          "store_device": { "type": "string", "enum": ["iphone", "ipad"], "default": "iphone" },
+          "chart": { "type": "string", "enum": ["top_free", "top_paid"], "default": "top_free" },
+          "category": { "type": "string", "default": "all", "description": "all, an *_apps category, or game category such as action_games, puzzle_games, strategy_games, or simulation_games." },
+          "zero_retention": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "meta_ad_library_search",
+      "description": "Search Meta's public Ad Library by keyword, Facebook Page ID, or location. This uses SearchApi credentials and does not require a separately approved Meta developer app. For large pagination tokens use meta_ad_library_search_post.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=meta_ad_library",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Keyword query; wrap phrases in double quotes for exact matching." },
+          "page_id": { "type": "string" },
+          "location_id": { "type": "string" },
+          "location_name": { "type": "string" },
+          "location_type": { "type": "string" },
+          "country": { "type": "string", "default": "ALL" },
+          "content_languages": { "type": "string", "description": "Comma-separated language codes." },
+          "ad_type": { "type": "string", "enum": ["all", "political_and_issue_ads", "housing_ads", "employment_ads", "credit_ads"], "default": "all" },
+          "active_status": { "type": "string", "enum": ["active", "inactive", "all"], "default": "active" },
+          "search_type": { "type": "string", "enum": ["keyword_unordered", "keyword_exact_phrase"] },
+          "media_type": { "type": "string", "enum": ["all", "video", "image", "meme", "image_and_meme", "none"], "default": "all" },
+          "platforms": { "type": "string", "description": "Comma-separated facebook, instagram, audience_network, messenger, or threads." },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "sort_by": { "type": "string", "enum": ["most_recent", "impressions_high_to_low"], "default": "impressions_high_to_low" },
+          "next_page_token": { "type": "string" },
+          "zero_retention": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "meta_ad_library_search_post",
+      "description": "Search or paginate Meta Ad Library results with parameters in a JSON body. Prefer this when next_page_token becomes too large for a GET URL.",
+      "method": "POST",
+      "path": "/api/v1/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "engine": { "type": "string", "enum": ["meta_ad_library"], "default": "meta_ad_library" },
+          "q": { "type": "string" },
+          "page_id": { "type": "string" },
+          "location_id": { "type": "string" },
+          "location_name": { "type": "string" },
+          "location_type": { "type": "string" },
+          "country": { "type": "string", "default": "ALL" },
+          "content_languages": { "type": "string" },
+          "ad_type": { "type": "string", "enum": ["all", "political_and_issue_ads", "housing_ads", "employment_ads", "credit_ads"] },
+          "active_status": { "type": "string", "enum": ["active", "inactive", "all"] },
+          "search_type": { "type": "string", "enum": ["keyword_unordered", "keyword_exact_phrase"] },
+          "media_type": { "type": "string", "enum": ["all", "video", "image", "meme", "image_and_meme", "none"] },
+          "platforms": { "type": "string" },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "sort_by": { "type": "string", "enum": ["most_recent", "impressions_high_to_low"] },
+          "next_page_token": { "type": "string" },
+          "zero_retention": { "type": "boolean" }
+        },
+        "required": ["engine"]
+      }
+    },
+    {
+      "name": "meta_ad_library_page_search",
+      "description": "Find Facebook/Instagram Page IDs and Meta location IDs before searching their ads.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=meta_ad_library_page_search",
+      "input_schema": { "type": "object", "properties": { "q": { "type": "string" }, "country": { "type": "string", "default": "ALL" }, "ad_type": { "type": "string", "enum": ["all", "political_and_issue_ads", "housing_ads", "employment_ads", "credit_ads"] }, "zero_retention": { "type": "boolean" } }, "required": ["q"] }
+    },
+    {
+      "name": "meta_ad_library_page_info",
+      "description": "Retrieve Meta Ad Library Page metadata, transparency history, ownership, admin locations, Instagram details, and available spend information.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=meta_ad_library_page_info",
+      "input_schema": { "type": "object", "properties": { "page_id": { "type": "string" }, "zero_retention": { "type": "boolean" } }, "required": ["page_id"] }
+    },
+    {
+      "name": "meta_ad_library_ad_details",
+      "description": "Retrieve detailed transparency and targeting data for one Meta ad using ad_details_token from Meta Ad Library search results.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=meta_ad_library_ad_details",
+      "input_schema": { "type": "object", "properties": { "ad_details_token": { "type": "string" }, "zero_retention": { "type": "boolean" } }, "required": ["ad_details_token"] }
+    },
+    {
+      "name": "linkedin_ad_library_search",
+      "description": "Search LinkedIn's public Ad Library by keyword, advertiser, country, and date range.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=linkedin_ad_library",
+      "input_schema": { "type": "object", "properties": { "q": { "type": "string" }, "advertiser": { "type": "string" }, "country": { "type": "string", "description": "One country or comma-separated ISO country codes." }, "time_period": { "type": "string", "description": "last_year, this_year, this_month, last_30_days, or YYYY-MM-DD..YYYY-MM-DD." }, "next_page_token": { "type": "string" }, "zero_retention": { "type": "boolean" } } }
+    },
+    {
+      "name": "tiktok_advertiser_search",
+      "description": "Find TikTok Ad Library advertisers by name and return advertiser IDs and recommended advertiser tokens.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=tiktok_ads_library_advertiser_search",
+      "input_schema": { "type": "object", "properties": { "q": { "type": "string" }, "zero_retention": { "type": "boolean" } }, "required": ["q"] }
+    },
+    {
+      "name": "tiktok_ad_library_search",
+      "description": "Search TikTok's public Ads Library by keyword or advertiser. Prefer advertiser_token from tiktok_advertiser_search; advertiser_id alone is no longer sufficient.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=tiktok_ads_library",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "description": "Keyword, or advertiser name when advertiser_id is supplied." },
+          "advertiser_token": { "type": "string" },
+          "advertiser_id": { "type": "string", "description": "Must be combined with the advertiser name in q; advertiser_token is preferred." },
+          "country": { "type": "string", "default": "all" },
+          "time_period": { "type": "string", "description": "YYYY-MM-DD..YYYY-MM-DD; defaults to the last year." },
+          "sort_by": { "type": "string", "enum": ["last_shown_date_newest_to_oldest", "last_shown_date_oldest_to_newest", "published_date_newest_to_oldest", "published_date_oldest_to_newest", "unique_users_seen_low_to_high", "unique_users_seen_high_to_low"] },
+          "next_page_token": { "type": "string" },
+          "zero_retention": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "tiktok_ad_details",
+      "description": "Retrieve one TikTok ad's creative assets, advertiser, targeting, audience size, and impression data.",
+      "method": "GET",
+      "path": "/api/v1/search?engine=tiktok_ads_library_ad_details",
+      "input_schema": { "type": "object", "properties": { "ad_id": { "type": "string" }, "zero_retention": { "type": "boolean" } }, "required": ["ad_id"] }
+    },
+    {
+      "name": "account",
+      "description": "Get current usage, remaining credits, hourly limit, and subscription period. This endpoint does not consume a search credit.",
+      "method": "GET",
+      "path": "/api/v1/me",
+      "input_schema": { "type": "object", "properties": { "zero_retention": { "type": "boolean" } } }
+    },
+    {
+      "name": "get_search",
+      "description": "Retrieve a previously completed SearchApi result by the search ID returned in search_metadata.id.",
+      "method": "GET",
+      "path": "/api/v1/searches/{search_id}",
+      "input_schema": { "type": "object", "properties": { "search_id": { "type": "string" }, "zero_retention": { "type": "boolean" } }, "required": ["search_id"] }
+    },
+    {
+      "name": "search_analytics",
+      "description": "Retrieve account search analytics for the last year. SearchApi currently requires a Scale plan or higher for this endpoint.",
+      "method": "GET",
+      "path": "/api/v1/search_analytics",
+      "input_schema": { "type": "object", "properties": { "engine": { "type": "string", "default": "all" }, "bucket": { "type": "string", "enum": ["daily", "hourly"], "default": "daily" }, "time_period": { "type": "string", "enum": ["last_day", "last_week", "last_month", "last_6_months", "last_year"] }, "time_period_min": { "type": "string", "description": "Start date or RFC 3339 timestamp." }, "time_period_max": { "type": "string", "description": "End date or RFC 3339 timestamp; use the same timezone as time_period_min." }, "zero_retention": { "type": "boolean" } } }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
   "slug": "dynadot",
   "name": "Dynadot",
-  "description": "Dynadot domain registrar - register, search, and manage domains with 500+ TLDs and bulk tools",
+  "description": "Dynadot API3 for domain registration, search, DNS, transfers, and Marketplace sale listings. Enable API access and configure the server outbound IP in the Dynadot account before connecting.",
   "logo": "https://www.google.com/s2/favicons?domain=dynadot.com&sz=128",
   "categories": [
     "dns",
@@ -13,21 +13,18 @@
   "base_url": "https://api.dynadot.com",
   "auth": {
     "types": [
-      "bearer"
+      "api_key"
     ],
-    "headers": {
-      "Authorization": "Bearer {{token}}"
+    "query_params": {
+      "key": "{{api_key}}"
     },
     "credential_fields": [
       {
-        "name": "token",
-        "label": "Api Key",
-        "description": "Dynadot API key (generate at dynadot.com/account/domain/setting/api.html)"
-      },
-      {
-        "name": "apiKey",
-        "label": "Api Key",
-        "description": "Dynadot API key (generate at dynadot.com/account/domain/setting/api.html)"
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Dynadot API3 key from account API settings. Enable API access and allow the outbound IP of the integration server. Existing token-only connections must save their key in this field.",
+        "type": "password",
+        "required": true
       }
     ]
   },
@@ -36,17 +33,27 @@
       "name": "list_domains",
       "description": "List all domains in your Dynadot account with their status, expiration dates, and settings.",
       "method": "GET",
-      "path": "/list-domains",
+      "path": "/api3.json?command=list_domain",
       "input_schema": {
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "ListDomainInfoResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "ListDomainInfoResponse.Error"
       }
     },
     {
       "name": "search_domain",
       "description": "Search for a domain name to check availability and pricing. Returns whether the domain is available for registration.",
       "method": "GET",
-      "path": "/search-domain",
+      "path": "/api3.json?command=search&show_price=1",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -57,32 +64,69 @@
         },
         "required": [
           "domain"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "SearchResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "SearchResponse.Error"
+      },
+      "query_param_aliases": {
+        "domain": "domain0"
       }
     },
     {
       "name": "bulk_search",
-      "description": "Search for multiple domain names at once to check availability. Accepts a comma-separated list of domains.",
+      "description": "Search multiple domains using domain0 through domain99 (one domain per numbered field). Regular accounts can search one domain per request; bulk and super-bulk accounts can search up to 100. Returns availability and pricing.",
       "method": "GET",
-      "path": "/bulk-search",
+      "path": "/api3.json?command=search&show_price=1",
       "input_schema": {
         "type": "object",
         "properties": {
-          "domains": {
+          "domain0": {
             "type": "string",
-            "description": "Comma-separated list of domain names to search (e.g. 'example.com,example.net,example.org')"
+            "description": "First domain to search, e.g. example.com."
+          },
+          "domain1": {
+            "type": "string",
+            "description": "Second domain to search (bulk account required)."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Optional pricing currency, e.g. USD or EUR."
+          }
+        },
+        "patternProperties": {
+          "^domain([2-9]|[1-9][0-9])$": {
+            "type": "string",
+            "description": "Additional domain to search, one per numbered field through domain99."
           }
         },
         "required": [
-          "domains"
-        ]
+          "domain0"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "SearchResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "SearchResponse.Error"
       }
     },
     {
       "name": "get_domain_info",
-      "description": "Retrieve detailed information about a specific domain including status, expiration, nameservers, and WHOIS settings.",
+      "description": "Retrieve detailed information about a specific domain including status, expiration, nameservers, and WHOIS settings. Includes isForSale to inspect whether the domain is listed; this is not confirmation of a completed sale.",
       "method": "GET",
-      "path": "/get-domain-info",
+      "path": "/api3.json?command=domain_info",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -93,14 +137,24 @@
         },
         "required": [
           "domain"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "DomainInfoResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "DomainInfoResponse.Error"
       }
     },
     {
       "name": "register_domain",
       "description": "Register a new domain name for a specified duration in years.",
       "method": "GET",
-      "path": "/register-domain",
+      "path": "/api3.json?command=register",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -116,14 +170,24 @@
         "required": [
           "domain",
           "duration"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "RegisterResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "RegisterResponse.Error"
       }
     },
     {
       "name": "renew_domain",
       "description": "Renew an existing domain registration for additional years.",
       "method": "GET",
-      "path": "/renew-domain",
+      "path": "/api3.json?command=renew",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -139,14 +203,24 @@
         "required": [
           "domain",
           "duration"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "RenewResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "RenewResponse.Error"
       }
     },
     {
       "name": "set_nameservers",
-      "description": "Set the nameservers for a domain. Provide up to 4 nameserver hostnames.",
+      "description": "Set up to four nameservers for a domain. Nameservers must already be in the Dynadot account.",
       "method": "GET",
-      "path": "/set-nameservers",
+      "path": "/api3.json?command=set_ns",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -175,14 +249,24 @@
           "domain",
           "ns0",
           "ns1"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "SetNsResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "SetNsResponse.Error"
       }
     },
     {
       "name": "get_dns",
       "description": "Retrieve the current DNS configuration and records for a domain.",
       "method": "GET",
-      "path": "/get-dns",
+      "path": "/api3.json?command=get_dns",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -193,14 +277,24 @@
         },
         "required": [
           "domain"
-        ]
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "GetDnsResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "GetDnsResponse.Error"
       }
     },
     {
       "name": "set_dns_record",
-      "description": "Set a DNS record for a domain. Configures the main record type, value, and TTL.",
+      "description": "Append one apex DNS record using set_dns2 without replacing the existing DNS settings. For MX, forwarding, stealth, or email records, include recordExtra as required by Dynadot.",
       "method": "GET",
-      "path": "/set-dns-record",
+      "path": "/api3.json?command=set_dns2&add_dns_to_current_setting=1",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -210,7 +304,17 @@
           },
           "recordType": {
             "type": "string",
-            "description": "The DNS record type (e.g. 'a', 'aaaa', 'cname', 'mx', 'txt', 'forward')"
+            "description": "The DNS record type (e.g. 'a', 'aaaa', 'cname', 'mx', 'txt', 'forward')",
+            "enum": [
+              "a",
+              "aaaa",
+              "cname",
+              "forward",
+              "txt",
+              "mx",
+              "stealth",
+              "email"
+            ]
           },
           "recordValue": {
             "type": "string",
@@ -219,20 +323,63 @@
           "ttl": {
             "type": "string",
             "description": "Time to live in seconds (e.g. '300', '3600')"
+          },
+          "recordExtra": {
+            "type": "string",
+            "description": "MX distance, forward type (1 for 301 or 2 for 302), stealth title, or email alias. Required for the corresponding record type."
           }
         },
         "required": [
           "domain",
           "recordType",
           "recordValue"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "recordType": {
+                  "enum": [
+                    "mx",
+                    "forward",
+                    "stealth",
+                    "email"
+                  ]
+                }
+              },
+              "required": [
+                "recordType"
+              ]
+            },
+            "then": {
+              "required": [
+                "recordExtra"
+              ]
+            }
+          }
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "SetDnsResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "SetDnsResponse.Error"
+      },
+      "query_param_aliases": {
+        "recordType": "main_record_type0",
+        "recordValue": "main_record0",
+        "recordExtra": "main_recordx0"
       }
     },
     {
       "name": "transfer_domain",
       "description": "Transfer a domain to Dynadot from another registrar using an authorization code (EPP code).",
       "method": "GET",
-      "path": "/transfer-domain",
+      "path": "/api3.json?command=transfer",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -248,7 +395,162 @@
         "required": [
           "domain",
           "authcode"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "TransferResponse.ResponseCode",
+        "success_codes": [
+          0,
+          "0"
+        ],
+        "message_path": "TransferResponse.Error"
+      },
+      "query_param_aliases": {
+        "authcode": "auth"
+      }
+    },
+    {
+      "name": "set_for_sale",
+      "description": "List or update one owned domain for sale in the Dynadot Marketplace. Supports a fixed price, offers, or both. A fixed price allows immediate purchase and push to the buyer. Omit minimum_offer to allow any offer. Requires an API-enabled Dynadot account; this command is not supported in the API sandbox. A successful response confirms listing changes, not payment or completed transfer.",
+      "method": "GET",
+      "path": "/api3.json?command=set_for_sale&for_sale_type=marketplace",
+      "query_param_aliases": {
+        "domain": "domains"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "pattern": "^[^,;\\s]+$",
+            "description": "One domain owned in this Dynadot account, e.g. example.com. Do not pass a list."
+          },
+          "listing_type": {
+            "type": "string",
+            "enum": [
+              "buy_now",
+              "make_offer",
+              "buy_now_and_make_offer"
+            ]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+            "description": "Fixed sale price as a decimal amount, e.g. 1000.00. Required for buy_now and buy_now_and_make_offer."
+          },
+          "minimum_offer": {
+            "type": "string",
+            "pattern": "^[0-9]+(?:\\.[0-9]{1,2})?$",
+            "description": "Optional minimum offer amount for make_offer or buy_now_and_make_offer."
+          },
+          "installment": {
+            "type": "string",
+            "enum": [
+              "Yes"
+            ],
+            "description": "Set Yes to allow installment payments; omit to use the provider default."
+          },
+          "maximum_installments": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 12,
+            "description": "Maximum installment months when installment is Yes."
+          },
+          "category": {
+            "type": "string",
+            "description": "Optional category from the Dynadot API3 category table, e.g. health."
+          },
+          "sub_category": {
+            "type": "string",
+            "description": "Optional subcategory from the Dynadot API3 table, e.g. fitness."
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional public description of the domain."
+          }
+        },
+        "required": [
+          "domain",
+          "listing_type"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "listing_type": {
+                  "enum": [
+                    "buy_now",
+                    "buy_now_and_make_offer"
+                  ]
+                }
+              },
+              "required": [
+                "listing_type"
+              ]
+            },
+            "then": {
+              "required": [
+                "price"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "maximum_installments"
+              ]
+            },
+            "then": {
+              "required": [
+                "installment"
+              ]
+            }
+          }
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "SetForSaleResponse.Status",
+        "success_codes": [
+          "success",
+          "Success"
+        ],
+        "message_path": "SetForSaleResponse.Error"
+      }
+    },
+    {
+      "name": "remove_for_sale",
+      "description": "Withdraw one domain from the Dynadot Marketplace using set_for_sale with not_for_sale. Removes the listing; it does not cancel an already completed sale or reverse a transfer. Not supported in the API sandbox.",
+      "method": "GET",
+      "path": "/api3.json?command=set_for_sale&for_sale_type=not_for_sale",
+      "query_param_aliases": {
+        "domain": "domains"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "pattern": "^[^,;\\s]+$",
+            "description": "One domain owned in this Dynadot account, e.g. example.com. Do not pass a list."
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "SetForSaleResponse.Status",
+        "success_codes": [
+          "success",
+          "Success"
+        ],
+        "message_path": "SetForSaleResponse.Error"
       }
     }
   ]

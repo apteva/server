@@ -1,0 +1,104 @@
+{
+  "slug": "crunchbase",
+  "name": "Crunchbase",
+  "description": "Funding, ownership, and firmographic data on private companies. Excellent for AI-buyer signals: 'recently raised' is a strong proxy for 'has budget for new tooling'. Requires Crunchbase Enterprise / Data API.",
+  "logo": "https://www.google.com/s2/favicons?domain=crunchbase.com&sz=128",
+  "categories": ["funding", "firmographic", "intel", "prospecting", "enrichment", "b2b"],
+  "base_url": "https://api.crunchbase.com/api/v4",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "user_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "User key",
+        "description": "Crunchbase Data API user key (Enterprise plan)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "autocomplete",
+      "description": "Resolve a company / person / location name to a Crunchbase entity uuid + identifier (permalink).",
+      "method": "GET",
+      "path": "/autocompletes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "collection_ids": { "type": "string", "description": "Comma-separated entity types: 'organizations', 'people', 'funding_rounds', 'events'" },
+          "limit": { "type": "integer", "default": 10, "maximum": 25 }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "organization_get",
+      "description": "Get full data for a single organization by permalink (e.g. 'apple').",
+      "method": "GET",
+      "path": "/entities/organizations/{permalink}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "permalink": { "type": "string" },
+          "field_ids": { "type": "string", "description": "Comma-separated fields, e.g. 'name,short_description,founded_on,funding_total,last_funding_at,num_funding_rounds,categories,location_identifiers,website,linkedin'" },
+          "card_ids": { "type": "string", "description": "Related cards: 'fields,founders,headquarters_address,investors,jobs,key_employees,participated_funding_rounds,raised_funding_rounds,sub_organizations'" }
+        },
+        "required": ["permalink"]
+      }
+    },
+    {
+      "name": "organization_search",
+      "description": "Search organizations with structured filters: industry categories, location, founding date, funding totals, last funding date, employee count. Best for 'find SaaS companies in EU that raised seed in last 12 months'.",
+      "method": "POST",
+      "path": "/searches/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "field_ids": { "type": "array", "items": { "type": "string" }, "description": "Fields to return per result" },
+          "query": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Array of predicate objects: { type:'predicate', field_id, operator_id, values }"
+          },
+          "order": { "type": "array", "items": { "type": "object" }, "description": "Sort: [{ field_id, sort:'asc'|'desc' }]" },
+          "limit": { "type": "integer", "default": 50, "maximum": 1000 }
+        },
+        "required": ["field_ids"]
+      }
+    },
+    {
+      "name": "funding_round_search",
+      "description": "Search recent funding rounds across the dataset (filter by announced_on, money_raised, investor_identifiers, etc.).",
+      "method": "POST",
+      "path": "/searches/funding_rounds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "field_ids": { "type": "array", "items": { "type": "string" } },
+          "query": { "type": "array", "items": { "type": "object" } },
+          "order": { "type": "array", "items": { "type": "object" } },
+          "limit": { "type": "integer", "default": 50 }
+        },
+        "required": ["field_ids"]
+      }
+    },
+    {
+      "name": "person_get",
+      "description": "Get a single person by permalink.",
+      "method": "GET",
+      "path": "/entities/people/{permalink}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "permalink": { "type": "string" },
+          "field_ids": { "type": "string" },
+          "card_ids": { "type": "string" }
+        },
+        "required": ["permalink"]
+      }
+    }
+  ]
+}

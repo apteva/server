@@ -1,0 +1,131 @@
+{
+  "slug": "okta",
+  "name": "Okta",
+  "description": "MCP server for Okta - users, groups, applications, factors, sessions",
+  "logo": "https://www.google.com/s2/favicons?domain=okta.com&sz=128",
+  "categories": ["auth", "identity", "security", "sso"],
+  "base_url": "https://{{domain}}/api/v1",
+  "auth": {
+    "types": ["header"],
+    "headers": { "Authorization": "SSWS {{token}}" },
+    "credential_fields": [
+      { "name": "domain", "label": "Okta Domain", "description": "e.g. mycompany.okta.com" },
+      { "name": "token", "label": "API Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_users",
+      "description": "List users (supports q, search, filter)",
+      "method": "GET",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "search": { "type": "string" },
+          "filter": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a user by ID or login",
+      "method": "GET",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "user_id": { "type": "string" } },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a user",
+      "method": "POST",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile": { "type": "object" },
+          "credentials": { "type": "object" },
+          "groupIds": { "type": "array" },
+          "activate": { "type": "boolean" }
+        },
+        "required": ["profile"]
+      }
+    },
+    {
+      "name": "update_user",
+      "description": "Update a user",
+      "method": "POST",
+      "path": "/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": { "type": "string" },
+          "profile": { "type": "object" },
+          "credentials": { "type": "object" }
+        },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "deactivate_user",
+      "description": "Deactivate a user",
+      "method": "POST",
+      "path": "/users/{user_id}/lifecycle/deactivate",
+      "input_schema": {
+        "type": "object",
+        "properties": { "user_id": { "type": "string" } },
+        "required": ["user_id"]
+      }
+    },
+    {
+      "name": "list_groups",
+      "description": "List groups",
+      "method": "GET",
+      "path": "/groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "filter": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "add_user_to_group",
+      "description": "Add a user to a group",
+      "method": "PUT",
+      "path": "/groups/{group_id}/users/{user_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": { "type": "string" },
+          "user_id": { "type": "string" }
+        },
+        "required": ["group_id", "user_id"]
+      }
+    },
+    {
+      "name": "list_apps",
+      "description": "List applications",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": { "type": "object", "properties": { "filter": { "type": "string" } } }
+    },
+    {
+      "name": "list_user_sessions",
+      "description": "End user sessions",
+      "method": "DELETE",
+      "path": "/users/{user_id}/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": { "user_id": { "type": "string" } },
+        "required": ["user_id"]
+      }
+    }
+  ]
+}

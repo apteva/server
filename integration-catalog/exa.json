@@ -1,0 +1,101 @@
+{
+  "slug": "exa",
+  "name": "Exa",
+  "description": "Neural search API for the web. Beats keyword search at semantic discovery — ideal for finding 'companies that look like our best customers' or 'pages that read like onboarding docs'. Supports lookalike search, content extraction, and structured answers.",
+  "logo": "https://www.google.com/s2/favicons?domain=exa.ai&sz=128",
+  "categories": ["search", "neural", "ai", "research", "extraction", "lookalike"],
+  "base_url": "https://api.exa.ai",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Exa API key from dashboard.exa.ai"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Neural or keyword web search. 'neural' (default) is best for semantic queries like 'companies building AI agents for legal'. 'keyword' is exact-match.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "type": { "type": "string", "enum": ["neural", "keyword", "auto"], "default": "auto" },
+          "category": { "type": "string", "enum": ["company", "research paper", "news", "github", "tweet", "movie", "song", "personal site", "pdf", "linkedin profile", "financial report"], "description": "Restrict to a content category" },
+          "numResults": { "type": "integer", "default": 10, "maximum": 100 },
+          "includeDomains": { "type": "array", "items": { "type": "string" } },
+          "excludeDomains": { "type": "array", "items": { "type": "string" } },
+          "startCrawlDate": { "type": "string", "description": "ISO date — only pages crawled after this" },
+          "endCrawlDate": { "type": "string" },
+          "startPublishedDate": { "type": "string" },
+          "endPublishedDate": { "type": "string" },
+          "includeText": { "type": "array", "items": { "type": "string" }, "description": "Substrings results must contain" },
+          "excludeText": { "type": "array", "items": { "type": "string" } },
+          "contents": {
+            "type": "object",
+            "description": "Inline content to fetch with results: { text: true, highlights: { numSentences, query }, summary: { query } }"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "find_similar",
+      "description": "Given a URL, find pages/companies that are semantically similar. Killer feature for ICP expansion — feed in your best customer's homepage, get a list of look-alikes.",
+      "method": "POST",
+      "path": "/findSimilar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Seed URL" },
+          "numResults": { "type": "integer", "default": 10, "maximum": 100 },
+          "includeDomains": { "type": "array", "items": { "type": "string" } },
+          "excludeDomains": { "type": "array", "items": { "type": "string" } },
+          "excludeSourceDomain": { "type": "boolean", "default": true, "description": "Exclude results from the seed URL's own domain" },
+          "category": { "type": "string" },
+          "contents": { "type": "object" }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "get_contents",
+      "description": "Fetch cleaned text/highlights/summary for a list of URLs or Exa result ids.",
+      "method": "POST",
+      "path": "/contents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urls": { "type": "array", "items": { "type": "string" }, "description": "URLs or Exa ids" },
+          "text": { "type": "boolean", "default": true },
+          "highlights": { "type": "object", "description": "{ numSentences, highlightsPerUrl, query }" },
+          "summary": { "type": "object", "description": "{ query }" },
+          "livecrawl": { "type": "string", "enum": ["never", "fallback", "always"], "default": "fallback" }
+        },
+        "required": ["urls"]
+      }
+    },
+    {
+      "name": "answer",
+      "description": "End-to-end Q&A: Exa searches the web and returns a concise answer with cited sources. Best for one-shot research questions.",
+      "method": "POST",
+      "path": "/answer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "text": { "type": "boolean", "default": false, "description": "Include full text of citation pages" }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

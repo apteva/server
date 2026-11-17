@@ -1,0 +1,86 @@
+{
+  "slug": "amplitude",
+  "name": "Amplitude",
+  "description": "MCP server for Amplitude - product analytics, event tracking, cohorts, dashboards",
+  "logo": "https://www.google.com/s2/favicons?domain=amplitude.com&sz=128",
+  "categories": ["analytics", "product-analytics", "events", "cohorts"],
+  "base_url": "https://api2.amplitude.com",
+  "auth": {
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic}}" },
+    "credential_fields": [
+      { "name": "apiKey", "label": "API Key" },
+      { "name": "secretKey", "label": "Secret Key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "track_event",
+      "description": "Send events via HTTP API v2",
+      "method": "POST",
+      "path": "/2/httpapi",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "events": { "type": "array" }
+        },
+        "required": ["api_key", "events"]
+      }
+    },
+    {
+      "name": "identify_user",
+      "description": "Update user properties",
+      "method": "POST",
+      "path": "/identify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "identification": { "type": "array" }
+        },
+        "required": ["api_key", "identification"]
+      }
+    },
+    {
+      "name": "batch_events",
+      "description": "Send events via batch API",
+      "method": "POST",
+      "path": "/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "events": { "type": "array" }
+        },
+        "required": ["api_key", "events"]
+      }
+    },
+    {
+      "name": "get_cohort",
+      "description": "Download a cohort of users",
+      "method": "GET",
+      "path": "https://amplitude.com/api/5/cohorts/request/{cohort_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "cohort_id": { "type": "string" } },
+        "required": ["cohort_id"]
+      }
+    },
+    {
+      "name": "query_segmentation",
+      "description": "Run an event segmentation query",
+      "method": "GET",
+      "path": "https://amplitude.com/api/2/events/segmentation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "e": { "type": "string" },
+          "start": { "type": "string" },
+          "end": { "type": "string" }
+        },
+        "required": ["e", "start", "end"]
+      }
+    }
+  ]
+}

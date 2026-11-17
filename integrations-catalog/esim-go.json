@@ -1,0 +1,409 @@
+{
+  "slug": "esim-go",
+  "name": "eSIM Go",
+  "description": "Browse and purchase eSIM Go bundles, provision eSIMs, retrieve installation details, inspect usage allowances, suspend service, and send SMS to supported eSIMs.",
+  "logo": "https://www.google.com/s2/favicons?domain=esim-go.com&sz=128",
+  "categories": [
+    "telephony",
+    "esim",
+    "connectivity"
+  ],
+  "base_url": "https://api.esim-go.com/v2.5",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "eSIM Go API key from Account Settings > API Details. Configure provider IP allowlisting if enabled for the organisation.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_organisation"
+  },
+  "tools": [
+    {
+      "name": "get_organisation",
+      "description": "Read the eSIM Go organisation and account balance.",
+      "method": "GET",
+      "path": "/organisation",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_catalogue",
+      "description": "Browse available eSIM Go bundles with country, region, group, and pagination filters.",
+      "method": "GET",
+      "path": "/catalogue",
+      "query_params": [
+        "page",
+        "perPage",
+        "direction",
+        "orderBy",
+        "description",
+        "group",
+        "countries",
+        "region"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "description": "Page of Bundles to return" },
+          "perPage": { "type": "integer", "description": "Number of Bundles to return per page" },
+          "direction": { "type": "string", "description": "Direction of ordering" },
+          "orderBy": { "type": "string", "description": "Name of column to order by" },
+          "description": { "type": "string", "description": "Wildcard search for description" },
+          "group": { "type": "string", "description": "Filter by Bundle Group (exact value) e.g. `Standard eSIM Bundles`" },
+          "countries": { "type": "string", "description": "Comma-separated list of country ISO codes to filter by. This will search for Bundles that include at least one of the countries as their base country. e.g. `GB, US`" },
+          "region": { "type": "string", "description": "This will return Bundles that have a base country in the specified region. e.g. `Europe`" }
+        }
+      }
+    },
+    {
+      "name": "get_bundle",
+      "description": "Read an eSIM Go bundle from the catalogue.",
+      "method": "GET",
+      "path": "/catalogue/bundle/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "(Required) Name of Bundle to get countries for. Bundle names are case sensitive." }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List eSIM Go orders with optional ICCID details.",
+      "method": "GET",
+      "path": "/orders",
+      "query_params": [
+        "includeIccids",
+        "page",
+        "limit",
+        "createdAt"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeIccids": { "type": "boolean", "description": "Set to true to include eSIM data (ICCID, Matching ID and SMDP Address) in the response, and an ICCIDs array.\n" },
+          "page": { "type": "integer", "description": "Page number to return.\n" },
+          "limit": { "type": "integer", "description": "Number of results to return per page.\n" },
+          "createdAt": { "type": "string", "description": "Specifies the date range for filtering orders. This parameter has a 'lte:' prefix to specify the end date. For example, to query orders from March 1, 2024, to March 31, 2024, use the following format: `createdAt=gte:2024-03-01T00:00:00.000Z&createdAt=lte:2024-03-31T23:59:59.999Z`.\n" }
+        }
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Validate or purchase bundles. Use type=validate to check the order, or type=transaction to place a billed order. Set assign to attach purchased bundles to eSIMs.",
+      "method": "POST",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "validate",
+              "transaction"
+            ]
+          },
+          "assign": { "type": "boolean", "description": "To specify if bundle(s) to be assigned to eSIM(s)" },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "bundle"
+                  ]
+                },
+                "quantity": {
+                  "type": "integer",
+                  "description": "Quantity of the bundles to purchase. If you purchase several different bundles, specify the quantity of each item separately.",
+                  "minimum": 1
+                },
+                "item": { "type": "string", "description": "Name of the bundle" },
+                "iccids": {
+                  "type": "array",
+                  "description": "ICCID of the eSIM to assign bundle to (quantity of items and number of ICCIDs should match)",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "allowReassign": { "type": "boolean", "description": "Allow a new eSIM to be provided if the bundle is not compatible with the eSIM profile" }
+              },
+              "required": [
+                "type",
+                "quantity",
+                "item"
+              ]
+            },
+            "minItems": 1
+          },
+          "profileID": { "type": "string", "description": "Optional identifier for selecting a specific eSIM branding profile when multiple profiles exist." }
+        },
+        "required": [
+          "type",
+          "order"
+        ]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Read details of an eSIM Go order.",
+      "method": "GET",
+      "path": "/orders/{orderReference}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderReference": { "type": "string", "description": "(Required) Reference for your order" }
+        },
+        "required": [
+          "orderReference"
+        ]
+      }
+    },
+    {
+      "name": "list_esims",
+      "description": "List eSIMs assigned to the organisation.",
+      "method": "GET",
+      "path": "/esims",
+      "query_params": [
+        "page",
+        "perPage",
+        "direction",
+        "orderBy",
+        "filterBy",
+        "filter"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "string", "description": "Page of ESIMs to return" },
+          "perPage": {
+            "type": "integer",
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "description": "Number of ESIMs to return per page"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Direction of ordering"
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": [
+              "iccid"
+            ],
+            "description": "Name of column to order by"
+          },
+          "filterBy": {
+            "type": "string",
+            "enum": [
+              "iccid",
+              "customerRef",
+              "lastAction",
+              "actionDate",
+              "assignedDate"
+            ],
+            "description": "Name of column to filter by. eSIMs can be filtered by ICCID, Customer Reference, Last Action (Bundle Refund, Bundle Applied, Bundle Revoked, eSIM Updated, eSIM Refreshed, eSIM Utilisation Alert), Last Action Date and SIM Assignment Date."
+          },
+          "filter": { "type": "string", "description": "Value to filter by" }
+        }
+      }
+    },
+    {
+      "name": "get_esim",
+      "description": "Read an eSIM and its status by ICCID.",
+      "method": "GET",
+      "path": "/esims/{iccid}",
+      "query_params": [
+        "additionalFields"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "additionalFields": {
+            "type": "string"
+          },
+          "iccid": { "type": "string", "description": "(Required) The ICCID of the eSIM" }
+        },
+        "required": [
+          "iccid"
+        ]
+      }
+    },
+    {
+      "name": "get_install_details",
+      "description": "Read eSIM installation details for an order or bundle assignment reference.",
+      "method": "GET",
+      "path": "/esims/assignments",
+      "query_params": [
+        "reference",
+        "additionalFields"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reference": { "type": "string", "description": "(Required) Order Reference or Apply Reference" },
+          "additionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference"
+        ]
+      }
+    },
+    {
+      "name": "list_esim_bundles",
+      "description": "List bundles assigned to an eSIM.",
+      "method": "GET",
+      "path": "/esims/{iccid}/bundles",
+      "query_params": [
+        "includeUsed",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "includeUsed": { "type": "string", "description": "Include used & expired Bundles\nBackward compatibility for v2.1\n" },
+          "limit": { "type": "string", "description": "Number of assignments to return. Must be between 1 and 200. Default is 15\n" },
+          "iccid": { "type": "string", "description": "(Required) The ICCID of the eSIM" }
+        },
+        "required": [
+          "iccid"
+        ]
+      }
+    },
+    {
+      "name": "get_esim_bundle",
+      "description": "Read remaining allowance and status for an assigned bundle.",
+      "method": "GET",
+      "path": "/esims/{iccid}/bundles/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iccid": { "type": "string", "description": "(Required) The ICCID of the eSIM" },
+          "name": { "type": "string", "description": "(Required) Name of Bundle Format as defined in [List Catalogue](/api/#get-/catalogue) API call. Example: `esim_1GB_7D_REUP_V2`\n" }
+        },
+        "required": [
+          "iccid",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_esim_location",
+      "description": "Read the last known operator and location of an eSIM.",
+      "method": "GET",
+      "path": "/esims/{iccid}/location",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iccid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "iccid"
+        ]
+      }
+    },
+    {
+      "name": "send_sms",
+      "description": "Send a UTF-8 SMS to an eSIM Go SIM identified by ICCID. The default sender is eSIM. Custom sender names require provider approval.",
+      "method": "POST",
+      "path": "/esims/{iccid}/sms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iccid": { "type": "string", "description": "(Required) The ICCID of the eSIM" },
+          "message": {
+            "description": "UTF-8 compliant message",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "default": "message"
+          },
+          "from": {
+            "description": "Name of sender that will show in SMS.\n\nThis defaults to `eSIM` and is the only supported value by default. Unique identifiers can be assigned to your Organisation on request.\n",
+            "type": "string",
+            "default": "eSIM"
+          }
+        },
+        "required": [
+          "iccid",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "set_esim_suspension",
+      "description": "Set suspend=true to stop service or suspend=false to restore it.",
+      "method": "POST",
+      "path": "/esims/{iccid}/suspend",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iccid": { "type": "string", "description": "(Required) The ICCID of the eSIM" },
+          "suspend": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "iccid",
+          "suspend"
+        ]
+      }
+    },
+    {
+      "name": "apply_bundle",
+      "description": "Apply an inventory bundle to an eSIM. Omit iccid to allocate a new eSIM. Use get_install_details with the returned assignment reference.",
+      "method": "POST",
+      "path": "/esims/apply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "iccid": { "type": "string", "description": "ICCID of target eSIM to apply Bundle to. If not provided, a new eSIM will be assigned to you." },
+          "name": { "type": "string", "description": "Name of Bundle to apply" },
+          "repeat": {
+            "description": "How many eSIMs will be assigned with this bundle applied (if left empty Bundle will assign to one eSIM)",
+            "type": "integer"
+          },
+          "allowReassign": {
+            "description": "Allow a new eSIM to be provided if the bundle is not compatible with the eSIM profile",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ]
+}

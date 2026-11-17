@@ -1,0 +1,375 @@
+{
+  "slug": "activecollab",
+  "name": "ActiveCollab",
+  "description": "ActiveCollab project management - projects, tasks, time tracking, invoicing, and client collaboration",
+  "logo": "https://www.google.com/s2/favicons?domain=activecollab.com&sz=128",
+  "categories": [
+    "project-management",
+    "agency",
+    "tasks",
+    "time-tracking",
+    "invoicing",
+    "collaboration"
+  ],
+  "base_url": "{{instance_url}}/api/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "projects_list",
+      "description": "List all projects with optional filtering",
+      "method": "GET",
+      "path": "/projects-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "is_completed": {
+            "type": "boolean",
+            "description": "Filter by completion status"
+          },
+          "client_id": {
+            "type": "integer",
+            "description": "Filter by client ID"
+          },
+          "label_id": {
+            "type": "integer",
+            "description": "Filter by label ID"
+          },
+          "category_id": {
+            "type": "integer",
+            "description": "Filter by category ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "project_get",
+      "description": "Get details of a specific project",
+      "method": "GET",
+      "path": "/project-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "project_create",
+      "description": "Create a new project",
+      "method": "GET",
+      "path": "/project-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "company_id": {
+            "type": "integer",
+            "description": "Client company ID"
+          },
+          "leader_id": {
+            "type": "integer",
+            "description": "Project leader user ID"
+          },
+          "label_id": {
+            "type": "integer",
+            "description": "Label ID"
+          },
+          "category_id": {
+            "type": "integer",
+            "description": "Category ID"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Project budget"
+          },
+          "body": {
+            "type": "string",
+            "description": "Project description"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "tasks_list",
+      "description": "List tasks in a project",
+      "method": "GET",
+      "path": "/tasks-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_list_id": {
+            "type": "integer",
+            "description": "Filter by task list ID"
+          },
+          "assignee_id": {
+            "type": "integer",
+            "description": "Filter by assignee"
+          },
+          "is_completed": {
+            "type": "boolean",
+            "description": "Filter by completion status"
+          }
+        }
+      }
+    },
+    {
+      "name": "task_create",
+      "description": "Create a new task in a project",
+      "method": "GET",
+      "path": "/task-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_list_id": {
+            "type": "integer",
+            "description": "Task list ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Task name"
+          },
+          "body": {
+            "type": "string",
+            "description": "Task description"
+          },
+          "assignee_id": {
+            "type": "integer",
+            "description": "Assignee user ID"
+          },
+          "due_on": {
+            "type": "string",
+            "description": "Due date (YYYY-MM-DD)"
+          },
+          "estimate": {
+            "type": "number",
+            "description": "Time estimate in hours"
+          },
+          "job_type_id": {
+            "type": "integer",
+            "description": "Job type for billing"
+          },
+          "is_important": {
+            "type": "boolean",
+            "description": "Mark as important"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "task_update",
+      "description": "Update an existing task",
+      "method": "GET",
+      "path": "/task-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "description": "Task ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New task name"
+          },
+          "assignee_id": {
+            "type": "integer",
+            "description": "New assignee"
+          },
+          "due_on": {
+            "type": "string",
+            "description": "New due date"
+          },
+          "is_completed": {
+            "type": "boolean",
+            "description": "Mark as completed"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "time_records_list",
+      "description": "List time records with filtering options",
+      "method": "GET",
+      "path": "/time-records-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "description": "Filter by task ID"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "Filter by user ID"
+          },
+          "from_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "to_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "billable_status": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "description": "0=not billable, 1=billable, 2=billed"
+          }
+        }
+      }
+    },
+    {
+      "name": "time_record_create",
+      "description": "Log time to a project or task",
+      "method": "GET",
+      "path": "/time-record-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "description": "Task ID (optional)"
+          },
+          "value": {
+            "type": "string",
+            "description": "Time value (e.g., '2:30' for 2h 30m)"
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID"
+          },
+          "record_date": {
+            "type": "string",
+            "description": "Date (YYYY-MM-DD)"
+          },
+          "job_type_id": {
+            "type": "integer",
+            "description": "Job type ID for billing"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Description of work"
+          },
+          "billable_status": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "0=not billable, 1=billable"
+          }
+        },
+        "required": [
+          "value",
+          "record_date"
+        ]
+      }
+    },
+    {
+      "name": "companies_list",
+      "description": "List all companies/clients",
+      "method": "GET",
+      "path": "/companies-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "invoices_list",
+      "description": "List invoices with filtering",
+      "method": "GET",
+      "path": "/invoices-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "integer",
+            "description": "Filter by client ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued",
+              "paid",
+              "canceled"
+            ],
+            "description": "Filter by invoice status"
+          }
+        }
+      }
+    },
+    {
+      "name": "invoice_create",
+      "description": "Create a new invoice",
+      "method": "GET",
+      "path": "/invoice-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "integer",
+            "description": "Client company ID"
+          },
+          "number": {
+            "type": "string",
+            "description": "Invoice number"
+          },
+          "due_on": {
+            "type": "string",
+            "description": "Due date (YYYY-MM-DD)"
+          },
+          "items": {
+            "type": "array",
+            "description": "Invoice line items"
+          },
+          "note": {
+            "type": "string",
+            "description": "Invoice note"
+          }
+        },
+        "required": [
+          "client_id"
+        ]
+      }
+    },
+    {
+      "name": "job_types_list",
+      "description": "List available job types for time tracking",
+      "method": "GET",
+      "path": "/job-types-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

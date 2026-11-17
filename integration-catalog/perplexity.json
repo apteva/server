@@ -1,0 +1,37 @@
+{
+  "slug": "perplexity",
+  "name": "Perplexity",
+  "description": "MCP server for Perplexity AI - online LLM search with citations (sonar models)",
+  "logo": "https://www.google.com/s2/favicons?domain=perplexity.ai&sz=128",
+  "categories": ["ai", "llm", "search", "research"],
+  "base_url": "https://api.perplexity.ai",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Ask Perplexity (sonar, sonar-pro, sonar-reasoning) with online search and citations",
+      "method": "POST",
+      "path": "/chat/completions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "messages": { "type": "array" },
+          "temperature": { "type": "number" },
+          "max_tokens": { "type": "number" },
+          "search_domain_filter": { "type": "array" },
+          "search_recency_filter": { "type": "string" },
+          "return_citations": { "type": "boolean" },
+          "return_related_questions": { "type": "boolean" }
+        },
+        "required": ["model", "messages"]
+      }
+    }
+  ]
+}

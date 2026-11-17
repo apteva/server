@@ -1,0 +1,51 @@
+{
+  "slug": "capturekit",
+  "name": "CaptureKit",
+  "description": "Affordable URL-to-screenshot API. GET request returns the rendered image binary (PNG/JPEG/WebP/PDF). Supports custom viewports, device emulation (iPhone, Galaxy, Pixel, iPad), resource blocking, proxies, and direct S3 upload of the result. Free tier 100 credits, paid plans from $7/mo.",
+  "logo": "https://www.google.com/s2/favicons?domain=capturekit.dev&sz=128",
+  "categories": ["screenshots", "rendering", "automation"],
+  "base_url": "https://api.capturekit.dev",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-access-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "CaptureKit access key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "capture",
+      "description": "Capture a screenshot of a URL. Returns the rendered image as binary (image/png|jpeg|webp or application/pdf). Optionally uploads to S3 if s3_* params are provided.",
+      "method": "GET",
+      "path": "/capture",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "format": { "type": "string", "enum": ["png", "jpeg", "jpg", "webp", "pdf"], "default": "png" },
+          "viewport_width": { "type": "integer", "default": 1280, "description": "Viewport width in CSS pixels" },
+          "viewport_height": { "type": "integer", "default": 1024, "description": "Viewport height in CSS pixels" },
+          "full_page": { "type": "boolean", "default": false, "description": "Capture the entire scrollable page" },
+          "device": { "type": "string", "description": "Device to emulate (e.g. iPhone 14, Galaxy S22, Pixel 7, iPad Pro)" },
+          "delay": { "type": "integer", "description": "Extra wait time in seconds before capturing" },
+          "block_resources": { "type": "string", "description": "Comma-separated resource types to block (document, stylesheet, image, media, font, script)" },
+          "proxy": { "type": "string", "description": "Proxy URL (http/https/socks5) in the form http://user:pass@host:port" },
+          "user_agent": { "type": "string", "description": "Override the user agent string" },
+          "s3_url": { "type": "string", "description": "S3-compatible endpoint URL (triggers S3 upload)" },
+          "s3_access_key_id": { "type": "string" },
+          "s3_secret_key": { "type": "string" },
+          "s3_bucket": { "type": "string" },
+          "s3_object_key": { "type": "string", "description": "Object key (path) to write the screenshot to" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "format", "viewport_width", "viewport_height", "full_page",
+        "device", "delay", "block_resources", "proxy", "user_agent",
+        "s3_url", "s3_access_key_id", "s3_secret_key", "s3_bucket", "s3_object_key"
+      ]
+    }
+  ]
+}

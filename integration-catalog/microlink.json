@@ -1,0 +1,69 @@
+{
+  "slug": "microlink",
+  "name": "Microlink",
+  "description": "URL → screenshot + structured metadata in one call. Returns OpenGraph/Twitter card metadata, screenshot, PDF, and per-element data extraction. Free tier 50 req/day with no API key required (rate limited).",
+  "logo": "https://www.google.com/s2/favicons?domain=microlink.io&sz=128",
+  "categories": ["screenshots", "metadata", "scraping", "rendering"],
+  "base_url": "https://api.microlink.io",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Microlink Pro API key (optional — leave blank for the free anonymous tier)",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "url",
+      "description": "Extract metadata + (optionally) a screenshot from a URL. Returns a JSON envelope with `data` containing title, description, author, publisher, image, logo, screenshot, and any iframe-able media. Set screenshot=true to include a hosted PNG of the rendered page.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to fetch metadata for" },
+          "screenshot": { "type": "boolean", "default": false, "description": "Include a screenshot of the rendered page in the response" },
+          "pdf": { "type": "boolean", "default": false, "description": "Include a PDF of the rendered page" },
+          "video": { "type": "boolean", "default": false, "description": "Include a video capture (Pro only)" },
+          "meta": { "type": "boolean", "default": true, "description": "Include OpenGraph / Twitter card / oEmbed metadata" },
+          "embed": { "type": "string", "description": "Path of a single field to extract (e.g. 'image.url')" },
+          "viewport.width": { "type": "integer", "default": 1280 },
+          "viewport.height": { "type": "integer", "default": 720 },
+          "viewport.deviceScaleFactor": { "type": "number", "default": 1 },
+          "viewport.isMobile": { "type": "boolean", "default": false },
+          "fullPage": { "type": "boolean", "default": false, "description": "Capture full scrollable page" },
+          "type": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" },
+          "waitUntil": {
+            "type": "string",
+            "enum": ["load", "domcontentloaded", "networkidle0", "networkidle2"],
+            "default": "networkidle0"
+          },
+          "waitForTimeout": { "type": "integer", "description": "Extra wait time in ms before capture" },
+          "waitForSelector": { "type": "string", "description": "CSS selector to wait for" },
+          "userAgent": { "type": "string", "description": "Override user agent" },
+          "adblock": { "type": "boolean", "default": false, "description": "Block ads" },
+          "animations": { "type": "boolean", "default": true, "description": "Allow CSS animations" },
+          "click": { "type": "string", "description": "CSS selector to click before capturing" },
+          "scroll": { "type": "string", "description": "CSS selector to scroll into view" },
+          "filter": { "type": "string", "description": "CSS selector — capture only this element" },
+          "headers": { "type": "object", "description": "Custom HTTP headers to send" },
+          "data": { "type": "object", "description": "Field-by-field extraction rules — e.g. {price: {selector: '.price', type: 'number'}}" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "screenshot", "pdf", "video", "meta", "embed",
+        "viewport.width", "viewport.height", "viewport.deviceScaleFactor", "viewport.isMobile",
+        "fullPage", "type", "waitUntil", "waitForTimeout", "waitForSelector",
+        "userAgent", "adblock", "animations", "click", "scroll", "filter",
+        "headers", "data"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "slug": "inboxapi",
+  "name": "InboxAPI",
+  "description": "Send, read, search, and reply to email in an existing InboxAPI account.",
+  "logo": "https://www.google.com/s2/favicons?domain=inboxapi.ai&sz=128",
+  "categories": [
+    "email",
+    "communication"
+  ],
+  "base_url": "https://mcp.inboxapi.ai",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "body_params": {
+      "token": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "description": "Use the access_token from the InboxAPI CLI credentials for this inbox. Update this connection when the CLI refreshes the token. Setup: https://inboxapi.ai/getting-started/."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_email_count"
+  },
+  "tools": [
+    {
+      "name": "get_email_count",
+      "description": "Count messages in the connected InboxAPI inbox.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "get_email_count",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List recent messages in the connected InboxAPI inbox.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "get_emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum number of messages to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of messages to skip."
+          },
+          "content_format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "html",
+              "all"
+            ],
+            "description": "Body format to return. Defaults to text."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Read a message by its Message-ID header.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "get_email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "Message-ID header from an InboxAPI message." },
+          "content_format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "html",
+              "all"
+            ],
+            "description": "Body format to return. Defaults to text."
+          }
+        },
+        "required": ["message_id"]
+      }
+    },
+    {
+      "name": "get_thread",
+      "description": "Read the thread containing the given InboxAPI message.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "get_thread",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": { "type": "string", "description": "Message-ID header from an InboxAPI message." },
+          "content_format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "html",
+              "all"
+            ],
+            "description": "Body format to return. Defaults to text."
+          }
+        },
+        "required": ["message_id"]
+      }
+    },
+    {
+      "name": "search_emails",
+      "description": "Search InboxAPI email by sender, subject, or date.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "search_emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sender": { "type": "string", "description": "Case-insensitive sender substring." },
+          "subject": { "type": "string", "description": "Case-insensitive subject substring." },
+          "since": { "type": "string", "description": "Inclusive ISO 8601 start timestamp." },
+          "until": { "type": "string", "description": "Inclusive ISO 8601 end timestamp." },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum number of messages to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of messages to skip."
+          },
+          "content_format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "html",
+              "all"
+            ],
+            "description": "Body format to return. Defaults to text."
+          }
+        }
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Send an email from the connected InboxAPI inbox.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "send_email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Recipient email addresses.",
+            "minItems": 1
+          },
+          "subject": { "type": "string", "description": "Email subject." },
+          "body": { "type": "string", "description": "Plain text body." },
+          "html_body": { "type": "string", "description": "HTML version of the body." },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CC email addresses."
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "BCC email addresses."
+          }
+        },
+        "required": ["to", "subject", "body"]
+      }
+    },
+    {
+      "name": "reply_to_message",
+      "description": "Reply to a message in its existing InboxAPI thread.",
+      "method": "POST",
+      "path": "/mcp",
+      "mcp_tool": "send_reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "in_reply_to": { "type": "string", "description": "Message-ID header from an InboxAPI message." },
+          "body": { "type": "string", "description": "Plain text body." },
+          "html_body": { "type": "string", "description": "HTML version of the body." },
+          "reply_all": { "type": "boolean", "description": "Set explicitly to choose between replying to the sender and replying to all." }
+        },
+        "required": ["in_reply_to", "body"]
+      }
+    }
+  ]
+}

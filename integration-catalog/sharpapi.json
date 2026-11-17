@@ -1,0 +1,251 @@
+{
+  "slug": "sharpapi",
+  "name": "SharpAPI Sports Odds",
+  "description": "Sports odds and events through the documented SharpAPI HTTP API. Personal API key required. Advertised free tier: DraftKings and FanDuel, 12 requests/minute, 60-second delay; suitable for pre-match evaluation. Books, markets, live data and historical features depend on tier. Docs: https://docs.sharpapi.io/en/",
+  "logo": "https://www.google.com/s2/favicons?domain=sharpapi.io&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "odds",
+    "events"
+  ],
+  "base_url": "https://api.sharpapi.io/api/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sports",
+      "description": "List sports and available league counts. Requires an API key, including on the free tier.",
+      "method": "GET",
+      "path": "/sports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sportsbook": {
+            "type": "string",
+            "description": "Comma-separated sportsbook IDs."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 5000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_leagues",
+      "description": "List leagues and counts; use league slugs in subsequent queries.",
+      "method": "GET",
+      "path": "/leagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Sport slug."
+          },
+          "sportsbook": {
+            "type": "string",
+            "description": "Comma-separated sportsbook IDs."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 5000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List/search events. Finished rows can omit start_time; retain completed_at and status.",
+      "method": "GET",
+      "path": "/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Comma-separated sport slugs."
+          },
+          "league": {
+            "type": "string",
+            "description": "Comma-separated league slugs."
+          },
+          "sportsbook": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "upcoming",
+              "live",
+              "final"
+            ]
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "q": {
+            "type": "string",
+            "description": "Team/event search."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5000
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 5000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_event_odds",
+      "description": "Get all tier-visible odds for one event. This endpoint has no filters or pagination; use get_odds for filtered results.",
+      "method": "GET",
+      "path": "/events/{eventId}/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "description": "Canonical event identifier."
+          }
+        },
+        "required": [
+          "eventId"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 5000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_odds",
+      "description": "Get filtered odds snapshots with cursor pagination. Preserve timestamps and market/period/line information.",
+      "method": "GET",
+      "path": "/odds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "description": "Comma-separated sport slugs."
+          },
+          "league": {
+            "type": "string",
+            "description": "Comma-separated league slugs."
+          },
+          "sportsbook": {
+            "type": "string",
+            "description": "Comma-separated bookmaker IDs."
+          },
+          "market": {
+            "type": "string",
+            "description": "Market types or documented aliases such as main, spread, total, props."
+          },
+          "event_id": {
+            "type": "string",
+            "description": "Comma-separated event IDs."
+          },
+          "player_name": {
+            "type": "string"
+          },
+          "selection": {
+            "type": "string"
+          },
+          "is_live": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500,
+            "description": "Use cursor beyond offset 500."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque next_cursor from pagination."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 5000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get current account entitlements, books and limits. Available on all tiers.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 5000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_account"
+  }
+}

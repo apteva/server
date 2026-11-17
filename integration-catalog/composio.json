@@ -1,0 +1,151 @@
+{
+  "slug": "composio",
+  "name": "Composio",
+  "description": "Execute tools via Composio's unified API. Access 100+ integrations (Gmail, Slack, GitHub, etc.) through a single interface with managed authentication.",
+  "logo": "https://www.google.com/s2/favicons?domain=composio.dev&sz=128",
+  "categories": [
+    "composio",
+    "integrations",
+    "tools",
+    "saas",
+    "unified-api"
+  ],
+  "base_url": "https://backend.composio.dev/api/v3",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "X-User-Id": "{{user_id}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      },
+      {
+        "name": "user_id",
+        "label": "User Id"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "execute_tool",
+      "description": "Execute any Composio tool/action. Specify the tool name (e.g., 'GMAIL_SEND_EMAIL', 'SLACK_POST_MESSAGE') and provide the required arguments.",
+      "method": "POST",
+      "path": "/tools/{tool_name}/execute",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "description": "The Composio tool name to execute (e.g., 'GMAIL_SEND_EMAIL', 'GITHUB_CREATE_ISSUE', 'SLACK_POST_MESSAGE')"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "The Composio user ID (entity) to execute the tool for"
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Arguments required by the tool (varies by tool)"
+          }
+        },
+        "required": [
+          "tool_name",
+          "user_id",
+          "arguments"
+        ]
+      }
+    },
+    {
+      "name": "list_tools",
+      "description": "List all available Composio tools, optionally filtered by toolkit (app).",
+      "method": "GET",
+      "path": "/tools",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "toolkit": {
+            "type": "string",
+            "description": "Filter by toolkit/app name (e.g., 'gmail', 'slack', 'github')"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_tool",
+      "description": "Get detailed information about a specific Composio tool including its input schema.",
+      "method": "GET",
+      "path": "/tools/{tool_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tool_name": {
+            "type": "string",
+            "description": "The tool name to get details for"
+          }
+        },
+        "required": [
+          "tool_name"
+        ]
+      }
+    },
+    {
+      "name": "list_toolkits",
+      "description": "List all available Composio toolkits (apps) like Gmail, Slack, GitHub, etc.",
+      "method": "GET",
+      "path": "/toolkits",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_connection",
+      "description": "Initiate a connection to a toolkit for a user. Returns an auth URL for OAuth-based toolkits.",
+      "method": "POST",
+      "path": "/connections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "toolkit": {
+            "type": "string",
+            "description": "The toolkit to connect (e.g., 'gmail', 'slack', 'github')"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "The user ID to create the connection for"
+          },
+          "redirect_url": {
+            "type": "string",
+            "description": "URL to redirect after OAuth completion"
+          }
+        },
+        "required": [
+          "toolkit",
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "list_connections",
+      "description": "List all connections for a user, showing which toolkits they have authenticated with.",
+      "method": "GET",
+      "path": "/connections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "The user ID to list connections for"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    }
+  ]
+}

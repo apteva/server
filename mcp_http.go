@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // handleMCPEndpoint serves Streamable HTTP MCP transport for integration connections.
@@ -103,7 +105,7 @@ func (s *Server) handleMCPEndpoint(w http.ResponseWriter, r *http.Request) {
 	var appSlug, encCreds string
 	var connUserID int64
 	var connProjectID string
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(r.Context(),
 		"SELECT app_slug, encrypted_credentials, user_id, COALESCE(project_id, '') FROM connections WHERE id = ?", connectionID,
 	).Scan(&appSlug, &encCreds, &connUserID, &connProjectID)
 	if err != nil {
@@ -240,13 +242,7 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			if allowedSet != nil && !allowedSet[t.Name] {
 				continue
 			}
-			schema := map[string]any{"type": "object"}
-			if props, ok := t.InputSchema["properties"]; ok {
-				schema["properties"] = props
-			}
-			if req, ok := t.InputSchema["required"]; ok {
-				schema["required"] = req
-			}
+			schema := integrationMCPInputSchema(&t)
 			tools = append(tools, map[string]any{
 				"name":        t.Name,
 				"description": fmt.Sprintf("[%s] %s", app.Name, t.Description),
@@ -322,12 +318,38 @@ func (s *Server) handleMCPPost(w http.ResponseWriter, r *http.Request, app *AppT
 			if environmentID == "" {
 				environmentID = r.Header.Get("X-Apteva-Environment-Id")
 			}
+			if containsFileReference(ctx.Input) {
+				// Core supplies the thread from runtime context, never a model
+				// argument. Older Core versions fail closed for shared blobs.
+				caller, fileErr := s.fileReferenceCaller(r, r.Header.Get(sdk.HeaderFileReferenceThread))
+				if fileErr == nil {
+					_, project, _, scopeErr := s.blobScope(caller)
+					if scopeErr != nil || (conn != nil && conn.ProjectID != "" && conn.ProjectID != project) {
+						fileErr = fileProblem(403, "file_inaccessible", "connection project does not match trusted thread")
+					}
+				}
+				if fileErr == nil {
+					var releaseFiles func()
+					ctx.Input, releaseFiles, fileErr = s.resolveFileArguments(r.Context(), ctx.Input, integrationFileSchema(tool), caller)
+					defer releaseFiles()
+				}
+				if fileErr != nil {
+					detail, _ := json.Marshal(fileProblemFromError(fileErr))
+					result = map[string]any{"isError": true, "content": []map[string]any{{"type": "text", "text": string(detail)}}}
+					break
+				}
+			}
 			if environmentID == "" {
 				err = s.prepareIntegrationExternalFetch(ctx.App, tool, ctx.Credentials, ctx.Input)
 			}
 			var execResult *ExecuteResult
 			if err == nil {
 				execResult, err = s.executeConnectionToolWithRefresh(persistTargetID, ctx.App, tool, ctx.Credentials, ctx.Input, environmentID, persist)
+			}
+			if err == nil && execResult != nil && execResult.Success {
+				if caller, callerErr := s.blobCallerFromRequest(r); callerErr == nil {
+					execResult.Data, err = s.storeToolBlobValue(r.Context(), execResult.Data, caller)
+				}
 			}
 			if err != nil {
 				s.recordIntegrationUsage(integrationUsageFromResult(conn, 0, "mcp-http", tool.Name, params.Arguments, nil, err))

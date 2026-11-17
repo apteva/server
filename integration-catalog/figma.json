@@ -1,0 +1,162 @@
+{
+  "slug": "figma",
+  "name": "Figma",
+  "description": "Figma design platform - look up files, browse comments, and collaborate on designs",
+  "logo": "https://www.google.com/s2/favicons?domain=figma.com&sz=128",
+  "categories": [
+    "design",
+    "figma",
+    "collaboration",
+    "ui",
+    "comments"
+  ],
+  "base_url": "https://api.figma.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Figma personal access token (generate at figma.com/developers/api#access-tokens)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_comments",
+      "description": "Get all comments on a Figma file. Returns comment threads with author info, timestamps, and positions.",
+      "method": "GET",
+      "path": "/get-comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileKey": {
+            "type": "string",
+            "description": "The key of the Figma file (found in the file URL, e.g. for figma.com/file/ABC123/..., the key is ABC123)"
+          },
+          "as_md": {
+            "type": "boolean",
+            "description": "If true, return comments in markdown format"
+          }
+        },
+        "required": [
+          "fileKey"
+        ]
+      }
+    },
+    {
+      "name": "get_file",
+      "description": "Get metadata and contents of a Figma file by its file key. Returns the file name, last modified date, version, document structure, and components.",
+      "method": "GET",
+      "path": "/get-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileKey": {
+            "type": "string",
+            "description": "The key of the Figma file (found in the file URL, e.g. for figma.com/file/ABC123/..., the key is ABC123)"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Positive integer representing how deep into the document tree to traverse. Setting this to 1 returns only pages, 2 returns pages and all top-level objects on each page.",
+            "minimum": 1
+          },
+          "geometry": {
+            "type": "string",
+            "description": "Set to 'paths' to include vector data",
+            "enum": [
+              "paths"
+            ]
+          },
+          "plugin_data": {
+            "type": "string",
+            "description": "Comma-separated list of plugin IDs or 'shared' to include plugin data"
+          }
+        },
+        "required": [
+          "fileKey"
+        ]
+      }
+    },
+    {
+      "name": "find_files",
+      "description": "Search for files in a Figma team project. Returns a list of matching files with their names, keys, thumbnails, and last modified dates.",
+      "method": "GET",
+      "path": "/find-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string",
+            "description": "The ID of the Figma team to search within (found in the team URL)"
+          }
+        },
+        "required": [
+          "teamId"
+        ]
+      }
+    },
+    {
+      "name": "create_comment",
+      "description": "Post a new comment on a Figma file. Optionally pin the comment to a specific position on the canvas.",
+      "method": "POST",
+      "path": "/create-comment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fileKey": {
+            "type": "string",
+            "description": "The key of the Figma file to comment on"
+          },
+          "message": {
+            "type": "string",
+            "description": "The text content of the comment"
+          },
+          "comment_id": {
+            "type": "string",
+            "description": "The ID of an existing comment to reply to (for threaded replies)"
+          },
+          "client_meta": {
+            "type": "object",
+            "description": "Position on the canvas to pin the comment to",
+            "properties": {
+              "x": {
+                "type": "number",
+                "description": "X coordinate on the canvas"
+              },
+              "y": {
+                "type": "number",
+                "description": "Y coordinate on the canvas"
+              },
+              "node_id": {
+                "type": "string",
+                "description": "The node ID to attach the comment to"
+              },
+              "node_offset": {
+                "type": "object",
+                "description": "Offset relative to the node",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "fileKey",
+          "message"
+        ]
+      }
+    }
+  ]
+}

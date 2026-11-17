@@ -455,7 +455,7 @@ func (openAICodexAuthDriver) SmokeTest(ctx context.Context, state map[string]any
 	if model == "" {
 		model = strings.TrimSpace(stringValue(state["model_medium"]))
 		if model == "" {
-			model = "gpt-5.5"
+			model = "gpt-6.1-sol"
 		}
 	}
 

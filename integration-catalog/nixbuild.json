@@ -1,0 +1,116 @@
+{
+  "slug": "nixbuild",
+  "name": "nixbuild.net",
+  "description": "Nix builds as a service \u2014 submit Nix derivations, get them built remotely with shared cache across all users. Generous free tier (25 CPU-hours/month). Bearer-token authenticated; the API also supports OIDC for short-lived CI tokens. Useful when your build is Nix-shaped (Nixpacks, NixOS, dev shells) \u2014 not for arbitrary Dockerfile builds.",
+  "logo": "https://www.google.com/s2/favicons?domain=nixbuild.net&sz=128",
+  "categories": [
+    "build",
+    "ci",
+    "nix",
+    "buildkit",
+    "devops"
+  ],
+  "base_url": "https://api.nixbuild.net",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Auth Token",
+        "description": "Generate via the nixbuild.net shell with `nixbuild.net token create --build-read --build-write --store-read --store-write`",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_builds",
+      "description": "List builds. Args: created_gte? (ISO8601), created_lt? (ISO8601), status? (comma-separated: queued,running,succeeded,failed,canceled), derivations? (CSV of .drv paths), limit? (default 500).",
+      "method": "GET",
+      "path": "/builds?created_gte={created_gte}&created_lt={created_lt}&status={status}&derivations={derivations}&limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "created_gte": {
+            "type": "string"
+          },
+          "created_lt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "derivations": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get a build by id including timings and store paths produced. Args: build_id.",
+      "method": "GET",
+      "path": "/builds/{build_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "build_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel a queued or running build. Args: build_id.",
+      "method": "POST",
+      "path": "/builds/{build_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "build_id"
+        ]
+      }
+    },
+    {
+      "name": "list_tokens",
+      "description": "List auth tokens for the account.",
+      "method": "GET",
+      "path": "/tokens",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get account info including remaining free CPU-hours and current spend.",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_account"
+  }
+}

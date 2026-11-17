@@ -81,6 +81,11 @@ func loadOrMintInstanceSecret(store *Store) string {
 }
 
 type Server struct {
+	deviceLinks          sync.Map // device ID -> *deviceConnection
+	deviceRateMu         sync.Mutex
+	deviceRates          map[string][]time.Time
+	liveBindingLocks     sync.Map
+	liveBindingWorkers   sync.Map
 	automatic            automaticRuntime
 	store                *Store
 	dbPath               string // path to apteva-server.db on disk (needed for staged restore)
@@ -96,6 +101,19 @@ type Server struct {
 	// Optional transport used by managed-LLM gateway tests. Production uses
 	// the default HTTPS transport.
 	managedLLMTransport http.RoundTripper
+	// Optional test seam for environment registry package materialization.
+	// Production resolves through the configured curated app registry and the
+	// normal verified app cache.
+	environmentRegistrySource func(name, constraint string) (string, error)
+	// appCallbackClient reuses one pooled transport for sibling-app calls.
+	// Per-call admission metadata is carried in the request context, so the
+	// client remains safe to share across concurrent callbacks.
+	appCallbackClientOnce sync.Once
+	appCallbackHTTPClient *http.Client
+	// appBatchCapabilities remembers whether a particular running target
+	// supports the SDK-owned single-request batch transport. The key includes
+	// runtime identity so endpoint or token rotation naturally re-negotiates.
+	appBatchCapabilities sync.Map
 	// agentConfigLocks serializes read/modify/write updates to one agent's
 	// config. MCP attachment changes are additive at the API, but ultimately
 	// core consumes one desired mcp_servers list; without this lock two
@@ -104,19 +122,23 @@ type Server struct {
 	// agentSkillLocks serializes reconciliation of app-owned skill memories for
 	// one agent. App attachment changes, app upgrades, and startup repair can
 	// otherwise race and create parallel supersede chains for the same skill.
-	agentSkillLocks     sync.Map // agent id -> *sync.Mutex
-	port                string   // server port for telemetry callback
-	dataDir             string   // data directory for downloads, etc.
-	appsDir             string   // path to integration app definitions
-	integrationsUIDir   string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
-	publicURL           string   // public base URL for webhooks (e.g. "https://agents.example.com")
-	broadcaster         *TelemetryBroadcaster
-	setupToken          string                     // one-time token for first registration (empty after use)
-	regMode             string                     // "open", "locked", "setup" — controls registration
-	instanceSecret      string                     // shared secret for MCP and telemetry auth
-	platformGatewayExec platformGatewayExecuteFunc // test seam for Helper's HTTP management MCP
-	startupIntent       agentLifecycleIntent
-	agentRollouts       *agentRolloutCoordinator
+	agentSkillLocks         sync.Map // agent id -> *sync.Mutex
+	port                    string   // server port for telemetry callback
+	dataDir                 string   // data directory for downloads, etc.
+	appsDir                 string   // path to integration app definitions
+	integrationsUIDir       string   // path to built integration UI bundles (dist/ui/<slug>/<file>.mjs)
+	publicURL               string   // public base URL for webhooks (e.g. "https://agents.example.com")
+	proxyTelemetryOnce      sync.Once
+	proxyTelemetryCollector *proxyTelemetryCollector
+	broadcaster             *TelemetryBroadcaster
+	setupToken              string // one-time token for first registration (empty after use)
+	regMode                 string // "open", "locked", "setup" — controls registration
+	instanceSecret          string // shared secret for MCP and telemetry auth
+	helperToolRefsMu        sync.Mutex
+	helperToolRefs          map[string]helperToolRef
+	platformGatewayExec     platformGatewayExecuteFunc // test seam for Helper's HTTP management MCP
+	startupIntent           agentLifecycleIntent
+	agentRollouts           *agentRolloutCoordinator
 	// apps holds the loaded Apteva Apps registry. Apps attach to
 	// instance lifecycle via NotifyInstanceAttach/Detach and expose
 	// HTTP routes under /api/apps/<slug>/. Nil before startApps().
@@ -139,7 +161,10 @@ type Server struct {
 	// this host (binary spawn — no Docker). Used in single-host /
 	// laptop installs; coexists with the orchestrator path for prod
 	// multi-worker deployments.
-	localApps *LocalSupervisor
+	localApps         *LocalSupervisor
+	runtimeOnce       sync.Once
+	appRuntime        *appRuntimeManager
+	runtimeRoundRobin uint64
 	// staticMounts holds the live URL-prefix → handler table for every
 	// kind=static app install. Rebuilt on every (un)install via
 	// RemountStaticApps. Read on the request hot path through a
@@ -161,7 +186,8 @@ type Server struct {
 	// ingressCerts is the server-native ACME manager. It is backed by
 	// the ingress_routes table for host policy and falls back to the
 	// legacy certs app cache for compatibility.
-	ingressCerts *IngressCertManager
+	ingressCerts  *IngressCertManager
+	instanceHTTPS *instanceHTTPSManager
 
 	// In-process edge cache for HostRouter-proxied responses the origin
 	// marked publicly cacheable (Cache-Control: public, max-age>0).
@@ -218,7 +244,8 @@ type Server struct {
 	projectPresetPlanner projectPresetPlannerFunc
 	// Narrow lifecycle seam for Helper activation tests. Production leaves it
 	// nil and starts the real managed Core through ensureMetaAgentRunning.
-	platformHelperStarter func(int64) (*Agent, error)
+	platformHelperStarter         func(int64) (*Agent, error)
+	platformHelperActivationLocks sync.Map
 
 	// Personal and Business share one Conversations dependency. Serialize
 	// preparation so concurrent interface selections cannot duplicate it.
@@ -577,18 +604,24 @@ func main() {
 		geoCountry:     newManagedGeoCountryLookup(dataDir),
 	}
 	s.agents.internalMCPSecret = s.instanceSecret
+	s.agents.LoadProcessResources = s.store.agentResourcePolicy
 	s.agents.AuthorizeMCPConfig = s.authorizeAgentMCPConfig
-	if _, err := s.store.db.Exec("UPDATE managed_provisioning_requests SET status='error',last_error='server restarted during apply',updated_at=CURRENT_TIMESTAMP WHERE status='applying'"); err != nil {
+	if _, err := s.store.dbExec("UPDATE managed_provisioning_requests SET status='error',last_error='server restarted during apply',updated_at=CURRENT_TIMESTAMP WHERE status='applying'"); err != nil {
 		log.Fatalf("recover provisioning: %v", err)
 	}
 	s.startupIntent = s.readLifecycleIntent(false)
 	quarantined := cloneQuarantineEnabled()
 	s.agentRollouts = newAgentRolloutCoordinator(s.updateAgentCore)
 	s.installCapabilityMemoryHooks()
+	if err := s.reconcileDeviceMCPs(); err != nil {
+		log.Fatalf("device MCP registry: %v", err)
+	}
+	s.instanceHTTPS = newInstanceHTTPSManager(s)
 	s.ingressCerts = NewIngressCertManager(s)
 	// Back-reference so Environments can drive real (install-backed) app
 	// seeding + teardown. Only ever used by environment endpoints.
 	s.environments.server = s
+	s.environments.ResolveEnvironmentSource = s.resolveEnvironmentAppSource
 
 	// Start console telemetry logger
 	if os.Getenv("QUIET") != "1" {
@@ -645,18 +678,21 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeServerHealth(w, s.ready.Load())
 	})
+	mux.HandleFunc("/ready", s.handleDatabaseReadiness)
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
 	// Agent-facing bridge for custom subprocess MCP servers. Loopback-only;
 	// unlike the dashboard API it intentionally has no browser auth because
 	// apteva-core is the caller.
+	mux.HandleFunc("/mcp/devices/", s.handleDeviceMCP)
 	mux.HandleFunc("/mcp/custom/", s.handleCustomMCPBridge)
 	mux.HandleFunc("/mcp/runtime/", s.handleRuntimeManagedMCPBridge)
 	// Also expose health/version under /api for uniformity from the dashboard.
 	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeServerHealth(w, s.ready.Load())
 	})
+	apiMux.HandleFunc("/ready", s.handleDatabaseReadiness)
 	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
@@ -670,6 +706,7 @@ func main() {
 	// itself lives in the `apteva update` CLI subcommand.
 	apiMux.HandleFunc("/platform-status", s.handlePlatformStatus)
 	apiMux.HandleFunc("/platform-status/refresh", s.handlePlatformStatusRefresh)
+	apiMux.HandleFunc("/platform-update", s.authMiddleware(s.handlePlatformUpdate))
 
 	apiMux.HandleFunc("/auth/status", s.handleAuthStatus)
 	apiMux.HandleFunc("/auth/register", s.handleRegister)
@@ -685,7 +722,11 @@ func main() {
 	apiMux.HandleFunc("/auth/mfa/recovery-codes", s.authMiddleware(s.handleMFARecoveryCodes))
 	apiMux.HandleFunc("/auth/preferences", s.authMiddleware(s.handleAuthPreferences))
 	apiMux.HandleFunc("/auth/delegated-users", s.authMiddleware(s.handleCreateDelegatedUser))
+	apiMux.HandleFunc("/ui-layout/tools", s.authMiddleware(s.handleWorkspacePageTool))
+	apiMux.HandleFunc("/apps/readiness", s.authMiddleware(s.handleAppReadiness))
+	apiMux.HandleFunc("/ui-layout/pages", s.authMiddleware(s.handleUIPages))
 	apiMux.HandleFunc("/ui-layout/projects/", s.authMiddleware(s.handleUILayoutSurface))
+	apiMux.HandleFunc("/ui-layout/global/surfaces/", s.authMiddleware(s.handleUILayoutGlobalSurface))
 	apiMux.HandleFunc("/ui/surfaces/", s.authMiddleware(s.handleUISurfaceResolution))
 	apiMux.HandleFunc("/ui/contributions", s.authMiddleware(s.handleUIContributions))
 	apiMux.HandleFunc("/presets", s.authMiddleware(s.handlePresets))
@@ -700,6 +741,9 @@ func main() {
 	apiMux.HandleFunc("/auth/onboarding/complete", s.authMiddleware(s.handleCompleteOnboarding))
 	apiMux.HandleFunc("/auth/onboarding/prepare", s.authMiddleware(s.handlePrepareOnboarding))
 	apiMux.HandleFunc("/auth/onboarding/status", s.authMiddleware(s.handleOnboardingStatus))
+	apiMux.HandleFunc("/notifications", s.authMiddleware(s.handleUserNotifications))
+	apiMux.HandleFunc("/notifications/", s.authMiddleware(s.handleUserNotifications))
+	s.registerDeviceRoutes(apiMux)
 	apiMux.HandleFunc("/mobile/push/config", s.authMiddleware(s.handleMobilePushConfig))
 	apiMux.HandleFunc("/mobile/push/subscriptions", s.authMiddleware(s.handleMobilePushSubscriptions))
 	apiMux.HandleFunc("/mobile/push/subscriptions/", s.authMiddleware(s.handleMobilePushSubscription))
@@ -744,6 +788,7 @@ func main() {
 	apiMux.HandleFunc("/telemetry/timeline", s.authMiddleware(s.handleTelemetryTimeline))
 	apiMux.HandleFunc("/telemetry/stats", s.authMiddleware(s.handleTelemetryStats))
 	apiMux.HandleFunc("/telemetry/project-activity", s.authMiddleware(s.handleProjectActivity))
+	apiMux.HandleFunc("/telemetry/agents-last-active", s.authMiddleware(s.handleAgentsLastActive))
 	apiMux.HandleFunc("/telemetry/project-stats", s.authMiddleware(s.handleTelemetryProjectStats))
 	apiMux.HandleFunc("/telemetry/project-timeline", s.authMiddleware(s.handleTelemetryProjectTimeline))
 	apiMux.HandleFunc("/telemetry/project-tools", s.authMiddleware(s.handleTelemetryProjectTools))
@@ -752,6 +797,7 @@ func main() {
 	// performs its own narrow authentication and never accepts user API keys.
 	apiMux.HandleFunc("/llm/chat/completions", s.handleManagedLLMChat)
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry) // broadcast-only ingest for chunks
+	s.registerTelemetryReadRoutes(apiMux)
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -927,10 +973,12 @@ func main() {
 	// returns effective values to authenticated users with managed connection
 	// identifiers redacted for non-admins. PUT is platform-admin-only.
 	apiMux.HandleFunc("/settings/server", s.authMiddleware(s.handleServerSettings))
+	apiMux.HandleFunc("/settings/public-address", s.authMiddleware(s.handlePublicAddressSettings))
 	apiMux.HandleFunc("/settings/new-agent-provider", s.authMiddleware(s.handleNewAgentProviderSettings))
 	apiMux.HandleFunc("/ingress/routes", s.authMiddleware(s.handleIngressRoutes))
 	apiMux.HandleFunc("/ingress/routes/", s.authMiddleware(s.handleIngressRoute))
 	apiMux.HandleFunc("/ingress/certs", s.authMiddleware(s.handleIngressCerts))
+	apiMux.HandleFunc("/settings/https", s.authMiddleware(s.handleInstanceHTTPS))
 
 	// GET /api/connections/runtime — the Models settings tab's list:
 	// connections whose catalog entry declares a `runtime` block,
@@ -1097,22 +1145,37 @@ func main() {
 		if strings.HasSuffix(path, "/delegated-access-policies") {
 			need = ProjectOwner
 		}
+		if strings.HasSuffix(path, "/runtime-token") {
+			need = ProjectOwner
+		}
 		if _, ok := s.requireAppInstallAccess(w, r, installID, need); !ok {
 			return
 		}
 		switch {
+		case path == idPart+"/installation":
+			s.handleAppInstallation(w, r, installID)
+		case path == idPart+"/components" || strings.HasPrefix(path, idPart+"/components/"):
+			s.handleAppComponents(w, r, installID)
+		case strings.Contains(path, "/deployment/") || strings.HasSuffix(path, "/placement") || strings.HasSuffix(path, "/deployment"):
+			s.handleAppDeployment(w, r, installID)
 		case strings.HasSuffix(path, "/status") && r.Method == http.MethodPut:
 			s.handleSetInstallStatus(w, r)
 		case strings.HasSuffix(path, "/instances") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings(w, r)
 		case strings.HasSuffix(path, "/upgrade") && r.Method == http.MethodPost:
 			s.handleUpgradeApp(w, r)
+		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodGet:
+			s.handleGetLiveBindings(w, r)
 		case strings.HasSuffix(path, "/bindings") && r.Method == http.MethodPut:
 			s.handleSetInstallBindings2(w, r)
+		case strings.HasSuffix(path, "/setup"):
+			s.handleAppSetup(w, r)
 		case strings.HasSuffix(path, "/preflight") && r.Method == http.MethodGet:
 			s.handlePreflightInstalled(w, r)
 		case strings.HasSuffix(path, "/tools") && r.Method == http.MethodGet:
 			s.handleInstallTools(w, r)
+		case strings.HasSuffix(path, "/runtime-token") && r.Method == http.MethodPost:
+			s.handleIssueInstallRuntimeToken(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodGet:
 			s.handleGetInstallConfig(w, r)
 		case strings.HasSuffix(path, "/config") && r.Method == http.MethodPut:
@@ -1139,6 +1202,7 @@ func main() {
 			http.Error(w, "not found", http.StatusNotFound)
 		}
 	}))
+	s.registerAppDeploymentRoutes(apiMux)
 	s.registerAppRuntimeRoutes(apiMux)
 
 	apiMux.HandleFunc("/mcp-servers", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -1190,6 +1254,7 @@ func main() {
 	// enforces loopback, revision token, alias, and project scope.
 	apiMux.HandleFunc("/managed-mcp-runtime/", s.handleManagedMCPRuntimeGateway)
 	apiMux.HandleFunc("/runtime-managed-mcp/", s.handleRuntimeManagedMCPGateway)
+	apiMux.HandleFunc("/runtime-image-responses", s.handleRuntimeImageResponses)
 
 	// Provider routes — reduced to the one endpoint that must outlive
 	// the providers table.
@@ -1230,6 +1295,7 @@ func main() {
 
 	apiMux.HandleFunc("/platform/helper", s.authMiddleware(s.handlePlatformHelper))
 	apiMux.HandleFunc("/platform/helper/status", s.authMiddleware(s.handlePlatformHelperStatus))
+	apiMux.HandleFunc("/platform/helper/ensure-default", s.authMiddleware(s.handlePlatformHelperEnsureDefault))
 	apiMux.HandleFunc("/platform/helper/activate", s.authMiddleware(s.handlePlatformHelperActivate))
 	apiMux.HandleFunc("/platform/helper/deactivate", s.authMiddleware(s.handlePlatformHelperDeactivate))
 	apiMux.HandleFunc("/platform/helper/capabilities", s.authMiddleware(s.handlePlatformHelperCapabilities))
@@ -1294,6 +1360,11 @@ func main() {
 			need = ProjectEditor
 		}
 		if _, ok := s.requireAgentAccess(w, r, agentID, need); !ok {
+			return
+		}
+
+		if path == agentIDPart+"/resources" {
+			s.handleAgentResources(w, r, agentID)
 			return
 		}
 
@@ -1521,6 +1592,9 @@ func main() {
 		cacheBase = abs
 	}
 	s.localApps = NewLocalSupervisor(cacheBase)
+	s.localApps.beforeExclusiveStop = s.markExclusiveActivationUnavailable
+	s.localApps.afterExclusiveSpawn = s.recordExclusiveActivationPID
+	s.localApps.onProcessExit = s.localProcessExited
 	s.RegisterBuiltinApps()
 
 	// Move legacy `providers` rows onto `connections` (providers/
@@ -1613,6 +1687,9 @@ func main() {
 	if httpsIngressAddr != "" {
 		listeners = append(listeners, startIngressTLSListener(httpsIngressAddr, drain, s.ingressCerts))
 	}
+	if !quarantined {
+		s.instanceHTTPS.bind(drain, listenAddr, httpIngressAddr, httpsIngressAddr)
+	}
 
 	if quarantined {
 		if err := s.PrepareCloneLocalRuntimes(); err != nil {
@@ -1641,6 +1718,7 @@ func main() {
 		s.ResumeLocalInstalls()
 		s.PruneInstalledAppVersions()
 		s.ResumePendingLocalInstalls()
+		s.appRuntimeManager().startReconciler()
 	}
 	s.LoadInstalledApps()
 	if !quarantined {
@@ -1680,6 +1758,13 @@ func main() {
 			s.runAgentBehaviorReconciler(runtimeCtx)
 		}
 	}()
+	deviceEventsDone := make(chan struct{})
+	go func() {
+		defer close(deviceEventsDone)
+		if !quarantined {
+			s.runDeviceEvents(runtimeCtx)
+		}
+	}()
 	runtimeDone := make(chan struct{})
 	go func() { defer close(runtimeDone); s.RunRuntimeMonitor(runtimeCtx) }()
 	s.ready.Store(true)
@@ -1694,11 +1779,13 @@ func main() {
 	go func() {
 		defer close(shutdownDone)
 		sig := <-sigCh
+		s.shutdownWebsocketProxies()
 		stopRuntimeMonitor()
 		s.ready.Store(false)
 		drain.begin()
 		drain.wait(5 * time.Second)
 		<-runtimeDone
+		<-deviceEventsDone
 		<-behaviorDone
 		if s.pollingDispatcher != nil {
 			s.pollingDispatcher.Stop()
@@ -1748,6 +1835,9 @@ func main() {
 		// this, every clean apteva-server exit leaves the running
 		// app sidecars (code, deploy, storage, …) as orphans for
 		// the next boot's cleanup pass to mop up — works, but noisy.
+		if s.appRuntime != nil {
+			s.appRuntime.Close()
+		}
 		if s.localApps != nil {
 			s.localApps.StopAll(5 * time.Second)
 		}
@@ -1756,6 +1846,12 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		defer func() {
+			flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer flushCancel()
+			s.stopProxyTelemetry(flushCtx)
+		}()
+		s.instanceHTTPS.close(ctx)
 		for _, listener := range listeners {
 			if listener != nil {
 				if err := listener.Shutdown(ctx); err != nil {

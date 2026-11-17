@@ -301,7 +301,7 @@ func TestStore_CreateAgentIdempotentScopesKeysByProject(t *testing.T) {
 	if err != nil || created {
 		t.Fatalf("replay: agent=%+v created=%v err=%v", replay, created, err)
 	}
-	if replay.ID != first.ID || replay.Name != "Worker" || replay.Directive != withAgentBehavior("first", "cautious") {
+	if replay.ID != first.ID || replay.Name != "Worker" || replay.Directive != "first" {
 		t.Fatalf("replay returned a different agent: first=%+v replay=%+v", first, replay)
 	}
 
@@ -383,7 +383,7 @@ func TestStore_GetInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inst.Directive != withAgentBehavior("directive", "autonomous") {
+	if inst.Directive != "directive" {
 		t.Errorf("expected directive, got %s", inst.Directive)
 	}
 	if inst.Config != `{"key":"val"}` {
@@ -431,7 +431,7 @@ func TestStore_UpdateInstance(t *testing.T) {
 	store.UpdateAgent(inst)
 
 	updated, _ := store.GetAgent(user.ID, inst.ID)
-	if updated.Directive != withAgentBehavior("new directive", "autonomous") {
+	if updated.Directive != "new directive" {
 		t.Errorf("expected new directive, got %s", updated.Directive)
 	}
 	if updated.Status != "running" {

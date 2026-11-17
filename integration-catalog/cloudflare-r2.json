@@ -1,0 +1,180 @@
+{
+  "slug": "cloudflare-r2",
+  "name": "Cloudflare R2",
+  "description": "Cloudflare R2 \u2014 S3-compatible object storage with no egress fees. Bucket-scoped REST endpoints with AWS SigV4 request signing against <account_id>.r2.cloudflarestorage.com. Region is fixed to 'auto'. Generate R2 API tokens at dash.cloudflare.com \u2192 R2 \u2192 Manage R2 API Tokens; the token gives you the access_key_id + secret_access_key pair this integration expects.",
+  "logo": "https://www.google.com/s2/favicons?domain=cloudflare.com&sz=128",
+  "categories": [
+    "storage",
+    "cloudflare",
+    "cloud",
+    "infrastructure"
+  ],
+  "base_url": "https://{{account_id}}.r2.cloudflarestorage.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "account_id",
+        "label": "Cloudflare Account ID",
+        "description": "32-char hex account id from the Cloudflare dashboard sidebar. Determines the R2 endpoint used to reach your buckets.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "access_key_id",
+        "label": "R2 Access Key ID",
+        "description": "From dash.cloudflare.com \u2192 R2 \u2192 Manage R2 API Tokens \u2192 Create API token. Scope to the bucket(s) the app will use; 'Object Read & Write' is the minimum for backup-style workloads.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "R2 Secret Access Key",
+        "description": "Returned alongside the access key when you create the R2 API token. Shown once at creation; if you've lost it, generate a fresh token.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "R2 doesn't use AWS-style regions; set to 'auto' (the default). Override only if a future R2 release exposes regional endpoints.",
+        "required": false,
+        "type": "text",
+        "default": "auto"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "R2 bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to keys starting with this prefix."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "Pagination cursor from a prior IsTruncated response."
+          },
+          "max-keys": {
+            "type": "integer",
+            "description": "Page size (max 1000)."
+          },
+          "list-type": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "continuation-token",
+        "max-keys",
+        "list-type"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass the object content as the 'body' input \u2014 the runner sends it verbatim with SigV4-signed integrity hash. R2 has no upload size limit comparable to S3 but the integration runner caps responses at 200MB; for objects larger than ~100MB consider multipart upload via a future tool.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key (path inside the bucket)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Object content. Bytes welcome \u2014 the runner sends them verbatim."
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200MB).",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all R2 buckets in the account. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has the names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_buckets",
+    "auth_ok_when_body_contains": [
+      "AccessDenied"
+    ]
+  }
+}

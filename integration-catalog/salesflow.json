@@ -1,0 +1,538 @@
+{
+  "slug": "salesflow",
+  "name": "Salesflow",
+  "description": "Salesflow LinkedIn automation - manage campaigns, contacts, analytics, and webhooks for LinkedIn outreach",
+  "logo": "https://www.google.com/s2/favicons?domain=salesflow.io&sz=128",
+  "categories": [
+    "linkedin",
+    "outreach",
+    "automation",
+    "sales",
+    "leads"
+  ],
+  "base_url": "https://api.salesflow.io/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "account_list",
+      "description": "List all LinkedIn accounts connected to your Salesflow workspace.",
+      "method": "GET",
+      "path": "/account-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "List all campaigns for a specific LinkedIn account.",
+      "method": "GET",
+      "path": "/campaign-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_start",
+      "description": "Start/initiate a campaign.",
+      "method": "POST",
+      "path": "/campaign-start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to start"
+          }
+        },
+        "required": [
+          "accountId",
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "member_get",
+      "description": "Get contact information for a specific member by their ID.",
+      "method": "GET",
+      "path": "/member-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "memberId": {
+            "type": "string",
+            "description": "Member ID to look up"
+          }
+        },
+        "required": [
+          "accountId",
+          "memberId"
+        ]
+      }
+    },
+    {
+      "name": "member_get_by_identifier",
+      "description": "Get contact information using their LinkedIn public identifier.",
+      "method": "GET",
+      "path": "/member-get-by-identifier",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "publicIdentifier": {
+            "type": "string",
+            "description": "LinkedIn public identifier (e.g., 'john-doe-123')"
+          }
+        },
+        "required": [
+          "accountId",
+          "publicIdentifier"
+        ]
+      }
+    },
+    {
+      "name": "member_import",
+      "description": "Add a new contact to a campaign. Uses GET with query params (Salesflow API design). Optional fields: lastName, occupation, location, customFields[].",
+      "method": "GET",
+      "path": "/member-import",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to add the contact to"
+          },
+          "linkedInUrl": {
+            "type": "string",
+            "description": "LinkedIn profile URL of the contact"
+          },
+          "firstName": {
+            "type": "string",
+            "description": "Contact's first name (optional)"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Contact's last name (optional)"
+          },
+          "occupation": {
+            "type": "string",
+            "description": "Contact's job title (optional)"
+          },
+          "location": {
+            "type": "string",
+            "description": "Contact's location (optional)"
+          }
+        },
+        "required": [
+          "accountId",
+          "campaignId",
+          "linkedInUrl"
+        ]
+      }
+    },
+    {
+      "name": "member_update",
+      "description": "Update an existing contact's information.",
+      "method": "POST",
+      "path": "/member-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "memberId": {
+            "type": "string",
+            "description": "Member ID to update"
+          },
+          "FirstName": {
+            "type": "string",
+            "description": "Updated first name"
+          },
+          "LastName": {
+            "type": "string",
+            "description": "Updated last name"
+          },
+          "Email": {
+            "type": "string",
+            "description": "Updated email"
+          },
+          "Phone": {
+            "type": "string",
+            "description": "Updated phone number"
+          },
+          "Occupation": {
+            "type": "string",
+            "description": "Updated job title"
+          },
+          "Location": {
+            "type": "string",
+            "description": "Updated location"
+          },
+          "Industry": {
+            "type": "string",
+            "description": "Updated industry"
+          },
+          "Company": {
+            "type": "string",
+            "description": "Updated company name"
+          }
+        },
+        "required": [
+          "accountId",
+          "memberId"
+        ]
+      }
+    },
+    {
+      "name": "member_delete",
+      "description": "Remove a contact from a campaign.",
+      "method": "DELETE",
+      "path": "/member-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "memberId": {
+            "type": "string",
+            "description": "Member ID to delete"
+          }
+        },
+        "required": [
+          "accountId",
+          "memberId"
+        ]
+      }
+    },
+    {
+      "name": "member_list",
+      "description": "List all contacts/members in a specific campaign.",
+      "method": "GET",
+      "path": "/member-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to list contacts for"
+          }
+        },
+        "required": [
+          "accountId",
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "member_list_by_account",
+      "description": "List all contacts across all campaigns for an account. Optionally filter by update date.",
+      "method": "GET",
+      "path": "/member-list-by-account",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "updatedFromDate": {
+            "type": "string",
+            "description": "Filter contacts updated after this date (ISO format, optional)"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "member_list_by_identifiers",
+      "description": "Get contacts by a list of LinkedIn public identifiers.",
+      "method": "POST",
+      "path": "/member-list-by-identifiers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "publicIdentifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of LinkedIn public identifiers"
+          }
+        },
+        "required": [
+          "accountId",
+          "publicIdentifiers"
+        ]
+      }
+    },
+    {
+      "name": "statistics",
+      "description": "Get statistics for a specific campaign.",
+      "method": "GET",
+      "path": "/statistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID"
+          }
+        },
+        "required": [
+          "accountId",
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "analytics_campaign",
+      "description": "Get analytics for a specific campaign within a date range.",
+      "method": "GET",
+      "path": "/analytics-campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date (ISO format)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date (ISO format)"
+          }
+        },
+        "required": [
+          "accountId",
+          "campaignId",
+          "from",
+          "to"
+        ]
+      }
+    },
+    {
+      "name": "analytics_account",
+      "description": "Get analytics for an entire account within a date range.",
+      "method": "GET",
+      "path": "/analytics-account",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date (ISO format)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date (ISO format)"
+          }
+        },
+        "required": [
+          "accountId",
+          "from",
+          "to"
+        ]
+      }
+    },
+    {
+      "name": "messaging_incoming",
+      "description": "Get incoming messages for a campaign from a given date.",
+      "method": "GET",
+      "path": "/messaging-incoming",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date (ISO format)"
+          }
+        },
+        "required": [
+          "accountId",
+          "campaignId",
+          "from"
+        ]
+      }
+    },
+    {
+      "name": "webhook_list",
+      "description": "List all webhooks configured for an account.",
+      "method": "GET",
+      "path": "/webhook-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "webhook_create",
+      "description": "Create a new webhook for receiving event notifications.",
+      "method": "POST",
+      "path": "/webhook-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "Name": {
+            "type": "string",
+            "description": "Webhook name (max 255 chars)"
+          },
+          "Url": {
+            "type": "string",
+            "description": "Webhook URL to receive events (max 511 chars)"
+          },
+          "DisableForMutedContacts": {
+            "type": "boolean",
+            "description": "Skip sending for muted contacts (default: false)"
+          }
+        },
+        "required": [
+          "accountId",
+          "Name",
+          "Url"
+        ]
+      }
+    },
+    {
+      "name": "webhook_attach",
+      "description": "Attach a webhook to a campaign with a specific event trigger. runOn values: 1=MEMBER_CONNECTED, 2=REPLY_DETECTED, 7=INVITATION_WITHDRAWN.",
+      "method": "POST",
+      "path": "/webhook-attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "webhookId": {
+            "type": "string",
+            "description": "Webhook ID to attach"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to attach to"
+          },
+          "runOn": {
+            "type": "integer",
+            "description": "Event trigger: 1=MEMBER_CONNECTED, 2=REPLY_DETECTED, 7=INVITATION_WITHDRAWN"
+          }
+        },
+        "required": [
+          "accountId",
+          "webhookId",
+          "campaignId",
+          "runOn"
+        ]
+      }
+    },
+    {
+      "name": "webhook_delete",
+      "description": "Delete a webhook.",
+      "method": "DELETE",
+      "path": "/webhook-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Salesflow account ID"
+          },
+          "webhookId": {
+            "type": "string",
+            "description": "Webhook ID to delete"
+          }
+        },
+        "required": [
+          "accountId",
+          "webhookId"
+        ]
+      }
+    }
+  ]
+}

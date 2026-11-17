@@ -1,0 +1,505 @@
+{
+  "slug": "omnikit-sites",
+  "name": "OmniKit Sites",
+  "description": "Block-composed multi-tenant marketing sites: provision tenants from templates, manage pages, granularly patch blocks, and publish via the OmniKit content-site runtime.",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "omnikit",
+    "sites",
+    "cms",
+    "website-builder",
+    "pages",
+    "blocks",
+    "multi-tenant"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_site",
+      "description": "Provision a new content-site tenant: inserts the site row, seeds pages from a template, and registers routing. Returns 202 with status='dns_wait' \u2014 reconciler handles DNS/TLS.",
+      "method": "POST",
+      "path": "/content-sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "integer",
+            "description": "Project owning the site"
+          },
+          "primary_domain": {
+            "type": "string",
+            "description": "Hostname the site will serve (e.g. acme.com)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable label"
+          },
+          "template": {
+            "type": "string",
+            "default": "minimal",
+            "description": "Template slug to seed content from"
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "light",
+              "dark"
+            ],
+            "default": "auto"
+          },
+          "owner_email": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "default": {}
+          }
+        },
+        "required": [
+          "project_id",
+          "primary_domain",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_sites",
+      "description": "List sites, optionally filtered by project_id or status.",
+      "method": "GET",
+      "path": "/content-sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_site",
+      "description": "Get a site with its domains and recent events.",
+      "method": "GET",
+      "path": "/content-sites/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Site ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_site",
+      "description": "Update site fields (name, theme, metadata, owner_email). Does not change domain or project ownership.",
+      "method": "PATCH",
+      "path": "/content-sites/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "theme": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "light",
+              "dark"
+            ]
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "owner_email": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_site",
+      "description": "Tear down a site: remove routing, clear content, unlink domains.",
+      "method": "DELETE",
+      "path": "/content-sites/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List all pages for a site.",
+      "method": "GET",
+      "path": "/content-sites/{site_id}/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Get one page with its title, description, and blocks.",
+      "method": "GET",
+      "path": "/content-sites/{site_id}/pages/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "put_page",
+      "description": "Create (if slug is new) or overwrite a page. Body is the full page document.",
+      "method": "PUT",
+      "path": "/content-sites/{site_id}/pages/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly slug (lowercase, a-z 0-9 - _)"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "blocks": {
+            "type": "array",
+            "description": "Ordered blocks; each is { type, props }",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "Block type name from the site's block registry (e.g. Hero, Features, CTA)"
+                },
+                "props": {
+                  "type": "object",
+                  "description": "Block-specific props"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          }
+        },
+        "required": [
+          "site_id",
+          "slug",
+          "title",
+          "blocks"
+        ]
+      }
+    },
+    {
+      "name": "delete_page",
+      "description": "Delete a page.",
+      "method": "DELETE",
+      "path": "/content-sites/{site_id}/pages/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "patch_block",
+      "description": "Granular block edit on a page. One of: merge props at index, insert at index, remove at index, reorder, or JSON-Patch (RFC-6902) on the blocks array.\n\nShapes:\n- Merge: { index, type?, props? } \u2014 deep-merges props, optionally replaces type\n- { op: 'remove', index }\n- { op: 'insert', index?, block: { type, props } } \u2014 index omitted = append\n- { op: 'reorder', order: [int, ...] } \u2014 permutation of current indices\n- { op: 'patch_json', patches: [RFC-6902 ops] }",
+      "method": "PATCH",
+      "path": "/content-sites/{site_id}/pages/{slug}/blocks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "remove",
+              "insert",
+              "reorder",
+              "patch_json"
+            ]
+          },
+          "index": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "props": {
+            "type": "object"
+          },
+          "block": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "props": {
+                "type": "object"
+              }
+            }
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "patches": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "site_id",
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List all available site templates.",
+      "method": "GET",
+      "path": "/content-site-templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Get one template with full site_json + pages.",
+      "method": "GET",
+      "path": "/content-site-templates/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-webhook-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhooks-register",
+      "url_field": "endpoint_url",
+      "events_field": "event_types",
+      "secret_field": "secret_key",
+      "id_field": "webhook_id",
+      "extra": {
+        "name": "Apteva Webhook",
+        "direction": "outgoing",
+        "provider": "custom",
+        "auth_type": "hmac-sha256"
+      },
+      "delete_path": "/webhooks/{id}",
+      "delete_method": "DELETE",
+      "list_path": "/webhooks",
+      "list_field": "data"
+    },
+    "events": [
+      {
+        "name": "site.created",
+        "description": "New site provisioned"
+      },
+      {
+        "name": "site.updated",
+        "description": "Site fields updated"
+      },
+      {
+        "name": "site.deleted",
+        "description": "Site torn down"
+      },
+      {
+        "name": "site.content_seeded",
+        "description": "Template content seeded into a site"
+      },
+      {
+        "name": "site.routing_added",
+        "description": "Orchestrator routing registered"
+      },
+      {
+        "name": "site.page_created",
+        "description": "New page created on a site"
+      },
+      {
+        "name": "site.page_updated",
+        "description": "Page overwritten"
+      },
+      {
+        "name": "site.page_deleted",
+        "description": "Page deleted"
+      },
+      {
+        "name": "site.block_patched",
+        "description": "Block granularly edited"
+      }
+    ]
+  },
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

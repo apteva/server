@@ -17,6 +17,7 @@ var runtimeEnabledSlugs = map[string]string{
 	"ollama":        "ollama",
 	"openai-api":    "openai",
 	"openai-codex":  "openai-codex",
+	"grok-build":    "grok-build",
 	"opencode-go":   "opencode-go",
 	"venice-ai":     "venice",
 	"xai":           "xai",
@@ -142,7 +143,7 @@ func TestRuntimeCatalogCoversEveryLLMKey(t *testing.T) {
 		covered[key] = true
 	}
 	for _, key := range []string{
-		"fireworks", "openai", "openai-codex", "anthropic", "google",
+		"fireworks", "openai", "openai-codex", "grok-build", "anthropic", "google",
 		"ollama", "nvidia", "opencode-go", "venice", "xai",
 	} {
 		if !covered[key] {

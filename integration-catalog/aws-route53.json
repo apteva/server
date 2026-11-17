@@ -1,0 +1,126 @@
+{
+  "slug": "aws-route53",
+  "name": "AWS Route53",
+  "description": "MCP server for Amazon Route53 DNS management and hosted zones",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "route53",
+    "dns",
+    "domains",
+    "networking"
+  ],
+  "base_url": "https://route53.amazonaws.com/2013-04-01",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_hosted_zones",
+      "description": "List Route53 hosted zones",
+      "method": "GET",
+      "path": "/list-hosted-zones",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_items": {
+            "type": "integer",
+            "description": "Maximum number of zones to return",
+            "default": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "get_records",
+      "description": "Get DNS records from a Route53 hosted zone",
+      "method": "GET",
+      "path": "/get-records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hosted_zone_id": {
+            "type": "string",
+            "description": "Hosted zone ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Specific record name to get"
+          },
+          "type": {
+            "type": "string",
+            "description": "Record type (A, AAAA, CNAME, etc.)"
+          }
+        },
+        "required": [
+          "hosted_zone_id"
+        ]
+      }
+    },
+    {
+      "name": "set_records",
+      "description": "Create or update DNS records in Route53",
+      "method": "GET",
+      "path": "/set-records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hosted_zone_id": {
+            "type": "string",
+            "description": "Hosted zone ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Record name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Record type (A, AAAA, CNAME, etc.)"
+          },
+          "value": {
+            "type": "string",
+            "description": "Record value"
+          },
+          "ttl": {
+            "type": "integer",
+            "description": "Time to live in seconds",
+            "default": 300
+          }
+        },
+        "required": [
+          "hosted_zone_id",
+          "name",
+          "type",
+          "value"
+        ]
+      }
+    }
+  ]
+}

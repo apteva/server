@@ -1,0 +1,148 @@
+{
+  "slug": "aws-cloudfront",
+  "name": "AWS CloudFront",
+  "description": "MCP server for AWS CloudFront - CDN distributions and invalidations",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "cloudfront",
+    "cdn",
+    "distributions",
+    "caching"
+  ],
+  "base_url": "https://cloudfront.amazonaws.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "Access_key_id",
+        "description": "Your AWS Access Key ID"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Secret_access_key",
+        "description": "Your AWS Secret Access Key"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "AWS Region (e.g., us-east-1)"
+      },
+      {
+        "name": "session_token",
+        "label": "Session_token",
+        "description": "Temporary session token (for temporary credentials)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_distributions",
+      "description": "List CloudFront distributions",
+      "method": "GET",
+      "path": "/list-distributions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "max_items": {
+            "type": "number"
+          },
+          "marker": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_distribution",
+      "description": "Get distribution details",
+      "method": "GET",
+      "path": "/get-distribution",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "distribution_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "distribution_id"
+        ]
+      }
+    },
+    {
+      "name": "create_invalidation",
+      "description": "Create a cache invalidation",
+      "method": "POST",
+      "path": "/create-invalidation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "distribution_id": {
+            "type": "string"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "distribution_id",
+          "paths"
+        ]
+      }
+    },
+    {
+      "name": "list_invalidations",
+      "description": "List invalidations for a distribution",
+      "method": "GET",
+      "path": "/list-invalidations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "distribution_id": {
+            "type": "string"
+          },
+          "max_items": {
+            "type": "number"
+          },
+          "marker": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "distribution_id"
+        ]
+      }
+    },
+    {
+      "name": "get_invalidation",
+      "description": "Get invalidation details",
+      "method": "GET",
+      "path": "/get-invalidation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "distribution_id": {
+            "type": "string"
+          },
+          "invalidation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "distribution_id",
+          "invalidation_id"
+        ]
+      }
+    }
+  ]
+}

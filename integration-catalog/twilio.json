@@ -1,0 +1,2246 @@
+{
+  "slug": "twilio",
+  "name": "Twilio",
+  "description": "Twilio communications platform \u2014 SMS, MMS, voice calls, WhatsApp, phone numbers, recordings, usage, and verification",
+  "logo": "https://www.google.com/s2/favicons?domain=twilio.com&sz=128",
+  "categories": [
+    "messaging",
+    "sms",
+    "voice",
+    "whatsapp",
+    "communications",
+    "phone"
+  ],
+  "base_url": "https://api.twilio.com/2010-04-01",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "account_sid",
+        "label": "Account SID",
+        "description": "Your Twilio Account SID (used as the HTTP Basic username)",
+        "required": true
+      },
+      {
+        "name": "auth_token",
+        "label": "Auth Token",
+        "description": "Your Twilio Auth Token (used as the HTTP Basic password)",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_sms",
+      "description": "Send an SMS or MMS message via Twilio. Supports text, media attachments, content templates, and status callbacks.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Recipient phone number in E.164 format (e.g., +15558675310)"
+          },
+          "From": {
+            "type": "string",
+            "description": "Twilio phone number to send from in E.164 format"
+          },
+          "Body": {
+            "type": "string",
+            "description": "Message text (up to 1600 characters). Required unless using ContentSid."
+          },
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) for sending pre-approved templates instead of free-form text"
+          },
+          "ContentVariables": {
+            "type": "string",
+            "description": "JSON string of template variables, e.g. {\"1\":\"John\",\"2\":\"tomorrow\"}"
+          },
+          "MediaUrl": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            ],
+            "description": "One public media URL or an array of public media URLs to include for MMS. Array values are sent as repeated MediaUrl form fields."
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "URL for delivery status webhooks"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ]
+      },
+      "mock_response": {
+        "sid": "SM00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "body": "(message body)",
+        "status": "queued",
+        "direction": "outbound-api",
+        "num_segments": "1",
+        "price": null,
+        "price_unit": "USD",
+        "error_code": null,
+        "date_created": "Fri, 22 May 2026 12:00:00 +0000",
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/Messages/SM00000000000000000000000000000001.json"
+      }
+    },
+    {
+      "name": "send_whatsapp",
+      "description": "Send a WhatsApp message via Twilio. Use whatsapp: prefix on phone numbers. For business-initiated conversations (user hasn't messaged you in 24h), you MUST use a ContentSid (approved template) instead of Body. Free-form Body only works within the 24-hour window after the user messages you.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Recipient WhatsApp number with prefix (e.g., whatsapp:+15558675310)"
+          },
+          "From": {
+            "type": "string",
+            "description": "Your Twilio WhatsApp sender number with prefix (e.g., whatsapp:+14155238886)"
+          },
+          "Body": {
+            "type": "string",
+            "description": "Optional free-form message text within the 24-hour customer service window. It may accompany supported image media, but WhatsApp may ignore or reject text combined with other media types. For business-initiated conversations, use ContentSid instead."
+          },
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) for sending approved WhatsApp templates. Required for business-initiated conversations. Do not combine with Body or MediaUrl; template text and media are defined by the content template and ContentVariables."
+          },
+          "ContentVariables": {
+            "type": "string",
+            "description": "JSON string of template variables, e.g. {\"1\":\"John\",\"2\":\"tomorrow\"}"
+          },
+          "MediaUrl": {
+            "type": "string",
+            "description": "One publicly accessible media URL for a free-form WhatsApp message. WhatsApp supports only one media object per message. Do not combine with ContentSid."
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "URL for delivery status webhooks"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "Body"
+            ]
+          },
+          {
+            "required": [
+              "MediaUrl"
+            ]
+          },
+          {
+            "required": [
+              "ContentSid"
+            ]
+          }
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ContentSid",
+                "Body"
+              ]
+            },
+            {
+              "required": [
+                "ContentSid",
+                "MediaUrl"
+              ]
+            }
+          ]
+        }
+      },
+      "mock_response": {
+        "sid": "SM00000000000000000000000000000002",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "whatsapp:+14155238886",
+        "to": "whatsapp:+15558675310",
+        "body": "(message body)",
+        "status": "queued",
+        "direction": "outbound-api",
+        "num_segments": "1",
+        "price": null,
+        "error_code": null,
+        "date_created": "Fri, 22 May 2026 12:00:00 +0000"
+      }
+    },
+    {
+      "name": "whatsapp_typing_indicator",
+      "description": "Show a 'typing...' indicator in the WhatsApp chat and automatically mark the referenced message as read (blue ticks). The indicator disappears when your response is delivered or after 25 seconds. Use this before replying to make the conversation feel more natural.",
+      "method": "POST",
+      "path": "/v2/Indicators/Typing.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "description": "The SID of the message you're responding to (SMxxxxxxxx or MMxxxxxxxx)"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "whatsapp"
+            ],
+            "default": "whatsapp",
+            "description": "Channel type \u2014 must be 'whatsapp'"
+          }
+        },
+        "required": [
+          "messageId",
+          "channel"
+        ]
+      }
+    },
+    {
+      "name": "get_message",
+      "description": "Retrieve details of a specific message by SID.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Messages/{MessageSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "MessageSid": {
+            "type": "string",
+            "description": "Message SID (e.g., SMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx)"
+          }
+        },
+        "required": [
+          "MessageSid"
+        ]
+      },
+      "mock_response": {
+        "sid": "SM00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "body": "Your code is 123456",
+        "status": "delivered",
+        "direction": "outbound-api",
+        "num_segments": "1",
+        "price": "-0.00790",
+        "price_unit": "USD",
+        "error_code": null,
+        "date_sent": "Fri, 22 May 2026 12:00:02 +0000"
+      }
+    },
+    {
+      "name": "list_messages",
+      "description": "List sent and received messages with optional filters.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Messages.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Filter by recipient number"
+          },
+          "From": {
+            "type": "string",
+            "description": "Filter by sender number"
+          },
+          "DateSent": {
+            "type": "string",
+            "description": "Filter by date sent (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of messages to return (max 1000)"
+          }
+        }
+      },
+      "mock_response": {
+        "messages": [
+          {
+            "sid": "SM00000000000000000000000000000001",
+            "from": "+15005550006",
+            "to": "+15558675310",
+            "body": "Your code is 123456",
+            "status": "delivered",
+            "direction": "outbound-api",
+            "num_segments": "1"
+          }
+        ],
+        "page": 0,
+        "page_size": 50,
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/Messages.json"
+      }
+    },
+    {
+      "name": "delete_message",
+      "description": "Delete a message by SID. This removes the message body and media but keeps the log entry.",
+      "method": "DELETE",
+      "path": "/Accounts/{{account_sid}}/Messages/{MessageSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "MessageSid": {
+            "type": "string",
+            "description": "Message SID to delete"
+          }
+        },
+        "required": [
+          "MessageSid"
+        ]
+      }
+    },
+    {
+      "name": "make_call",
+      "description": "Initiate an outbound phone call. Provide either a TwiML URL or inline TwiML instructions.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Calls.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Phone number to call in E.164 format"
+          },
+          "From": {
+            "type": "string",
+            "description": "Twilio phone number to call from"
+          },
+          "Url": {
+            "type": "string",
+            "description": "TwiML URL with call instructions"
+          },
+          "Twiml": {
+            "type": "string",
+            "description": "Inline TwiML instructions (e.g., <Response><Say>Hello!</Say></Response>)"
+          },
+          "Timeout": {
+            "type": "integer",
+            "default": 60,
+            "description": "Ring timeout in seconds"
+          },
+          "Record": {
+            "type": "boolean",
+            "description": "Record the call"
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "URL for call status webhooks"
+          },
+          "StatusCallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method used for call status webhooks"
+          },
+          "StatusCallbackEvent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "initiated",
+                "ringing",
+                "answered",
+                "completed"
+              ]
+            },
+            "description": "Call progress events to send. Values are encoded as repeated Twilio form fields."
+          },
+          "MachineDetection": {
+            "type": "string",
+            "enum": [
+              "Enable",
+              "DetectMessageEnd"
+            ],
+            "description": "Enable answering machine detection"
+          }
+        },
+        "required": [
+          "To",
+          "From"
+        ]
+      },
+      "mock_response": {
+        "sid": "CA00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "status": "queued",
+        "direction": "outbound-api",
+        "date_created": "Fri, 22 May 2026 12:00:00 +0000",
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/Calls/CA00000000000000000000000000000001.json"
+      }
+    },
+    {
+      "name": "get_call",
+      "description": "Retrieve details of a specific call by SID.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Calls/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": {
+            "type": "string",
+            "description": "Call SID"
+          }
+        },
+        "required": [
+          "CallSid"
+        ]
+      },
+      "mock_response": {
+        "sid": "CA00000000000000000000000000000001",
+        "account_sid": "AC00000000000000000000000000000000",
+        "from": "+15005550006",
+        "to": "+15558675310",
+        "status": "completed",
+        "duration": "42",
+        "direction": "outbound-api",
+        "price": "-0.01400",
+        "price_unit": "USD",
+        "start_time": "Fri, 22 May 2026 12:00:05 +0000",
+        "end_time": "Fri, 22 May 2026 12:00:47 +0000"
+      }
+    },
+    {
+      "name": "list_calls",
+      "description": "List call logs with optional filters for status, date, and phone numbers.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Calls.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "To": {
+            "type": "string",
+            "description": "Filter by called number"
+          },
+          "From": {
+            "type": "string",
+            "description": "Filter by caller number"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "ringing",
+              "in-progress",
+              "completed",
+              "busy",
+              "no-answer",
+              "failed",
+              "canceled"
+            ],
+            "description": "Filter by call status"
+          },
+          "StartTime": {
+            "type": "string",
+            "description": "Filter by start time (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of calls to return (max 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_call",
+      "description": "Modify an in-progress call \u2014 redirect to new TwiML, end the call, or pause/resume recording.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Calls/{CallSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": {
+            "type": "string",
+            "description": "Call SID to update"
+          },
+          "Url": {
+            "type": "string",
+            "description": "New TwiML URL to redirect the call to"
+          },
+          "Twiml": {
+            "type": "string",
+            "description": "Inline TwiML to redirect the call to"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "canceled",
+              "completed"
+            ],
+            "description": "Set to 'completed' to end the call"
+          }
+        },
+        "required": [
+          "CallSid"
+        ]
+      }
+    },
+    {
+      "name": "list_addresses",
+      "description": "List regulatory addresses available for assigning to Twilio phone numbers.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Addresses.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CustomerName": {
+            "type": "string",
+            "description": "Optional exact customer name filter."
+          },
+          "IsoCountry": {
+            "type": "string",
+            "description": "Optional ISO alpha-2 country filter."
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results (max 1000)."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_address",
+      "description": "Create and validate a Twilio regulatory address for phone-number ownership.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/Addresses.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CustomerName": { "type": "string", "description": "Individual or business name associated with the address." },
+          "Street": { "type": "string" },
+          "StreetSecondary": { "type": "string" },
+          "City": { "type": "string" },
+          "Region": { "type": "string", "description": "State, province, or region." },
+          "PostalCode": { "type": "string" },
+          "IsoCountry": { "type": "string", "description": "ISO alpha-2 address country." },
+          "FriendlyName": { "type": "string" },
+          "AutoCorrectAddress": { "type": "boolean", "default": true }
+        },
+        "required": ["CustomerName", "Street", "City", "Region", "PostalCode", "IsoCountry"]
+      }
+    },
+    {
+      "name": "get_address",
+      "description": "Fetch one Twilio address by Address SID.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Addresses/{AddressSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": { "AddressSid": { "type": "string" } },
+        "required": ["AddressSid"]
+      }
+    },
+    {
+      "name": "list_regulations",
+      "description": "Discover Twilio regulatory requirements. Regulations must be queried dynamically because requirements can change.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Regulations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "IsoCountry": { "type": "string" },
+          "NumberType": { "type": "string", "enum": ["local", "mobile", "national", "toll-free"] },
+          "EndUserType": { "type": "string", "enum": ["individual", "business"] },
+          "IncludeConstraints": { "type": "boolean", "default": true },
+          "PageSize": { "type": "integer", "default": 50, "maximum": 1000 }
+        }
+      }
+    },
+    {
+      "name": "get_regulation",
+      "description": "Fetch one Twilio regulation with its current end-user and supporting-document requirements.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Regulations/{RegulationSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RegulationSid": { "type": "string" },
+          "IncludeConstraints": { "type": "boolean", "default": true }
+        },
+        "required": ["RegulationSid"]
+      }
+    },
+    {
+      "name": "list_regulatory_bundles",
+      "description": "List Twilio regulatory bundles, including draft, pending, rejected, and approved bundles.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Status": { "type": "string" },
+          "IsoCountry": { "type": "string" },
+          "NumberType": { "type": "string" },
+          "EndUserType": { "type": "string", "enum": ["individual", "business"] },
+          "FriendlyName": { "type": "string" },
+          "PageSize": { "type": "integer", "default": 50, "maximum": 1000 }
+        }
+      }
+    },
+    {
+      "name": "get_regulatory_bundle",
+      "description": "Fetch one Twilio regulatory bundle by Bundle SID.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "BundleSid": { "type": "string" } },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "create_regulatory_bundle",
+      "description": "Create a draft Twilio regulatory bundle from a Regulation SID or country, number type, and end-user type.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Email": { "type": "string" },
+          "RegulationSid": { "type": "string" },
+          "IsoCountry": { "type": "string" },
+          "NumberType": { "type": "string", "enum": ["local", "mobile", "national", "toll-free"] },
+          "EndUserType": { "type": "string", "enum": ["individual", "business"] },
+          "StatusCallback": { "type": "string" }
+        },
+        "required": ["FriendlyName", "Email"]
+      }
+    },
+    {
+      "name": "update_regulatory_bundle",
+      "description": "Update a draft bundle or submit it for review by setting Status to pending-review.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BundleSid": { "type": "string" },
+          "Status": { "type": "string", "enum": ["draft", "pending-review"] },
+          "FriendlyName": { "type": "string" },
+          "Email": { "type": "string" },
+          "StatusCallback": { "type": "string" }
+        },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "list_regulatory_end_users",
+      "description": "List reusable Twilio regulatory end users.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/EndUsers",
+      "input_schema": {
+        "type": "object",
+        "properties": { "PageSize": { "type": "integer", "default": 50, "maximum": 1000 } }
+      }
+    },
+    {
+      "name": "create_regulatory_end_user",
+      "description": "Create a reusable individual or business for Twilio regulatory bundles. Attributes must match the selected Regulation.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/EndUsers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Type": { "type": "string", "enum": ["individual", "business"] },
+          "Attributes": { "type": "string", "description": "JSON object encoded as a string using fields returned by list_regulations." }
+        },
+        "required": ["FriendlyName", "Type", "Attributes"]
+      }
+    },
+    {
+      "name": "list_regulatory_documents",
+      "description": "List reusable Twilio regulatory supporting documents.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/SupportingDocuments",
+      "input_schema": {
+        "type": "object",
+        "properties": { "PageSize": { "type": "integer", "default": 50, "maximum": 1000 } }
+      }
+    },
+    {
+      "name": "create_regulatory_document",
+      "description": "Create a Twilio supporting-document record without a file, such as an address validation document.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/SupportingDocuments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Type": { "type": "string", "description": "Accepted document type returned by the Regulation, such as address." },
+          "Attributes": { "type": "string", "description": "JSON object encoded as a string; address documents normally use address_sids." }
+        },
+        "required": ["FriendlyName", "Type", "Attributes"]
+      }
+    },
+    {
+      "name": "upload_regulatory_document",
+      "description": "Create a Twilio supporting document and upload its JPEG, PNG, or PDF proof (maximum 5 MB).",
+      "method": "POST",
+      "base_url": "https://numbers-upload.twilio.com/v2",
+      "path": "/RegulatoryCompliance/SupportingDocuments",
+      "timeout_ms": 120000,
+      "multipart_form": {
+        "field_names": ["FriendlyName", "Type", "Attributes"],
+        "file_fields": { "File": "File" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": { "type": "string" },
+          "Type": { "type": "string" },
+          "Attributes": { "type": "string", "description": "JSON object encoded as a string." },
+          "File": { "type": "string", "description": "JPEG, PNG, or PDF as base64, data URL, blob reference, or binary envelope." },
+          "File_filename": { "type": "string", "description": "Original filename including extension." }
+        },
+        "required": ["FriendlyName", "Type", "Attributes", "File"]
+      }
+    },
+    {
+      "name": "list_bundle_items",
+      "description": "List end users and supporting documents assigned to a Twilio regulatory bundle.",
+      "method": "GET",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}/ItemAssignments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BundleSid": { "type": "string" },
+          "PageSize": { "type": "integer", "default": 50, "maximum": 1000 }
+        },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "assign_bundle_item",
+      "description": "Assign a Twilio End User (IT...) or Supporting Document (RD...) to a regulatory bundle.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}/ItemAssignments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "BundleSid": { "type": "string" },
+          "ObjectSid": { "type": "string" }
+        },
+        "required": ["BundleSid", "ObjectSid"]
+      }
+    },
+    {
+      "name": "evaluate_regulatory_bundle",
+      "description": "Synchronously evaluate a Twilio regulatory bundle and return granular missing or invalid requirements.",
+      "method": "POST",
+      "base_url": "https://numbers.twilio.com/v2",
+      "path": "/RegulatoryCompliance/Bundles/{BundleSid}/Evaluations",
+      "input_schema": {
+        "type": "object",
+        "properties": { "BundleSid": { "type": "string" } },
+        "required": ["BundleSid"]
+      }
+    },
+    {
+      "name": "list_phone_numbers",
+      "description": "List all phone numbers in your Twilio account with their capabilities and configuration.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string",
+            "description": "Filter by phone number"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "Filter by friendly name"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results (max 1000)"
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Continuation token from the previous response next page URL."
+          }
+        }
+      }
+    },
+    {
+      "name": "buy_phone_number",
+      "description": "Purchase a phone number for your Twilio account.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string",
+            "description": "Phone number to purchase in E.164 format"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "Friendly name for the number"
+          },
+          "AddressSid": {
+            "type": "string",
+            "description": "Twilio Address SID required for regulated phone numbers."
+          },
+          "BundleSid": {
+            "type": "string",
+            "description": "Approved Twilio Regulatory Bundle SID required for regulated phone numbers."
+          },
+          "SmsUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming SMS"
+          },
+          "SmsMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for incoming SMS webhooks"
+          },
+          "SmsFallbackUrl": {
+            "type": "string",
+            "description": "Fallback webhook URL if the incoming SMS webhook fails"
+          },
+          "SmsFallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for the incoming SMS fallback webhook"
+          },
+          "VoiceUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming calls"
+          }
+        },
+        "required": [
+          "PhoneNumber"
+        ]
+      }
+    },
+    {
+      "name": "update_phone_number",
+      "description": "Update configuration for a phone number \u2014 webhooks, friendly name, voice/SMS settings.",
+      "method": "POST",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers/{PhoneNumberSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumberSid": {
+            "type": "string",
+            "description": "Phone Number SID (PNxxxxxxxx)"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "Friendly name"
+          },
+          "SmsUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming SMS"
+          },
+          "SmsMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for incoming SMS webhooks"
+          },
+          "SmsFallbackUrl": {
+            "type": "string",
+            "description": "Fallback webhook URL if the incoming SMS webhook fails"
+          },
+          "SmsFallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for the incoming SMS fallback webhook"
+          },
+          "VoiceUrl": {
+            "type": "string",
+            "description": "Webhook URL for incoming calls"
+          },
+          "VoiceMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for incoming voice webhooks"
+          },
+          "StatusCallback": {
+            "type": "string",
+            "description": "Status callback URL"
+          },
+          "StatusCallbackMethod": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "POST",
+            "description": "HTTP method Twilio uses for voice status callbacks"
+          }
+        },
+        "required": [
+          "PhoneNumberSid"
+        ]
+      }
+    },
+    {
+      "name": "release_phone_number",
+      "description": "Release (delete) a phone number from your Twilio account.",
+      "method": "DELETE",
+      "path": "/Accounts/{{account_sid}}/IncomingPhoneNumbers/{PhoneNumberSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumberSid": {
+            "type": "string",
+            "description": "Phone Number SID to release"
+          }
+        },
+        "required": [
+          "PhoneNumberSid"
+        ]
+      }
+    },
+    {
+      "name": "search_available_numbers",
+      "description": "Search for available phone numbers to purchase by country, area code, or capabilities.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/AvailablePhoneNumbers/{Country}/Local.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code (e.g., US, GB, CA)"
+          },
+          "AreaCode": {
+            "type": "string",
+            "description": "Filter by area code (e.g., 415)"
+          },
+          "Contains": {
+            "type": "string",
+            "description": "Pattern to match (e.g., 555**** for numbers starting with 555)"
+          },
+          "SmsEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support SMS"
+          },
+          "VoiceEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support voice"
+          },
+          "MmsEnabled": {
+            "type": "boolean",
+            "description": "Must support MMS"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      },
+      "mock_response": {
+        "available_phone_numbers": [
+          {
+            "friendly_name": "(415) 555-0100",
+            "phone_number": "+14155550100",
+            "locality": "San Francisco",
+            "region": "CA",
+            "iso_country": "US",
+            "capabilities": {
+              "voice": true,
+              "SMS": true,
+              "MMS": true
+            }
+          }
+        ],
+        "uri": "/2010-04-01/Accounts/AC00000000000000000000000000000000/AvailablePhoneNumbers/US/Local.json"
+      }
+    },
+    {
+      "name": "search_toll_free_numbers",
+      "description": "Search for available toll-free phone numbers to purchase.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/AvailablePhoneNumbers/{Country}/TollFree.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "default": "US",
+            "description": "ISO country code"
+          },
+          "Contains": {
+            "type": "string",
+            "description": "Pattern to match"
+          },
+          "SmsEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support SMS"
+          },
+          "VoiceEnabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Must support voice"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "get_phone_number_pricing",
+      "description": "Retrieve current account-specific monthly phone number prices for a country, grouped by local, mobile, national, and toll-free type.",
+      "method": "GET",
+      "base_url": "https://pricing.twilio.com/v1",
+      "path": "/PhoneNumbers/Countries/{Country}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. US, EE, or DE."
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "get_voice_pricing",
+      "description": "Retrieve current account-specific inbound and outbound Programmable Voice prices for a country.",
+      "method": "GET",
+      "base_url": "https://pricing.twilio.com/v2",
+      "path": "/Voice/Countries/{Country}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code, e.g. US, EE, or DE."
+          }
+        },
+        "required": [
+          "Country"
+        ]
+      }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List call recordings with optional filters.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Recordings.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CallSid": {
+            "type": "string",
+            "description": "Filter by call SID"
+          },
+          "DateCreated": {
+            "type": "string",
+            "description": "Filter by date (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of recordings to return"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_recording",
+      "description": "Retrieve details of a specific recording.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Recordings/{RecordingSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RecordingSid": {
+            "type": "string",
+            "description": "Recording SID"
+          }
+        },
+        "required": [
+          "RecordingSid"
+        ]
+      }
+    },
+    {
+      "name": "delete_recording",
+      "description": "Delete a call recording.",
+      "method": "DELETE",
+      "path": "/Accounts/{{account_sid}}/Recordings/{RecordingSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "RecordingSid": {
+            "type": "string",
+            "description": "Recording SID to delete"
+          }
+        },
+        "required": [
+          "RecordingSid"
+        ]
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Retrieve your Twilio account details including balance, status, and type.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "mock_response": {
+        "sid": "AC00000000000000000000000000000000",
+        "friendly_name": "Apteva",
+        "status": "active",
+        "type": "Full",
+        "date_created": "Mon, 01 Jan 2024 00:00:00 +0000"
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Retrieve your Twilio account balance and currency.",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Balance.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "mock_response": {
+        "account_sid": "AC00000000000000000000000000000000",
+        "balance": "42.35000",
+        "currency": "USD"
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Retrieve usage records for your account \u2014 see costs per category (calls, SMS, numbers, etc.).",
+      "method": "GET",
+      "path": "/Accounts/{{account_sid}}/Usage/Records.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Category": {
+            "type": "string",
+            "description": "Filter by category (e.g., sms, calls, phonenumbers, recordings)"
+          },
+          "StartDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "EndDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of results"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_subaccounts",
+      "description": "List Twilio subaccounts owned by the authenticated main account, with optional name and lifecycle-status filters.",
+      "method": "GET",
+      "path": "/Accounts.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": {
+            "type": "string",
+            "description": "Only return subaccounts with this friendly name"
+          },
+          "Status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended",
+              "closed"
+            ],
+            "description": "Only return subaccounts in this lifecycle state"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_subaccount",
+      "description": "Create a Twilio subaccount under the authenticated main account. Use the returned Account SID to isolate a customer or workload.",
+      "method": "POST",
+      "path": "/Accounts.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": {
+            "type": "string",
+            "description": "Human-readable name for the new subaccount"
+          }
+        },
+        "required": [
+          "FriendlyName"
+        ]
+      }
+    },
+    {
+      "name": "get_subaccount",
+      "description": "Retrieve a Twilio subaccount by Account SID using the authenticated main account credentials.",
+      "method": "GET",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          }
+        },
+        "required": [
+          "SubaccountSid"
+        ]
+      }
+    },
+    {
+      "name": "update_subaccount",
+      "description": "Rename a Twilio subaccount. Use the dedicated lifecycle tools to suspend, reactivate, or close it.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "description": "New human-readable name"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "FriendlyName"
+        ]
+      }
+    },
+    {
+      "name": "suspend_subaccount",
+      "description": "Suspend a Twilio subaccount using main-account credentials. Pass Status=suspended; suspended subaccounts can later be reactivated.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "Status": {
+            "type": "string",
+            "const": "suspended",
+            "description": "Must be suspended"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "Status"
+        ]
+      }
+    },
+    {
+      "name": "reactivate_subaccount",
+      "description": "Reactivate a suspended Twilio subaccount using main-account credentials. Pass Status=active.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "Status": {
+            "type": "string",
+            "const": "active",
+            "description": "Must be active"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "Status"
+        ]
+      }
+    },
+    {
+      "name": "close_subaccount",
+      "description": "Permanently close a Twilio subaccount using main-account credentials. Pass Status=closed. This action cannot be undone.",
+      "method": "POST",
+      "path": "/Accounts/{SubaccountSid}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubaccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Subaccount Account SID"
+          },
+          "Status": {
+            "type": "string",
+            "const": "closed",
+            "description": "Must be closed"
+          }
+        },
+        "required": [
+          "SubaccountSid",
+          "Status"
+        ]
+      }
+    },
+    {
+      "name": "create_standard_api_key",
+      "description": "Create a standard API key for a Twilio account or subaccount. The response contains the secret only once, so store it securely.",
+      "method": "POST",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID that will own the key"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Human-readable key name"
+          }
+        },
+        "required": [
+          "AccountSid"
+        ]
+      }
+    },
+    {
+      "name": "create_restricted_api_key",
+      "description": "Create a permission-scoped restricted API key for a Twilio account or subaccount. Pass KeyType=restricted and Policy as a JSON string such as {\"allow\":[\"/twilio/messaging/messages/read\"]}. The secret is returned only once.",
+      "method": "POST",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID that will own the key"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Human-readable key name"
+          },
+          "KeyType": {
+            "type": "string",
+            "const": "restricted",
+            "description": "Must be restricted"
+          },
+          "Policy": {
+            "type": "string",
+            "description": "JSON-encoded Twilio restricted-key policy object containing an allow array of permission strings"
+          }
+        },
+        "required": [
+          "AccountSid",
+          "KeyType",
+          "Policy"
+        ]
+      }
+    },
+    {
+      "name": "list_api_keys",
+      "description": "List standard and restricted API keys owned by a Twilio account or subaccount. Key secrets are never returned by list operations.",
+      "method": "GET",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID that owns the keys"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        },
+        "required": [
+          "AccountSid"
+        ]
+      }
+    },
+    {
+      "name": "get_api_key",
+      "description": "Retrieve a Twilio API key by SID. Twilio does not return the key secret after creation.",
+      "method": "GET",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys/{KeySid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "KeySid": {
+            "type": "string",
+            "pattern": "^SK[0-9a-fA-F]{32}$",
+            "description": "API Key SID"
+          }
+        },
+        "required": [
+          "KeySid"
+        ]
+      }
+    },
+    {
+      "name": "update_api_key",
+      "description": "Rename a Twilio API key or replace a restricted key's complete policy. Policy must be a JSON string and fully overwrites the existing policy.",
+      "method": "POST",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys/{KeySid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "KeySid": {
+            "type": "string",
+            "pattern": "^SK[0-9a-fA-F]{32}$",
+            "description": "API Key SID"
+          },
+          "FriendlyName": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "New human-readable key name"
+          },
+          "Policy": {
+            "type": "string",
+            "description": "Complete replacement restricted-key policy encoded as JSON"
+          }
+        },
+        "required": [
+          "KeySid"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "FriendlyName"
+            ]
+          },
+          {
+            "required": [
+              "Policy"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "delete_api_key",
+      "description": "Delete and revoke a Twilio API key. This also invalidates Access Tokens generated with that key's secret.",
+      "method": "DELETE",
+      "base_url": "https://iam.twilio.com/v1",
+      "path": "/Keys/{KeySid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "KeySid": {
+            "type": "string",
+            "pattern": "^SK[0-9a-fA-F]{32}$",
+            "description": "API Key SID to revoke"
+          }
+        },
+        "required": [
+          "KeySid"
+        ]
+      }
+    },
+    {
+      "name": "get_account_usage",
+      "description": "Retrieve usage and cost records for a specific Twilio account or subaccount using its Account SID.",
+      "method": "GET",
+      "path": "/Accounts/{AccountSid}/Usage/Records.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID whose usage should be retrieved"
+          },
+          "Category": {
+            "type": "string",
+            "description": "Usage category such as calls, sms, phonenumbers, or recordings"
+          },
+          "StartDate": {
+            "type": "string",
+            "description": "Start date in GMT as YYYY-MM-DD or a Twilio relative offset such as -30days"
+          },
+          "EndDate": {
+            "type": "string",
+            "description": "End date in GMT as YYYY-MM-DD or a Twilio relative offset such as +30days"
+          },
+          "IncludeSubaccounts": {
+            "type": "boolean",
+            "description": "Whether to aggregate usage from child subaccounts"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        },
+        "required": [
+          "AccountSid"
+        ]
+      }
+    },
+    {
+      "name": "get_account_usage_by_period",
+      "description": "Retrieve Twilio usage for a specific account or subaccount using a daily, monthly, yearly, or preset reporting period.",
+      "method": "GET",
+      "path": "/Accounts/{AccountSid}/Usage/Records/{Period}.json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountSid": {
+            "type": "string",
+            "pattern": "^AC[0-9a-fA-F]{32}$",
+            "description": "Account or subaccount SID whose usage should be retrieved"
+          },
+          "Period": {
+            "type": "string",
+            "enum": [
+              "Daily",
+              "Monthly",
+              "Yearly",
+              "AllTime",
+              "Today",
+              "Yesterday",
+              "ThisMonth",
+              "LastMonth"
+            ],
+            "description": "Twilio Usage Records convenience subresource"
+          },
+          "Category": {
+            "type": "string",
+            "description": "Usage category such as calls, sms, phonenumbers, or recordings"
+          },
+          "StartDate": {
+            "type": "string",
+            "description": "Optional start date in GMT as YYYY-MM-DD"
+          },
+          "EndDate": {
+            "type": "string",
+            "description": "Optional end date in GMT as YYYY-MM-DD"
+          },
+          "IncludeSubaccounts": {
+            "type": "boolean",
+            "description": "Whether to aggregate usage from child subaccounts"
+          },
+          "PageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "Page": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque page token returned by Twilio"
+          }
+        },
+        "required": [
+          "AccountSid",
+          "Period"
+        ]
+      }
+    },
+    {
+      "name": "list_whatsapp_senders",
+      "description": "List all WhatsApp Business senders (phone numbers) registered in your Twilio account. Shows sender status, phone number, and WhatsApp Business profile details.",
+      "method": "GET",
+      "base_url": "https://messaging.twilio.com",
+      "path": "/v2/Channels/Senders?Channel=whatsapp",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of senders to return"
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Continuation token from the previous response next page URL."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_whatsapp_sender",
+      "description": "Get details of a specific WhatsApp Business sender by SID \u2014 status, phone number, profile info, and capabilities.",
+      "method": "GET",
+      "base_url": "https://messaging.twilio.com",
+      "path": "/v2/Channels/Senders/{SenderSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SenderSid": {
+            "type": "string",
+            "description": "WhatsApp Sender SID"
+          }
+        },
+        "required": [
+          "SenderSid"
+        ]
+      }
+    },
+    {
+      "name": "register_whatsapp_sender",
+      "description": "Register a phone number as a WhatsApp Business sender. For SMS-capable Twilio numbers, verification is automatic. For voice-only or non-Twilio numbers, OTP verification is required separately.",
+      "method": "POST",
+      "base_url": "https://messaging.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "path": "/v2/Channels/Senders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sender_id": {
+            "type": "string",
+            "description": "Phone number in E.164 format with whatsapp prefix (e.g., whatsapp:+15017122661)"
+          },
+          "profile": {
+            "type": "object",
+            "description": "WhatsApp Business profile",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "WhatsApp display name (must comply with Meta guidelines)"
+              },
+              "about": {
+                "type": "string",
+                "description": "Business description shown in WhatsApp profile"
+              },
+              "address": {
+                "type": "string",
+                "description": "Business address"
+              },
+              "description": {
+                "type": "string",
+                "description": "Detailed business description"
+              },
+              "vertical": {
+                "type": "string",
+                "description": "Business category (e.g., PROFESSIONAL_SERVICES, RETAIL, EDUCATION)"
+              },
+              "logo_url": {
+                "type": "string",
+                "description": "URL to business logo image"
+              },
+              "emails": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Business email addresses"
+              },
+              "websites": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Business website URLs"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "webhook": {
+            "type": "object",
+            "description": "Webhook configuration for status notifications",
+            "properties": {
+              "callback_url": {
+                "type": "string",
+                "description": "Webhook URL for sender status notifications"
+              },
+              "callback_method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "GET"
+                ],
+                "default": "POST",
+                "description": "HTTP method for webhook callbacks"
+              }
+            }
+          }
+        },
+        "required": [
+          "sender_id",
+          "profile"
+        ]
+      }
+    },
+    {
+      "name": "update_whatsapp_sender",
+      "description": "Update a WhatsApp Business sender's webhook/profile/configuration. Messaging uses this to point inbound WhatsApp messages at its Twilio inbound webhook.",
+      "method": "POST",
+      "base_url": "https://messaging.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "path": "/v2/Channels/Senders/{SenderSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SenderSid": {
+            "type": "string",
+            "description": "WhatsApp Sender SID (XE...)"
+          },
+          "webhook": {
+            "type": "object",
+            "description": "Webhook settings. Example: {\"callback_url\":\"https://.../twilio-inbound\",\"callback_method\":\"POST\"}",
+            "properties": {
+              "callback_url": {
+                "type": "string",
+                "description": "URL Twilio calls for inbound WhatsApp messages"
+              },
+              "callback_method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "PUT"
+                ],
+                "default": "POST"
+              },
+              "fallback_url": {
+                "type": "string"
+              },
+              "fallback_method": {
+                "type": "string",
+                "enum": [
+                  "POST",
+                  "PUT"
+                ]
+              },
+              "status_callback_url": {
+                "type": "string"
+              },
+              "status_callback_method": {
+                "type": "string"
+              }
+            }
+          },
+          "profile": {
+            "type": "object",
+            "description": "Optional WhatsApp profile fields to update"
+          },
+          "configuration": {
+            "type": "object",
+            "description": "Optional sender configuration fields such as verification_code"
+          }
+        },
+        "required": [
+          "SenderSid"
+        ]
+      }
+    },
+    {
+      "name": "list_content_templates",
+      "description": "List WhatsApp content templates with their approval status. Use this to see all message templates, their types, and whether they're approved for WhatsApp.",
+      "method": "GET",
+      "base_url": "https://content.twilio.com",
+      "path": "/v1/ContentAndApprovals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PageSize": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of templates to return"
+          },
+          "PageToken": {
+            "type": "string",
+            "description": "Opaque token from meta.next_page_url for the next result page"
+          },
+          "Language": {
+            "type": "string",
+            "description": "Filter by language (e.g., en, es, de)"
+          },
+          "ContentName": {
+            "type": "string",
+            "description": "Search by template friendly name"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_content_template",
+      "description": "Retrieve details of a specific content template by SID \u2014 body, variables, type, and approval status.",
+      "method": "GET",
+      "base_url": "https://content.twilio.com",
+      "path": "/v1/Content/{ContentSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx)"
+          }
+        },
+        "required": [
+          "ContentSid"
+        ]
+      }
+    },
+    {
+      "name": "create_content_template",
+      "description": "Create a new content template for WhatsApp messaging. Templates must be submitted for approval before use. Supports text, media, quick reply, call-to-action, and card types.",
+      "method": "POST",
+      "base_url": "https://content.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "path": "/v1/Content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "friendly_name": {
+            "type": "string",
+            "description": "Human-readable name for this template"
+          },
+          "language": {
+            "type": "string",
+            "default": "en",
+            "description": "Template language code (e.g., en, es, de, fr)"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Variable definitions, e.g. {\"1\": \"John\", \"2\": \"Acme Corp\"}"
+          },
+          "types": {
+            "type": "object",
+            "description": "Content type definition. Use one key like 'twilio/text', 'twilio/media', 'twilio/quick-reply', 'twilio/call-to-action', 'twilio/card'. Example for text: {\"twilio/text\": {\"body\": \"Hello {{1}}, welcome to {{2}}!\"}}"
+          }
+        },
+        "required": [
+          "friendly_name",
+          "language",
+          "types"
+        ]
+      }
+    },
+    {
+      "name": "submit_content_template_approval",
+      "description": "Submit a content template for WhatsApp approval. Once approved by Meta, the template can be used to initiate conversations outside the 24-hour window.",
+      "method": "POST",
+      "base_url": "https://content.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "path": "/v1/Content/{ContentSid}/ApprovalRequests/whatsapp",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) to submit for approval"
+          },
+          "name": {
+            "type": "string",
+            "description": "Template name for WhatsApp (lowercase, underscores, no spaces)"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "description": "WhatsApp template category"
+          }
+        },
+        "required": [
+          "ContentSid",
+          "name",
+          "category"
+        ]
+      }
+    },
+    {
+      "name": "delete_content_template",
+      "description": "Delete a content template. Cannot delete templates that have been submitted for WhatsApp approval.",
+      "method": "DELETE",
+      "base_url": "https://content.twilio.com",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "path": "/v1/Content/{ContentSid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ContentSid": {
+            "type": "string",
+            "description": "Content template SID (HXxxxxxxxx) to delete"
+          }
+        },
+        "required": [
+          "ContentSid"
+        ]
+      }
+    },
+    {
+      "name": "lookup_phone_number",
+      "description": "Look up information about a phone number \u2014 carrier, caller name, line type (mobile/landline/voip).",
+      "method": "GET",
+      "path": "/v2/PhoneNumbers/{PhoneNumber}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PhoneNumber": {
+            "type": "string",
+            "description": "Phone number in E.164 format"
+          },
+          "Fields": {
+            "type": "string",
+            "default": "line_type_intelligence",
+            "description": "Comma-separated fields: line_type_intelligence, caller_name, sim_swap, call_forwarding, live_activity"
+          }
+        },
+        "required": [
+          "PhoneNumber"
+        ]
+      },
+      "mock_response": {
+        "phone_number": "+15558675310",
+        "country_code": "US",
+        "national_format": "(555) 867-5310",
+        "calling_country_code": "1",
+        "valid": true
+      }
+    },
+    {
+      "name": "create_verify_service",
+      "description": "Create a Twilio Verify service for phone number verification (OTP via SMS, call, or email).",
+      "method": "POST",
+      "path": "/v2/Services",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FriendlyName": {
+            "type": "string",
+            "description": "Name for the verify service"
+          },
+          "CodeLength": {
+            "type": "integer",
+            "default": 6,
+            "description": "Length of verification code (4-10)"
+          }
+        },
+        "required": [
+          "FriendlyName"
+        ]
+      }
+    },
+    {
+      "name": "send_verification",
+      "description": "Send a verification code to a phone number via SMS, call, or email.",
+      "method": "POST",
+      "path": "/v2/Services/{ServiceSid}/Verifications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ServiceSid": {
+            "type": "string",
+            "description": "Verify Service SID"
+          },
+          "To": {
+            "type": "string",
+            "description": "Phone number or email to verify"
+          },
+          "Channel": {
+            "type": "string",
+            "enum": [
+              "sms",
+              "call",
+              "email",
+              "whatsapp"
+            ],
+            "default": "sms",
+            "description": "Verification channel"
+          }
+        },
+        "required": [
+          "ServiceSid",
+          "To",
+          "Channel"
+        ]
+      },
+      "mock_response": {
+        "sid": "VE00000000000000000000000000000001",
+        "service_sid": "VA00000000000000000000000000000000",
+        "account_sid": "AC00000000000000000000000000000000",
+        "to": "+15558675310",
+        "channel": "sms",
+        "status": "pending",
+        "valid": false,
+        "date_created": "2026-05-22T12:00:00Z"
+      }
+    },
+    {
+      "name": "check_verification",
+      "description": "Verify a code submitted by the user against the one sent.",
+      "method": "POST",
+      "path": "/v2/Services/{ServiceSid}/VerificationCheck",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ServiceSid": {
+            "type": "string",
+            "description": "Verify Service SID"
+          },
+          "To": {
+            "type": "string",
+            "description": "Phone number or email that was verified"
+          },
+          "Code": {
+            "type": "string",
+            "description": "Verification code entered by user"
+          }
+        },
+        "required": [
+          "ServiceSid",
+          "To",
+          "Code"
+        ]
+      },
+      "mock_response": {
+        "sid": "VE00000000000000000000000000000001",
+        "service_sid": "VA00000000000000000000000000000000",
+        "account_sid": "AC00000000000000000000000000000000",
+        "to": "+15558675310",
+        "channel": "sms",
+        "status": "approved",
+        "valid": true,
+        "date_created": "2026-05-22T12:00:00Z"
+      }
+    },
+    { "name": "list_conferences", "description": "List conferences with status, name, and date filters.", "method": "GET", "path": "/Accounts/{{account_sid}}/Conferences.json", "input_schema": { "type": "object", "properties": { "FriendlyName": { "type": "string" }, "Status": { "type": "string", "enum": ["init", "in-progress", "completed"] }, "DateCreated": { "type": "string" }, "DateUpdated": { "type": "string" }, "PageSize": { "type": "integer" } } } },
+    { "name": "get_conference", "description": "Get one Twilio conference.", "method": "GET", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" } }, "required": ["ConferenceSid"] } },
+    { "name": "update_conference", "description": "End a live conference or announce TwiML instructions to all participants.", "method": "POST", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" }, "Status": { "type": "string", "enum": ["completed"] }, "AnnounceUrl": { "type": "string" }, "AnnounceMethod": { "type": "string", "enum": ["GET", "POST"] } }, "required": ["ConferenceSid"] } },
+    { "name": "list_conference_participants", "description": "List current participants in a conference.", "method": "GET", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}/Participants.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" }, "Muted": { "type": "boolean" }, "Hold": { "type": "boolean" }, "PageSize": { "type": "integer" } }, "required": ["ConferenceSid"] } },
+    { "name": "create_conference_participant", "description": "Dial a participant directly into an existing conference.", "method": "POST", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}/Participants.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" }, "From": { "type": "string" }, "To": { "type": "string" }, "Label": { "type": "string" }, "Muted": { "type": "boolean" }, "Beep": { "type": "string" }, "StartConferenceOnEnter": { "type": "boolean" }, "EndConferenceOnExit": { "type": "boolean" }, "EarlyMedia": { "type": "boolean" }, "Timeout": { "type": "integer" }, "StatusCallback": { "type": "string" }, "StatusCallbackEvent": { "type": "array", "items": { "type": "string" } } }, "required": ["ConferenceSid", "From", "To"] } },
+    { "name": "get_conference_participant", "description": "Get one conference participant by call SID or label.", "method": "GET", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}/Participants/{CallSid}.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" }, "CallSid": { "type": "string" } }, "required": ["ConferenceSid", "CallSid"] } },
+    { "name": "update_conference_participant", "description": "Mute, hold, announce to, or coach a conference participant.", "method": "POST", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}/Participants/{CallSid}.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" }, "CallSid": { "type": "string" }, "Muted": { "type": "boolean" }, "Hold": { "type": "boolean" }, "HoldUrl": { "type": "string" }, "HoldMethod": { "type": "string", "enum": ["GET", "POST"] }, "AnnounceUrl": { "type": "string" }, "Coaching": { "type": "boolean" }, "CallSidToCoach": { "type": "string" } }, "required": ["ConferenceSid", "CallSid"] } },
+    { "name": "remove_conference_participant", "description": "Remove a participant from a live conference.", "method": "DELETE", "path": "/Accounts/{{account_sid}}/Conferences/{ConferenceSid}/Participants/{CallSid}.json", "input_schema": { "type": "object", "properties": { "ConferenceSid": { "type": "string" }, "CallSid": { "type": "string" } }, "required": ["ConferenceSid", "CallSid"] } },
+    { "name": "list_call_recordings", "description": "List recordings belonging to one call.", "method": "GET", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Recordings.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "DateCreated": { "type": "string" }, "PageSize": { "type": "integer" } }, "required": ["CallSid"] } },
+    { "name": "start_call_recording", "description": "Start recording a live call and optionally receive recording-status callbacks.", "method": "POST", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Recordings.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "RecordingStatusCallback": { "type": "string" }, "RecordingStatusCallbackMethod": { "type": "string", "enum": ["GET", "POST"] }, "RecordingStatusCallbackEvent": { "type": "array", "items": { "type": "string", "enum": ["in-progress", "completed", "absent"] } }, "Trim": { "type": "string", "enum": ["trim-silence", "do-not-trim"] }, "RecordingChannels": { "type": "string", "enum": ["mono", "dual"] }, "RecordingTrack": { "type": "string", "enum": ["inbound", "outbound", "both"] } }, "required": ["CallSid"] } },
+    { "name": "get_call_recording", "description": "Get a recording belonging to one call.", "method": "GET", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Recordings/{RecordingSid}.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "RecordingSid": { "type": "string" } }, "required": ["CallSid", "RecordingSid"] } },
+    { "name": "update_call_recording", "description": "Pause, resume, or stop an active call recording.", "method": "POST", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Recordings/{RecordingSid}.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "RecordingSid": { "type": "string" }, "Status": { "type": "string", "enum": ["paused", "in-progress", "stopped"] }, "PauseBehavior": { "type": "string", "enum": ["skip", "silence"] } }, "required": ["CallSid", "RecordingSid", "Status"] } },
+    { "name": "delete_call_recording", "description": "Permanently delete a recording belonging to a call.", "method": "DELETE", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Recordings/{RecordingSid}.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "RecordingSid": { "type": "string" } }, "required": ["CallSid", "RecordingSid"] } },
+    { "name": "list_call_streams", "description": "List media streams created on a call.", "method": "GET", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Streams.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "PageSize": { "type": "integer" } }, "required": ["CallSid"] } },
+    { "name": "create_call_stream", "description": "Start unidirectional WebSocket media streaming on a live call.", "method": "POST", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Streams.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "Url": { "type": "string" }, "Name": { "type": "string" }, "Track": { "type": "string", "enum": ["inbound_track", "outbound_track", "both_tracks"] }, "StatusCallback": { "type": "string" }, "StatusCallbackMethod": { "type": "string", "enum": ["GET", "POST"] }, "Parameter": { "type": "object", "additionalProperties": { "type": "string" } } }, "required": ["CallSid", "Url"] } },
+    { "name": "get_call_stream", "description": "Get one call media stream.", "method": "GET", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Streams/{StreamSid}.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "StreamSid": { "type": "string" } }, "required": ["CallSid", "StreamSid"] } },
+    { "name": "stop_call_stream", "description": "Stop a live call media stream.", "method": "POST", "path": "/Accounts/{{account_sid}}/Calls/{CallSid}/Streams/{StreamSid}.json", "input_schema": { "type": "object", "properties": { "CallSid": { "type": "string" }, "StreamSid": { "type": "string" }, "Status": { "type": "string", "enum": ["stopped"] } }, "required": ["CallSid", "StreamSid", "Status"] } },
+    { "name": "list_queues", "description": "List Twilio call queues.", "method": "GET", "path": "/Accounts/{{account_sid}}/Queues.json", "input_schema": { "type": "object", "properties": { "FriendlyName": { "type": "string" }, "PageSize": { "type": "integer" } } } },
+    { "name": "create_queue", "description": "Create a Twilio call queue.", "method": "POST", "path": "/Accounts/{{account_sid}}/Queues.json", "input_schema": { "type": "object", "properties": { "FriendlyName": { "type": "string" }, "MaxSize": { "type": "integer" } } } },
+    { "name": "get_queue", "description": "Get one Twilio call queue.", "method": "GET", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" } }, "required": ["QueueSid"] } },
+    { "name": "update_queue", "description": "Update a queue's name or maximum size.", "method": "POST", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" }, "FriendlyName": { "type": "string" }, "MaxSize": { "type": "integer" } }, "required": ["QueueSid"] } },
+    { "name": "delete_queue", "description": "Delete an empty Twilio call queue.", "method": "DELETE", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" } }, "required": ["QueueSid"] } },
+    { "name": "list_queue_members", "description": "List calls waiting in a queue.", "method": "GET", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}/Members.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" }, "PageSize": { "type": "integer" } }, "required": ["QueueSid"] } },
+    { "name": "get_queue_member", "description": "Get a waiting call by call SID; use Front for the first member.", "method": "GET", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}/Members/{CallSid}.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" }, "CallSid": { "type": "string" } }, "required": ["QueueSid", "CallSid"] } },
+    { "name": "dequeue_member", "description": "Remove a waiting call from a queue and redirect it to TwiML.", "method": "POST", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}/Members/{CallSid}.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" }, "CallSid": { "type": "string" }, "Url": { "type": "string" }, "Method": { "type": "string", "enum": ["GET", "POST"] } }, "required": ["QueueSid", "CallSid", "Url"] } },
+    { "name": "delete_queue_member", "description": "Remove and hang up a call waiting in a queue.", "method": "DELETE", "path": "/Accounts/{{account_sid}}/Queues/{QueueSid}/Members/{CallSid}.json", "input_schema": { "type": "object", "properties": { "QueueSid": { "type": "string" }, "CallSid": { "type": "string" } }, "required": ["QueueSid", "CallSid"] } },
+    { "name": "list_sip_domains", "description": "List programmable SIP domains.", "method": "GET", "path": "/Accounts/{{account_sid}}/SIP/Domains.json", "input_schema": { "type": "object", "properties": { "FriendlyName": { "type": "string" }, "DomainName": { "type": "string" }, "PageSize": { "type": "integer" } } } },
+    { "name": "create_sip_domain", "description": "Create a programmable SIP domain with optional voice webhooks.", "method": "POST", "path": "/Accounts/{{account_sid}}/SIP/Domains.json", "input_schema": { "type": "object", "properties": { "DomainName": { "type": "string" }, "FriendlyName": { "type": "string" }, "VoiceUrl": { "type": "string" }, "VoiceMethod": { "type": "string", "enum": ["GET", "POST"] }, "VoiceFallbackUrl": { "type": "string" }, "VoiceStatusCallbackUrl": { "type": "string" }, "Secure": { "type": "boolean" } }, "required": ["DomainName"] } },
+    { "name": "list_elastic_sip_trunks", "description": "List Elastic SIP Trunks.", "method": "GET", "base_url": "https://trunking.twilio.com/v1", "path": "/Trunks", "input_schema": { "type": "object", "properties": { "PageSize": { "type": "integer" } } } },
+    { "name": "create_elastic_sip_trunk", "description": "Create an Elastic SIP Trunk.", "method": "POST", "base_url": "https://trunking.twilio.com/v1", "path": "/Trunks", "input_schema": { "type": "object", "properties": { "FriendlyName": { "type": "string" }, "DomainName": { "type": "string" }, "Secure": { "type": "boolean" }, "DisasterRecoveryUrl": { "type": "string" }, "DisasterRecoveryMethod": { "type": "string", "enum": ["GET", "POST"] }, "Recording": { "type": "string" }, "RecordingTrim": { "type": "string" } }, "required": ["FriendlyName"] } },
+    { "name": "delete_elastic_sip_trunk", "description": "Delete an Elastic SIP Trunk and its child configuration.", "method": "DELETE", "base_url": "https://trunking.twilio.com/v1", "path": "/Trunks/{TrunkSid}", "path_params": ["TrunkSid"], "input_schema": { "type": "object", "properties": { "TrunkSid": { "type": "string" } }, "required": ["TrunkSid"] } },
+    { "name": "create_sip_trunk_origination_url", "description": "Add an origination SIP URI to an Elastic SIP Trunk.", "method": "POST", "base_url": "https://trunking.twilio.com/v1", "path": "/Trunks/{TrunkSid}/OriginationUrls", "path_params": ["TrunkSid"], "input_schema": { "type": "object", "properties": { "TrunkSid": { "type": "string" }, "SipUrl": { "type": "string" }, "FriendlyName": { "type": "string" }, "Priority": { "type": "integer" }, "Weight": { "type": "integer" }, "Enabled": { "type": "boolean" } }, "required": ["TrunkSid", "SipUrl"] } },
+    { "name": "associate_sip_trunk_phone_number", "description": "Associate an owned Twilio phone number with an Elastic SIP Trunk.", "method": "POST", "base_url": "https://trunking.twilio.com/v1", "path": "/Trunks/{TrunkSid}/PhoneNumbers", "path_params": ["TrunkSid"], "input_schema": { "type": "object", "properties": { "TrunkSid": { "type": "string" }, "PhoneNumberSid": { "type": "string" } }, "required": ["TrunkSid", "PhoneNumberSid"] } }
+  ],
+  "webhooks": {
+    "signature_header": "x-twilio-signature",
+    "events": [
+      {
+        "name": "sms.received",
+        "description": "Inbound SMS message received"
+      },
+      {
+        "name": "sms.delivered",
+        "description": "SMS delivery confirmed"
+      },
+      {
+        "name": "sms.failed",
+        "description": "SMS delivery failed"
+      },
+      {
+        "name": "whatsapp.received",
+        "description": "Inbound WhatsApp message received"
+      },
+      {
+        "name": "whatsapp.delivered",
+        "description": "WhatsApp message delivery confirmed"
+      },
+      {
+        "name": "whatsapp.failed",
+        "description": "WhatsApp message delivery failed"
+      },
+      {
+        "name": "call.initiated",
+        "description": "Phone call initiated"
+      },
+      {
+        "name": "call.ringing",
+        "description": "Phone call ringing"
+      },
+      {
+        "name": "call.completed",
+        "description": "Phone call completed"
+      },
+      {
+        "name": "call.failed",
+        "description": "Phone call failed"
+      },
+      {
+        "name": "recording.completed",
+        "description": "Call recording ready"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_account"
+  }
+}

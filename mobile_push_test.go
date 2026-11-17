@@ -22,6 +22,7 @@ type mobilePushRelayRecorder struct {
 	deliveryGrant  string
 	deliveryBodies []map[string]any
 	deliveryStatus int
+	rejectPreviews bool
 }
 
 func (r *mobilePushRelayRecorder) handler(w http.ResponseWriter, req *http.Request) {
@@ -49,6 +50,9 @@ func (r *mobilePushRelayRecorder) handler(w http.ResponseWriter, req *http.Reque
 		r.deliveryGrant = strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
 		r.deliveryBodies = append(r.deliveryBodies, body)
 		status := r.deliveryStatus
+		if r.rejectPreviews && body["preview"] != nil {
+			status = http.StatusBadRequest
+		}
 		r.mu.Unlock()
 		if status != 0 {
 			writeJSONStatus(w, status, map[string]any{"error": "relay temporarily unavailable"})

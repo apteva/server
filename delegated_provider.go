@@ -465,7 +465,7 @@ func (s *Server) recordDelegatedProviderUsage(ev delegatedUsageEvent) {
 	if ev.CallerAppName == "" && ev.ChildInstallID > 0 {
 		ev.CallerAppName = s.callerAppName(ev.ChildInstallID)
 	}
-	_, _ = s.store.db.Exec(`
+	_, _ = s.store.dbExec(`
 		INSERT INTO delegated_provider_usage
 			(grant_id, connection_id, parent_connection_id, child_install_id, app_slug, tool, resource, quantity, status, error, direction)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

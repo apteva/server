@@ -1,0 +1,225 @@
+{
+  "slug": "openweathermap",
+  "name": "OpenWeather",
+  "description": "Global current weather, 5-day forecasts in 3-hour steps, and geocoding from OpenWeather. These endpoints are available on the free Weather API plan with an API key. One Call and paid historical products are not included.",
+  "logo": "https://www.google.com/s2/favicons?domain=openweathermap.org&sz=128",
+  "categories": [
+    "weather",
+    "forecast",
+    "geocoding"
+  ],
+  "base_url": "https://api.openweathermap.org",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {},
+    "query_params": {
+      "appid": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Create an account at https://home.openweathermap.org/users/sign_up and copy a key from https://home.openweathermap.org/api_keys. Newly created keys may take time to activate.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "method": "GET",
+    "path": "/data/2.5/weather?lat=51.5074&lon=-0.1278",
+    "expect_status": [
+      200
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_current_weather",
+      "description": "Get current weather by coordinates. Resolve a city name with geocode_location first.",
+      "method": "GET",
+      "path": "/data/2.5/weather",
+      "query_params": [
+        "lat",
+        "lon",
+        "units",
+        "lang"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Latitude from geocode_location or geocode_postcode."
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Longitude."
+          },
+          "units": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "metric",
+              "imperial"
+            ],
+            "description": "metric: Celsius and m/s; imperial: Fahrenheit and mph; standard (provider default when omitted): Kelvin and m/s."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code for weather descriptions, for example en, fr, or es."
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ]
+      }
+    },
+    {
+      "name": "get_forecast",
+      "description": "Get the next 5 days of weather in 3-hour steps. cnt limits timestamps, not days. The full response includes city metadata and the list of forecasts.",
+      "method": "GET",
+      "path": "/data/2.5/forecast",
+      "query_params": [
+        "lat",
+        "lon",
+        "units",
+        "lang",
+        "cnt"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Latitude from geocode_location or geocode_postcode."
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Longitude."
+          },
+          "units": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "metric",
+              "imperial"
+            ],
+            "description": "metric: Celsius and m/s; imperial: Fahrenheit and mph; standard (provider default when omitted): Kelvin and m/s."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code for weather descriptions, for example en, fr, or es."
+          },
+          "cnt": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 40,
+            "description": "Number of 3-hour forecast timestamps; omit for the full forecast."
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ]
+      }
+    },
+    {
+      "name": "geocode_location",
+      "description": "Find coordinates for a city or area. Disambiguate with country and optional US state code.",
+      "method": "GET",
+      "path": "/geo/1.0/direct",
+      "query_params": [
+        "q",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "City name, optional US state code, and ISO country code separated by commas, e.g. Paris,FR or Portland,OR,US."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Maximum matching locations, up to 5."
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "reverse_geocode",
+      "description": "Find nearby place names for coordinates.",
+      "method": "GET",
+      "path": "/geo/1.0/reverse",
+      "query_params": [
+        "lat",
+        "lon",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Latitude from geocode_location or geocode_postcode."
+          },
+          "lon": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Longitude."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Maximum matching locations, up to 5."
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ]
+      }
+    },
+    {
+      "name": "geocode_postcode",
+      "description": "Resolve a postal code and country to coordinates.",
+      "method": "GET",
+      "path": "/geo/1.0/zip",
+      "query_params": [
+        "zip"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zip": {
+            "type": "string",
+            "description": "Postal code and ISO country code separated by a comma, e.g. 75001,FR."
+          }
+        },
+        "required": [
+          "zip"
+        ]
+      }
+    }
+  ]
+}

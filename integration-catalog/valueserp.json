@@ -1,0 +1,63 @@
+{
+  "slug": "valueserp",
+  "name": "ValueSERP",
+  "description": "Affordable Google SERP API — search results, locations, and account stats. Instant API key and 100 free searches.",
+  "logo": "https://www.google.com/s2/favicons?domain=valueserp.com&sz=128",
+  "categories": ["seo", "serp", "search", "google", "scraping"],
+  "base_url": "https://api.valueserp.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "description": "Get from valueserp.com/dashboard" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Run a Google SERP query",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "api_key": { "type": "string" },
+          "q": { "type": "string" },
+          "search_type": { "type": "string", "description": "web|news|images|videos|shopping|places|maps|scholar" },
+          "location": { "type": "string" },
+          "google_domain": { "type": "string" },
+          "gl": { "type": "string" },
+          "hl": { "type": "string" },
+          "num": { "type": "number" },
+          "page": { "type": "number" },
+          "device": { "type": "string" }
+        },
+        "required": ["api_key", "q"]
+      }
+    },
+    {
+      "name": "locations",
+      "description": "Resolve canonical location names",
+      "method": "GET",
+      "path": "/locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "limit": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "account",
+      "description": "Account info, plan, credits remaining",
+      "method": "GET",
+      "path": "/account",
+      "input_schema": {
+        "type": "object",
+        "properties": { "api_key": { "type": "string" } },
+        "required": ["api_key"]
+      }
+    }
+  ]
+}

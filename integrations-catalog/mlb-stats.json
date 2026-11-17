@@ -1,0 +1,168 @@
+{
+  "slug": "mlb-stats",
+  "name": "MLB Stats API",
+  "description": "Public baseball API for schedules, scores, standings, teams, player profiles and game feeds. No account or API key required. Public access does not grant commercial redistribution rights; MLB terms apply.",
+  "logo": "https://www.google.com/s2/favicons?domain=mlb.com&sz=128",
+  "categories": [
+    "sports",
+    "baseball",
+    "stats"
+  ],
+  "base_url": "https://statsapi.mlb.com",
+  "auth": {
+    "types": [
+      "none"
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sports",
+      "description": "List sports.",
+      "method": "GET",
+      "path": "/api/v1/sports",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List teams; sportId=1 selects MLB, leagueIds is comma-separated.",
+      "method": "GET",
+      "path": "/api/v1/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sportId": {
+            "type": "integer"
+          },
+          "season": {
+            "type": "integer"
+          },
+          "leagueIds": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_schedule",
+      "description": "Get games and scores; sportId=1 selects MLB. Dates use YYYY-MM-DD.",
+      "method": "GET",
+      "path": "/api/v1/schedule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sportId": {
+            "type": "integer"
+          },
+          "date": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "endDate": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "integer"
+          },
+          "season": {
+            "type": "integer"
+          },
+          "hydrate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sportId"
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Get standings. leagueId is comma-separated, e.g. 103,104 for MLB.",
+      "method": "GET",
+      "path": "/api/v1/standings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueId": {
+            "type": "string"
+          },
+          "season": {
+            "type": "integer"
+          },
+          "standingsTypes": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leagueId",
+          "season"
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get player.",
+      "method": "GET",
+      "path": "/api/v1/people/{personId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "integer"
+          },
+          "hydrate": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "personId"
+        ]
+      }
+    },
+    {
+      "name": "get_game_boxscore",
+      "description": "Get game boxscore.",
+      "method": "GET",
+      "path": "/api/v1/game/{gamePk}/boxscore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "gamePk": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gamePk"
+        ]
+      }
+    },
+    {
+      "name": "get_game_feed",
+      "description": "Get live game data and play-by-play using the distinct v1.1 route.",
+      "method": "GET",
+      "path": "/api/v1.1/game/{gamePk}/feed/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "gamePk": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "gamePk"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_sports"
+  }
+}

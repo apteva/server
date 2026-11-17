@@ -1,0 +1,269 @@
+{
+  "slug": "okx",
+  "name": "OKX",
+  "description": "OKX API v5 integration for spot, margin, futures, perpetual swaps, and options market data plus signed account and trade operations. Private tools use OK-ACCESS HMAC authentication.",
+  "logo": "https://www.google.com/s2/favicons?domain=okx.com&sz=128",
+  "categories": ["crypto", "exchange", "trading", "derivatives", "options", "futures"],
+  "base_url": "https://www.okx.com",
+  "auth": {
+    "types": ["custom"],
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "signers": [{ "name": "okx" }],
+    "credential_fields": [
+      { "name": "api_key", "label": "API Key", "type": "password", "description": "OKX API key." },
+      { "name": "secret_key", "label": "Secret Key", "type": "password", "description": "OKX API secret key." },
+      { "name": "passphrase", "label": "Passphrase", "type": "password", "description": "OKX API passphrase." },
+      { "name": "simulated", "label": "Simulated Trading", "type": "text", "required": false, "description": "Optional. Set true/1 to send x-simulated-trading: 1 for OKX demo trading." }
+    ]
+  },
+  "health_check": { "tool": "get_server_time", "input": {} },
+  "tools": [
+    {
+      "name": "get_server_time",
+      "description": "Public: get OKX server time.",
+      "method": "GET",
+      "path": "/api/v5/public/time",
+      "signing": { "signers": [] },
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_instruments",
+      "description": "Public: list instruments and contract specs.",
+      "method": "GET",
+      "path": "/api/v5/public/instruments",
+      "signing": { "signers": [] },
+      "query_params": ["instType", "uly", "instFamily", "instId"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instType": { "type": "string", "enum": ["SPOT", "MARGIN", "SWAP", "FUTURES", "OPTION"] },
+          "uly": { "type": "string" },
+          "instFamily": { "type": "string" },
+          "instId": { "type": "string" }
+        },
+        "required": ["instType"]
+      }
+    },
+    {
+      "name": "get_tickers",
+      "description": "Public: get tickers by instrument type.",
+      "method": "GET",
+      "path": "/api/v5/market/tickers",
+      "signing": { "signers": [] },
+      "query_params": ["instType", "uly", "instFamily"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instType": { "type": "string", "enum": ["SPOT", "SWAP", "FUTURES", "OPTION"] },
+          "uly": { "type": "string" },
+          "instFamily": { "type": "string" }
+        },
+        "required": ["instType"]
+      }
+    },
+    {
+      "name": "get_ticker",
+      "description": "Public: get ticker for one instrument.",
+      "method": "GET",
+      "path": "/api/v5/market/ticker",
+      "signing": { "signers": [] },
+      "query_params": ["instId"],
+      "input_schema": { "type": "object", "properties": { "instId": { "type": "string" } }, "required": ["instId"] }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Public: get order book depth.",
+      "method": "GET",
+      "path": "/api/v5/market/books",
+      "signing": { "signers": [] },
+      "query_params": ["instId", "sz"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "instId": { "type": "string" }, "sz": { "type": "integer" } },
+        "required": ["instId"]
+      }
+    },
+    {
+      "name": "get_candles",
+      "description": "Public: get recent candlesticks.",
+      "method": "GET",
+      "path": "/api/v5/market/candles",
+      "signing": { "signers": [] },
+      "query_params": ["instId", "bar", "after", "before", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instId": { "type": "string" },
+          "bar": { "type": "string" },
+          "after": { "type": "string" },
+          "before": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["instId"]
+      }
+    },
+    {
+      "name": "get_funding_rate",
+      "description": "Public: get current funding rate for a swap.",
+      "method": "GET",
+      "path": "/api/v5/public/funding-rate",
+      "signing": { "signers": [] },
+      "query_params": ["instId"],
+      "input_schema": { "type": "object", "properties": { "instId": { "type": "string" } }, "required": ["instId"] }
+    },
+    {
+      "name": "get_balance",
+      "description": "Private: get account balances.",
+      "method": "GET",
+      "path": "/api/v5/account/balance",
+      "query_params": ["ccy"],
+      "input_schema": { "type": "object", "properties": { "ccy": { "type": "string", "description": "Optional comma-separated currencies." } } }
+    },
+    {
+      "name": "get_positions",
+      "description": "Private: get positions.",
+      "method": "GET",
+      "path": "/api/v5/account/positions",
+      "query_params": ["instType", "instId", "posId"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "instType": { "type": "string" }, "instId": { "type": "string" }, "posId": { "type": "string" } }
+      }
+    },
+    {
+      "name": "place_order",
+      "description": "Private: place a spot, margin, futures, swap, or option order.",
+      "method": "POST",
+      "path": "/api/v5/trade/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instId": { "type": "string" },
+          "tdMode": { "type": "string", "description": "cash, cross, isolated, spot_isolated." },
+          "side": { "type": "string", "enum": ["buy", "sell"] },
+          "ordType": { "type": "string", "description": "market, limit, post_only, fok, ioc, optimal_limit_ioc, mmp, mmp_and_post_only." },
+          "sz": { "type": "string" },
+          "px": { "type": "string" },
+          "ccy": { "type": "string" },
+          "clOrdId": { "type": "string" },
+          "tag": { "type": "string" },
+          "posSide": { "type": "string" },
+          "reduceOnly": { "type": "boolean" },
+          "tgtCcy": { "type": "string" }
+        },
+        "required": ["instId", "tdMode", "side", "ordType", "sz"]
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Private: cancel one order.",
+      "method": "POST",
+      "path": "/api/v5/trade/cancel-order",
+      "input_schema": {
+        "type": "object",
+        "properties": { "instId": { "type": "string" }, "ordId": { "type": "string" }, "clOrdId": { "type": "string" } },
+        "required": ["instId"]
+      }
+    },
+    {
+      "name": "amend_order",
+      "description": "Private: amend one order.",
+      "method": "POST",
+      "path": "/api/v5/trade/amend-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instId": { "type": "string" },
+          "ordId": { "type": "string" },
+          "clOrdId": { "type": "string" },
+          "newSz": { "type": "string" },
+          "newPx": { "type": "string" },
+          "cxlOnFail": { "type": "boolean" }
+        },
+        "required": ["instId"]
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Private: get order details.",
+      "method": "GET",
+      "path": "/api/v5/trade/order",
+      "query_params": ["instId", "ordId", "clOrdId"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "instId": { "type": "string" }, "ordId": { "type": "string" }, "clOrdId": { "type": "string" } },
+        "required": ["instId"]
+      }
+    },
+    {
+      "name": "list_open_orders",
+      "description": "Private: list pending/open orders.",
+      "method": "GET",
+      "path": "/api/v5/trade/orders-pending",
+      "query_params": ["instType", "uly", "instFamily", "instId", "ordType", "state", "after", "before", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instType": { "type": "string" },
+          "uly": { "type": "string" },
+          "instFamily": { "type": "string" },
+          "instId": { "type": "string" },
+          "ordType": { "type": "string" },
+          "state": { "type": "string" },
+          "after": { "type": "string" },
+          "before": { "type": "string" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "list_order_history",
+      "description": "Private: list recent order history.",
+      "method": "GET",
+      "path": "/api/v5/trade/orders-history",
+      "query_params": ["instType", "uly", "instFamily", "instId", "ordType", "state", "category", "after", "before", "begin", "end", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instType": { "type": "string", "enum": ["SPOT", "MARGIN", "SWAP", "FUTURES", "OPTION"] },
+          "uly": { "type": "string" },
+          "instFamily": { "type": "string" },
+          "instId": { "type": "string" },
+          "ordType": { "type": "string" },
+          "state": { "type": "string" },
+          "category": { "type": "string" },
+          "after": { "type": "string" },
+          "before": { "type": "string" },
+          "begin": { "type": "string" },
+          "end": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["instType"]
+      }
+    },
+    {
+      "name": "list_fills",
+      "description": "Private: list trade fills.",
+      "method": "GET",
+      "path": "/api/v5/trade/fills",
+      "query_params": ["instType", "uly", "instFamily", "instId", "ordId", "after", "before", "begin", "end", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "instType": { "type": "string" },
+          "uly": { "type": "string" },
+          "instFamily": { "type": "string" },
+          "instId": { "type": "string" },
+          "ordId": { "type": "string" },
+          "after": { "type": "string" },
+          "before": { "type": "string" },
+          "begin": { "type": "string" },
+          "end": { "type": "string" },
+          "limit": { "type": "integer" }
+        }
+      }
+    }
+  ]
+}

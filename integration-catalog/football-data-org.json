@@ -1,0 +1,369 @@
+{
+  "slug": "football-data-org",
+  "name": "football-data.org",
+  "description": "Documented football API for competitions, matches, teams, standings and scorers. Personal API key required. Free tier: 12 competitions, 10 calls/minute, delayed scores and schedules; livescores and deeper coverage require paid access. Endpoint entitlements vary. Docs: https://docs.football-data.org/general/v4/index.html",
+  "logo": "https://www.google.com/s2/favicons?domain=football-data.org&sz=128",
+  "categories": [
+    "sports",
+    "football",
+    "soccer",
+    "scores",
+    "standings"
+  ],
+  "base_url": "https://api.football-data.org/v4",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Auth-Token": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_competitions",
+      "description": "List competitions available to this API key.",
+      "method": "GET",
+      "path": "/competitions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "areas": {
+            "type": "string",
+            "description": "Comma-separated area IDs."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_competition",
+      "description": "Get a competition by ID or code such as PL.",
+      "method": "GET",
+      "path": "/competitions/{competition}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competition": {
+            "type": "string",
+            "description": "Competition code or ID."
+          }
+        },
+        "required": [
+          "competition"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_matches",
+      "description": "Get matches within a bounded date range.",
+      "method": "GET",
+      "path": "/matches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dateFrom": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "competitions": {
+            "type": "string",
+            "description": "Comma-separated competition IDs/codes."
+          },
+          "status": {
+            "type": "string",
+            "description": "Scheduled/live/finished status per provider enum."
+          }
+        },
+        "required": [
+          "dateFrom",
+          "dateTo"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_match",
+      "description": "Get one match with score/status details.",
+      "method": "GET",
+      "path": "/matches/{match_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "match_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_competition_matches",
+      "description": "Get season matches for a competition.",
+      "method": "GET",
+      "path": "/competitions/{competition}/matches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competition": {
+            "type": "string"
+          },
+          "season": {
+            "type": "integer",
+            "minimum": 1900,
+            "description": "Season start year."
+          },
+          "matchday": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dateFrom": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "competition",
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_standings",
+      "description": "Get competition standings; requires access to the selected competition.",
+      "method": "GET",
+      "path": "/competitions/{competition}/standings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competition": {
+            "type": "string"
+          },
+          "season": {
+            "type": "integer",
+            "minimum": 1900,
+            "description": "Season start year."
+          },
+          "matchday": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "competition"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List teams in a competition season.",
+      "method": "GET",
+      "path": "/competitions/{competition}/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competition": {
+            "type": "string"
+          },
+          "season": {
+            "type": "integer",
+            "minimum": 1900,
+            "description": "Season start year."
+          }
+        },
+        "required": [
+          "competition"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team",
+      "description": "Get a team profile and available squad data.",
+      "method": "GET",
+      "path": "/teams/{team_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team_matches",
+      "description": "Get team fixtures/results using dates and bounded result count.",
+      "method": "GET",
+      "path": "/teams/{team_id}/matches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dateFrom": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date",
+            "description": "Date in YYYY-MM-DD format."
+          },
+          "status": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum matches."
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_top_scorers",
+      "description": "Get top scorers where entitled by the account plan.",
+      "method": "GET",
+      "path": "/competitions/{competition}/scorers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "competition": {
+            "type": "string"
+          },
+          "season": {
+            "type": "integer",
+            "minimum": 1900,
+            "description": "Season start year."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "competition"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_competitions"
+  }
+}

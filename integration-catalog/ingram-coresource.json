@@ -1,0 +1,119 @@
+{
+  "slug": "ingram-coresource",
+  "name": "Ingram CoreSource",
+  "description": "Enterprise Ingram CoreSource integration scaffold for publisher asset, metadata, and distribution workflows. CoreSource API contracts are account-specific; configure the provisioned API host and adjust paths if Ingram supplies a different route set.",
+  "logo": "https://www.google.com/s2/favicons?domain=coresource.ingramcontent.com&sz=128",
+  "categories": ["books", "publishing", "distribution", "metadata", "enterprise"],
+  "base_url": "https://{{credential.api_host}}",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_host",
+        "label": "API host",
+        "description": "Host supplied by Ingram, for example a CoreSource or gateway host without https://.",
+        "type": "text"
+      },
+      {
+        "name": "token",
+        "label": "Access token",
+        "description": "Bearer token or API token provisioned by Ingram."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_titles",
+      "description": "List titles from an Ingram/CoreSource enterprise title endpoint. Confirm this path against the account-specific contract.",
+      "method": "GET",
+      "path": "/titles",
+      "query_params": ["page", "limit", "modified_since", "status"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "modified_since": { "type": "string", "description": "ISO date/time filter when supported." },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_title",
+      "description": "Fetch one title by provider ID. Confirm this path against the account-specific contract.",
+      "method": "GET",
+      "path": "/titles/{title_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title_id": { "type": "string" }
+        },
+        "required": ["title_id"]
+      }
+    },
+    {
+      "name": "upsert_title",
+      "description": "Create or update title metadata. Body should follow the Ingram-provided schema for this account.",
+      "method": "PUT",
+      "path": "/titles/{title_id}",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title_id": { "type": "string" },
+          "body": { "type": "object", "description": "Account-specific title metadata payload." }
+        },
+        "required": ["title_id", "body"]
+      }
+    },
+    {
+      "name": "create_title",
+      "description": "Create a title metadata record. Body should follow the Ingram-provided schema for this account.",
+      "method": "POST",
+      "path": "/titles",
+      "body_root_param": "body",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Account-specific title metadata payload." }
+        },
+        "required": ["body"]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List digital assets/files in CoreSource. Confirm this path against the account-specific contract.",
+      "method": "GET",
+      "path": "/assets",
+      "query_params": ["page", "limit", "title_id", "type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "title_id": { "type": "string" },
+          "type": { "type": "string", "description": "Asset type, for example epub, pdf, cover, audiobook." }
+        }
+      }
+    },
+    {
+      "name": "create_distribution_job",
+      "description": "Create a distribution/delivery job using the account-specific Ingram contract.",
+      "method": "POST",
+      "path": "/distribution/jobs",
+      "body_root_param": "body",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "body": { "type": "object", "description": "Distribution job payload supplied by Ingram." }
+        },
+        "required": ["body"]
+      }
+    }
+  ]
+}

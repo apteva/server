@@ -1,0 +1,192 @@
+{
+  "slug": "playfab",
+  "name": "Microsoft PlayFab",
+  "description": "Microsoft PlayFab Server API for title data, player profiles and data, statistics and leaderboards, inventory and virtual currency, and server-side CloudScript execution.",
+  "logo": "https://www.google.com/s2/favicons?domain=playfab.com&sz=128",
+  "categories": ["game-development", "backend-as-a-service", "player-data", "leaderboards", "cloud-script"],
+  "base_url": "https://{{credential.title_id}}.playfabapi.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-SecretKey": "{{secret_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "title_id",
+        "label": "Title ID",
+        "description": "PlayFab title ID, used as the API hostname prefix.",
+        "required": true,
+        "type": "text",
+        "exposure": "public"
+      },
+      {
+        "name": "secret_key",
+        "label": "Title Secret Key",
+        "description": "Server secret key from PlayFab Game Manager. Keep this credential strictly server-side.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": { "tool": "get_title_data" },
+  "tools": [
+    {
+      "name": "get_title_data",
+      "description": "Read title-wide key/value configuration data. With no keys, PlayFab returns all title data visible to the server API.",
+      "method": "POST",
+      "path": "/Server/GetTitleData",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Keys": { "type": "array", "items": { "type": "string" } },
+          "OverrideLabel": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "get_player_combined_info",
+      "description": "Retrieve selected account, profile, statistic, inventory, and player-data sections for one PlayFab player.",
+      "method": "POST",
+      "path": "/Server/GetPlayerCombinedInfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PlayFabId": { "type": "string" },
+          "InfoRequestParameters": { "type": "object", "description": "PlayFab GetPlayerCombinedInfoRequestParams selection object." }
+        },
+        "required": ["PlayFabId", "InfoRequestParameters"]
+      }
+    },
+    {
+      "name": "update_user_data",
+      "description": "Set or remove server-authorized custom data keys for a PlayFab player.",
+      "method": "POST",
+      "path": "/Server/UpdateUserData",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PlayFabId": { "type": "string" },
+          "Data": { "type": "object", "additionalProperties": { "type": "string" } },
+          "KeysToRemove": { "type": "array", "items": { "type": "string" } },
+          "Permission": { "type": "string", "enum": ["Private", "Public"] }
+        },
+        "required": ["PlayFabId"]
+      }
+    },
+    {
+      "name": "update_player_statistics",
+      "description": "Write one or more named statistic values for a PlayFab player, optionally using versioned statistics.",
+      "method": "POST",
+      "path": "/Server/UpdatePlayerStatistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PlayFabId": { "type": "string" },
+          "Statistics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "StatisticName": { "type": "string" },
+                "Value": { "type": "integer" },
+                "Version": { "type": "integer" }
+              },
+              "required": ["StatisticName", "Value"]
+            },
+            "minItems": 1
+          }
+        },
+        "required": ["PlayFabId", "Statistics"]
+      }
+    },
+    {
+      "name": "get_leaderboard",
+      "description": "Read a page of a PlayFab statistic leaderboard from a zero-based start position.",
+      "method": "POST",
+      "path": "/Server/GetLeaderboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "StatisticName": { "type": "string" },
+          "StartPosition": { "type": "integer", "minimum": 0 },
+          "MaxResultsCount": { "type": "integer", "minimum": 1 },
+          "ProfileConstraints": { "type": "object" },
+          "Version": { "type": "integer" }
+        },
+        "required": ["StatisticName", "StartPosition"]
+      }
+    },
+    {
+      "name": "get_user_inventory",
+      "description": "Get a PlayFab player's legacy Economy inventory and current virtual-currency balances.",
+      "method": "POST",
+      "path": "/Server/GetUserInventory",
+      "input_schema": {
+        "type": "object",
+        "properties": { "PlayFabId": { "type": "string" } },
+        "required": ["PlayFabId"]
+      }
+    },
+    {
+      "name": "grant_items_to_user",
+      "description": "Grant catalog item IDs to a player's legacy PlayFab Economy inventory. This is intended for titles already using the legacy catalog API.",
+      "method": "POST",
+      "path": "/Server/GrantItemsToUser",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PlayFabId": { "type": "string" },
+          "ItemIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "Annotation": { "type": "string" },
+          "CatalogVersion": { "type": "string" }
+        },
+        "required": ["PlayFabId", "ItemIds"]
+      }
+    },
+    {
+      "name": "modify_user_virtual_currency",
+      "description": "Add or subtract a specified amount of legacy PlayFab virtual currency for a player.",
+      "method": "POST",
+      "path": "/Server/ModifyUserVirtualCurrency",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PlayFabId": { "type": "string" },
+          "Amount": { "type": "integer", "description": "Positive to add currency, negative to subtract it." },
+          "VirtualCurrency": { "type": "string", "description": "Two-character virtual-currency code configured for the title." }
+        },
+        "required": ["PlayFabId", "Amount", "VirtualCurrency"]
+      }
+    },
+    {
+      "name": "execute_cloud_script",
+      "description": "Execute a server-side PlayFab CloudScript function for a player and return its result, logs, and execution metrics.",
+      "method": "POST",
+      "path": "/Server/ExecuteCloudScript",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "FunctionName": { "type": "string" },
+          "PlayFabId": { "type": "string" },
+          "FunctionParameter": { "type": "object" },
+          "GeneratePlayStreamEvent": { "type": "boolean" },
+          "RevisionSelection": { "type": "string", "enum": ["Live", "Latest", "Specific"] },
+          "SpecificRevision": { "type": "integer" }
+        },
+        "required": ["FunctionName", "PlayFabId"]
+      }
+    },
+    {
+      "name": "get_catalog_items",
+      "description": "List items from a legacy PlayFab Economy catalog version for titles that still use the classic catalog.",
+      "method": "POST",
+      "path": "/Server/GetCatalogItems",
+      "input_schema": {
+        "type": "object",
+        "properties": { "CatalogVersion": { "type": "string" } }
+      }
+    }
+  ]
+}

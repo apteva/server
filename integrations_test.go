@@ -772,8 +772,23 @@ func TestDashboardMCPListHidesAppOwnedConnectionRowsByDefault(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
 		t.Fatalf("decode default mcp list: %v", err)
 	}
-	if len(rows) != 1 || rows[0]["connection_id"].(float64) != float64(operatorConn.ID) {
-		t.Fatalf("default mcp list should only include operator row, got %#v", rows)
+	if len(rows) != 2 {
+		t.Fatalf("expected built-in plus operator MCP, got %#v", rows)
+	}
+	var builtin, operator int
+	for _, row := range rows {
+		if row["name"] == platformMCPName && row["source"] == platformMCPSource {
+			builtin++
+			continue
+		}
+		if row["connection_id"] == float64(operatorConn.ID) {
+			operator++
+			continue
+		}
+		t.Fatalf("unexpected/app-owned MCP in default inventory: %#v", row)
+	}
+	if builtin != 1 || operator != 1 {
+		t.Fatal("missing or duplicated built-in/operator MCP")
 	}
 
 	req = httptest.NewRequest("GET", "/mcp-servers?project_id=proj&include_app_owned=1", nil)
@@ -787,8 +802,17 @@ func TestDashboardMCPListHidesAppOwnedConnectionRowsByDefault(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
 		t.Fatalf("decode include mcp list: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("include_app_owned should include both mcp rows, got %#v", rows)
+	if len(rows) != 3 {
+		t.Fatalf("include_app_owned should include built-in and both connection MCPs, got %#v", rows)
+	}
+	seen := map[int64]int{}
+	for _, row := range rows {
+		if id, ok := row["connection_id"].(float64); ok {
+			seen[int64(id)]++
+		}
+	}
+	if seen[0] != 1 || seen[operatorConn.ID] != 1 || seen[appConn.ID] != 1 {
+		t.Fatalf("incorrect inventory identities: %#v", rows)
 	}
 }
 

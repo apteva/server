@@ -222,7 +222,7 @@ func (s *Server) handleUnassignInstanceSkill(w http.ResponseWriter, r *http.Requ
 // project-scoped rows (project_id == projectID) + globals (project_id == ”).
 // Joined with apps for the AppName field.
 func (s *Server) listProjectSkills(projectID string) ([]Skill, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
 		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
 		       sk.enabled, sk.version, sk.created_at, sk.updated_at,
@@ -250,7 +250,7 @@ func (s *Server) listProjectSkills(projectID string) ([]Skill, error) {
 // getSkillForProject loads a skill by id and verifies it's visible to
 // the project (own row or a global). Returns sql.ErrNoRows if not.
 func (s *Server) getSkillForProject(skillID int64, projectID string) (Skill, error) {
-	row := s.store.db.QueryRow(`
+	row := s.store.dbQueryRow(`
 		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
 		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
 		       sk.enabled, sk.version, sk.created_at, sk.updated_at,

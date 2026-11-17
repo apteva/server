@@ -1,0 +1,49 @@
+{
+  "slug": "santiment",
+  "name": "Santiment",
+  "description": "Crypto analytics — on-chain metrics, social sentiment, developer activity, whale tracking, and network stats via GraphQL API.",
+  "logo": "https://www.google.com/s2/favicons?domain=santiment.net&sz=128",
+  "categories": [
+    "analytics",
+    "sentiment",
+    "on-chain",
+    "social",
+    "whales"
+  ],
+  "base_url": "https://api.santiment.net",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Santiment API key (from https://app.santiment.net/account#api-keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "query",
+      "description": "Execute a GraphQL query against Santiment API. Supports metrics like: social_volume, dev_activity, daily_active_addresses, exchange_balance, whale_transaction_count, sentiment_positive, mvrv_ratio, and more.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "GraphQL query. Example: { getMetric(metric: \"social_volume\") { timeseriesData(slug: \"bitcoin\" from: \"2024-01-01\" to: \"2024-01-31\" interval: \"1d\") { datetime value } } }"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ]
+}

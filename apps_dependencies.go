@@ -13,6 +13,7 @@ package main
 // uses that to resolve every dep recursively.
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,6 +99,13 @@ func (s *Server) installDepsRecursive(
 			visited[key] = true
 			continue
 		}
+		var occupied int
+		if err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND (COALESCE(i.project_id,'')=? OR COALESCE(i.project_id,'')='')`, dep.Name, projectID).Scan(&occupied); err != nil {
+			return err
+		}
+		if occupied > 0 {
+			return fmt.Errorf("dependency %q has installations but no ready default; select an explicit installation or start its default", dep.Name)
+		}
 		if info, ok := deprecatedApp(dep.Name); ok {
 			return fmt.Errorf("dependency %q is deprecated and can no longer be installed: %s", dep.Name, info.Message)
 		}
@@ -114,7 +122,8 @@ func (s *Server) installDepsRecursive(
 		}
 
 		// Fetch + parse the dep's manifest.
-		depManifest, err := s.fetchAndCacheManifest(manifestURL)
+		release, err := s.fetchAndCacheAppRelease(manifestURL)
+		depManifest := release.manifest
 		if err != nil {
 			if dep.Optional {
 				log.Printf("[APPS-DEP] optional dep %q manifest fetch failed: %v", dep.Name, err)
@@ -141,7 +150,7 @@ func (s *Server) installDepsRecursive(
 		}
 
 		// Install the dep itself.
-		newID, err := s.installAppFromManifest(userID, depManifest, projectID)
+		newID, err := s.installAppFromManifest(userID, depManifest, projectID, release.components)
 		if err != nil {
 			if dep.Optional {
 				log.Printf("[APPS-DEP] optional dep %q install failed: %v", dep.Name, err)
@@ -195,37 +204,53 @@ func (s *Server) findInstalledApp(name, projectID string) (int64, bool) {
 			}
 		}
 	}
-	// Same-project match preferred; global match accepted. ORDER BY
-	// project_id DESC pulls the project-scoped row first since the
-	// empty-string global rows sort lowest. status='running' so we
-	// don't bind to a half-installed or errored sibling. Name match
-	// happens in Go because normalizeAppName strips non-alphanumerics
-	// and SQLite collations don't replicate that for a SQL filter.
-	query := `SELECT i.id, a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
-			  WHERE i.status = 'running' AND (i.project_id = '' OR i.project_id = ?)
-			  ORDER BY i.project_id DESC, i.id ASC`
-	args := []any{projectID}
-	if projectID == "" {
-		query = `SELECT i.id, a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
-				 WHERE i.status = 'running'
-				 ORDER BY i.id ASC`
-		args = nil
+	// Resolve the small app catalog first, then constrain the install lookup by
+	// app_id. The old implementation normalized names while scanning every
+	// running install; a retry storm with many leaked rows made this path burn
+	// CPU quadratically. Exact canonical names take the indexed fast path, while
+	// the bounded catalog fallback preserves slug/display-name compatibility.
+	var appID int64
+	err := s.store.dbQueryRow(`SELECT id FROM apps WHERE name=?`, name).Scan(&appID)
+	if err == sql.ErrNoRows {
+		rows, queryErr := s.store.dbQuery(`SELECT id, name FROM apps`)
+		if queryErr != nil {
+			return 0, false
+		}
+		for rows.Next() {
+			var candidateID int64
+			var candidateName string
+			if rows.Scan(&candidateID, &candidateName) == nil && normalizeAppName(candidateName) == target {
+				appID = candidateID
+				break
+			}
+		}
+		rows.Close()
+	} else if err != nil {
+		return 0, false
 	}
-	rows, err := s.store.db.Query(query, args...)
+	if appID == 0 {
+		return 0, false
+	}
+
+	// Select the scope before checking readiness. An unavailable default
+	// cannot silently redirect dependency calls to a candidate or global app.
+	var installID int64
+	var status string
+	query := `SELECT id,status FROM app_installs WHERE app_id=? AND (project_id=? OR project_id='') ORDER BY (project_id=?) DESC,is_default DESC,id LIMIT 1`
+	if projectID == "" {
+		err = s.store.dbQueryRow(`SELECT id,status FROM app_installs WHERE app_id=? AND is_default=1 ORDER BY (project_id='') DESC,id LIMIT 1`, appID).Scan(&installID, &status)
+	} else {
+		err = s.store.dbQueryRow(query, appID, projectID, projectID).Scan(&installID, &status)
+	}
 	if err != nil {
 		return 0, false
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			id int64
-			n  string
-		)
-		if rows.Scan(&id, &n) == nil && normalizeAppName(n) == target {
-			return id, true
-		}
+	var selected bool
+	if s.store.dbQueryRow(`SELECT is_default FROM app_installs WHERE id=?`, installID).Scan(&selected) != nil || !selected || status != "running" {
+		return 0, false
 	}
-	return 0, false
+
+	return installID, true
 }
 
 // loadRegistryNameMap fetches the configured registry once and
@@ -270,7 +295,7 @@ func (s *Server) loadRegistryNameMap() (map[string]string, error) {
 func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) {
 	// First, find the name of the app we're trying to uninstall.
 	var targetName string
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id WHERE i.id = ?`,
 		installID,
 	).Scan(&targetName)
@@ -281,7 +306,7 @@ func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) 
 
 	// Walk every other running install's manifest looking for a hard
 	// requires.apps entry that names the target.
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT a.name, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM apps a JOIN app_installs i ON i.app_id = a.id
 		 WHERE i.id != ? AND i.status IN ('running', 'pending')`,
@@ -334,7 +359,7 @@ func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 //
 // Returns the new install_id so the cascade can record it in the
 // parent's bindings JSON.
-func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string) (int64, error) {
+func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, projectID string, declarations ...appComponentDeclarations) (int64, error) {
 	if info, ok := deprecatedApp(manifest.Name); ok {
 		return 0, fmt.Errorf("%s is deprecated and can no longer be installed: %s", manifest.Name, info.Message)
 	}
@@ -355,9 +380,9 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	manifestJSON, _ := json.Marshal(manifest)
 
 	var appID int64
-	err := s.store.db.QueryRow(`SELECT id FROM apps WHERE name = ?`, manifest.Name).Scan(&appID)
+	err := s.store.dbQueryRow(`SELECT id FROM apps WHERE name = ?`, manifest.Name).Scan(&appID)
 	if err != nil {
-		res, ierr := s.store.db.Exec(
+		res, ierr := s.store.dbExec(
 			`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, 'registry', '', '', ?)`,
 			manifest.Name, string(manifestJSON))
 		if ierr != nil {
@@ -369,7 +394,11 @@ func (s *Server) installAppFromManifest(userID int64, manifest *sdk.Manifest, pr
 	}
 
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
-	res, err := s.store.db.Exec(
+	var components appComponentDeclarations
+	if len(declarations) > 0 {
+		components = declarations[0]
+	}
+	res, err := s.insertManifestInstall(userID, "", "", manifest.Version, components,
 		`INSERT INTO app_installs
 		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by)
 		 VALUES (?, ?, '', 'pending', 'manual', ?, ?, 'registry', '', '', ?, ?)`,
@@ -452,7 +481,7 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 		bindingsRaw string
 		projectID   string
 	)
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(integration_bindings, '{}'), COALESCE(project_id, '') FROM app_installs WHERE id = ?`,
 		installID,
 	).Scan(&bindingsRaw, &projectID); err != nil {
@@ -482,7 +511,7 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 		return false, nil
 	}
 	bj, _ := json.Marshal(bindings)
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExec(
 		`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`,
 		string(bj), installID,
 	); err != nil {
@@ -496,7 +525,7 @@ func (s *Server) reconcileAppDepBindings(installID int64) (bool, error) {
 // manifest as the authority, pruning removed roles and app deps while
 // healing missing required app-dependency bindings.
 func (s *Server) reconcileAllAppDepBindings() {
-	rows, err := s.store.db.Query(`SELECT id FROM app_installs WHERE status = 'running'`)
+	rows, err := s.store.dbQuery(`SELECT id FROM app_installs WHERE status = 'running'`)
 	if err != nil {
 		log.Printf("[APPS-DEP] reconcile-all: %v", err)
 		return

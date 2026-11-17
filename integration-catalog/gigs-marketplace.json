@@ -1,0 +1,1290 @@
+{
+  "slug": "gigs-marketplace",
+  "name": "Gigs Marketplace",
+  "description": "MCP server for managing gigs, instructions, templates, and work submissions in a marketplace platform",
+  "logo": "https://www.google.com/s2/favicons?domain=upwork.com&sz=128",
+  "categories": [
+    "gigs",
+    "marketplace",
+    "freelance",
+    "workflow",
+    "project-management"
+  ],
+  "base_url": "https://gigsapi.schwartzindustries.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Your Gigs API key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_gig",
+      "description": "Create a new gig with optional template application",
+      "method": "POST",
+      "path": "/gigs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Gig title/name",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the gig"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Budget amount in USD"
+          },
+          "deadline": {
+            "type": "string",
+            "description": "Deadline in ISO 8601 format (YYYY-MM-DD)",
+            "format": "date"
+          },
+          "project_id": {
+            "type": "integer",
+            "description": "Associated project ID"
+          },
+          "template_id": {
+            "type": "integer",
+            "description": "Template ID to apply instructions from"
+          },
+          "status": {
+            "type": "string",
+            "description": "Initial gig status",
+            "enum": [
+              "open",
+              "assigned",
+              "in_progress",
+              "submitted",
+              "completed",
+              "cancelled"
+            ],
+            "default": "open"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "list_gigs",
+      "description": "List gigs filtered by user role (client, worker, or available)",
+      "method": "GET",
+      "path": "/gigs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          },
+          "role": {
+            "type": "string",
+            "description": "Filter by role perspective",
+            "enum": [
+              "all",
+              "client",
+              "worker",
+              "available"
+            ],
+            "default": "all"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by gig status",
+            "enum": [
+              "open",
+              "assigned",
+              "in_progress",
+              "submitted",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of gigs to return",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0,
+            "minimum": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_gig_details",
+      "description": "Get detailed information about a specific gig",
+      "method": "GET",
+      "path": "/gigs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "assign_gig",
+      "description": "Assign a gig to a worker (client only)",
+      "method": "POST",
+      "path": "/gigs/{id}/assign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID to assign"
+          },
+          "worker_id": {
+            "type": "integer",
+            "description": "Worker user ID to assign to"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "worker_id"
+        ]
+      }
+    },
+    {
+      "name": "update_gig_status",
+      "description": "Update the status of a gig",
+      "method": "PUT",
+      "path": "/gigs/{id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "New status",
+            "enum": [
+              "open",
+              "assigned",
+              "in_progress",
+              "submitted",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "update_gig",
+      "description": "Update gig details such as title, description, budget, deadline, or priority",
+      "method": "PUT",
+      "path": "/gigs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID to update"
+          },
+          "title": {
+            "type": "string",
+            "description": "Updated gig title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated gig description"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Updated budget amount in USD"
+          },
+          "deadline": {
+            "type": "string",
+            "description": "Updated deadline in ISO 8601 format (YYYY-MM-DD)",
+            "format": "date"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Updated priority level",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_gig",
+      "description": "Cancel a gig (client only)",
+      "method": "DELETE",
+      "path": "/gigs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID to cancel"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Cancellation reason"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_instruction",
+      "description": "Create a reusable instruction in the library",
+      "method": "POST",
+      "path": "/instructions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Instruction name",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "description": "Instruction description"
+          },
+          "content": {
+            "type": "string",
+            "description": "Instruction content/details"
+          },
+          "category": {
+            "type": "string",
+            "description": "Instruction category"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags for categorization",
+            "items": {
+              "type": "string"
+            }
+          },
+          "media_type": {
+            "type": "string",
+            "description": "Type of media",
+            "enum": [
+              "text",
+              "video",
+              "image",
+              "audio",
+              "document"
+            ],
+            "default": "text"
+          },
+          "media_url": {
+            "type": "string",
+            "description": "URL to media file"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether instruction is publicly visible",
+            "default": false
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Expected duration in minutes"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "name",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "list_instructions",
+      "description": "List instructions from the library with filtering",
+      "method": "GET",
+      "path": "/instructions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Filter by category"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Filter by public visibility"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of instructions to return",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0,
+            "minimum": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "search_instructions",
+      "description": "Search instructions by keyword in name, description, or content. Results are ranked by relevance (name matches first, then description, then content).",
+      "method": "GET",
+      "path": "/instructions/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query to find in name, description, or content",
+            "minLength": 1
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by instruction category"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results to return",
+            "default": 20,
+            "minimum": 1,
+            "maximum": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0,
+            "minimum": 0
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a reusable gig template with instructions",
+      "method": "POST",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "type": "string",
+            "description": "Template description"
+          },
+          "category": {
+            "type": "string",
+            "description": "Template category"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether template is publicly available",
+            "default": true
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List available gig templates",
+      "method": "GET",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Filter by category"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Filter by public visibility"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of templates to return",
+            "default": 50,
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0,
+            "minimum": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "apply_template_to_gig",
+      "description": "Apply a template's instructions to a gig",
+      "method": "POST",
+      "path": "/gigs/{id}/apply-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "template_id": {
+            "type": "integer",
+            "description": "Template ID to apply"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "add_instruction_to_gig",
+      "description": "Add an instruction from the instruction library to a gig. Use 'List Instructions' or 'Search Instructions' to find the library instruction_id.",
+      "method": "POST",
+      "path": "/gigs/{id}/instructions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "instruction_id": {
+            "type": "integer",
+            "description": "Instruction library ID (from List/Search Instructions), NOT the gig_instructions record ID"
+          },
+          "custom_content": {
+            "type": "string",
+            "description": "Optional custom content override for this gig"
+          },
+          "order_index": {
+            "type": "integer",
+            "description": "Step number/position in instruction list (auto-assigned if omitted)"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instruction_id"
+        ]
+      }
+    },
+    {
+      "name": "get_gig_instructions",
+      "description": "Get all instructions attached to a gig. Returns gig_instructions records with their 'id' (needed for remove/complete/customize/reset operations), instruction details, completion status, and submitted files.",
+      "method": "GET",
+      "path": "/gigs/{id}/instructions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "mark_instruction_complete",
+      "description": "Mark a gig instruction as completed. Use 'Get Gig Instructions' first to find the gig_instructions record ID.",
+      "method": "PUT",
+      "path": "/gigs/{id}/instructions/{instructionId}/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "instructionId": {
+            "type": "integer",
+            "description": "The gig_instructions record ID (the 'id' field returned by Get Gig Instructions), NOT the instruction library ID"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instructionId"
+        ]
+      }
+    },
+    {
+      "name": "submit_work",
+      "description": "Submit work files for a gig",
+      "method": "POST",
+      "path": "/gigs/{id}/submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Name of the submitted file"
+          },
+          "file_url": {
+            "type": "string",
+            "description": "URL to the submitted file"
+          },
+          "file_type": {
+            "type": "string",
+            "description": "MIME type of the file"
+          },
+          "file_size": {
+            "type": "integer",
+            "description": "File size in bytes"
+          },
+          "submission_notes": {
+            "type": "string",
+            "description": "Notes accompanying the submission"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "file_name",
+          "file_url"
+        ]
+      }
+    },
+    {
+      "name": "get_submissions",
+      "description": "Get all submissions for a gig",
+      "method": "GET",
+      "path": "/gigs/{id}/submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "review_submission",
+      "description": "Review and approve/reject a work submission (client only)",
+      "method": "POST",
+      "path": "/gigs/{id}/submissions/{submissionId}/review",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "submissionId": {
+            "type": "integer",
+            "description": "Submission ID to review"
+          },
+          "status": {
+            "type": "string",
+            "description": "Review decision",
+            "enum": [
+              "approved",
+              "rejected",
+              "revision_requested"
+            ]
+          },
+          "review_notes": {
+            "type": "string",
+            "description": "Review feedback"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "submissionId",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "request_revision",
+      "description": "Request changes to a work submission",
+      "method": "POST",
+      "path": "/gigs/{id}/submissions/{submissionId}/revision",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "submissionId": {
+            "type": "integer",
+            "description": "Submission ID to request revision for"
+          },
+          "revision_notes": {
+            "type": "string",
+            "description": "Detailed revision requirements"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "submissionId",
+          "revision_notes"
+        ]
+      }
+    },
+    {
+      "name": "get_gig_activity",
+      "description": "Get activity log/history for a gig",
+      "method": "GET",
+      "path": "/gigs/{id}/activity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_instruction",
+      "description": "Get a single instruction from the library by ID",
+      "method": "GET",
+      "path": "/instructions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Instruction ID"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_instruction",
+      "description": "Update an instruction's content, media, or settings",
+      "method": "PUT",
+      "path": "/instructions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Instruction ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated instruction name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
+          "content": {
+            "type": "string",
+            "description": "Updated instruction content"
+          },
+          "category": {
+            "type": "string",
+            "description": "Updated category"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Updated tags",
+            "items": {
+              "type": "string"
+            }
+          },
+          "media_type": {
+            "type": "string",
+            "description": "Media type",
+            "enum": [
+              "text",
+              "video",
+              "image",
+              "audio",
+              "document"
+            ]
+          },
+          "media_url": {
+            "type": "string",
+            "description": "URL to media file"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether instruction is publicly visible"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Expected duration in minutes"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_instruction",
+      "description": "Delete an instruction from the library",
+      "method": "DELETE",
+      "path": "/instructions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Instruction ID to delete"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Get a template with its instructions",
+      "method": "GET",
+      "path": "/templates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_template",
+      "description": "Update a gig template's name, description, or settings",
+      "method": "PUT",
+      "path": "/templates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated template name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
+          "category": {
+            "type": "string",
+            "description": "Updated category"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether template is publicly available"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_template",
+      "description": "Delete a gig template",
+      "method": "DELETE",
+      "path": "/gigs/templates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID to delete"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "clone_template",
+      "description": "Create a copy of a template for customization",
+      "method": "POST",
+      "path": "/gigs/templates/{id}/clone",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID to clone"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name for the new cloned template"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "add_instruction_to_template",
+      "description": "Add an instruction from the library to a template",
+      "method": "POST",
+      "path": "/templates/{id}/instructions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID"
+          },
+          "instruction_id": {
+            "type": "integer",
+            "description": "Instruction ID to add"
+          },
+          "step_number": {
+            "type": "integer",
+            "description": "Step/order number in the template"
+          },
+          "is_required": {
+            "type": "boolean",
+            "description": "Whether this instruction is required",
+            "default": true
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instruction_id",
+          "step_number"
+        ]
+      }
+    },
+    {
+      "name": "remove_instruction_from_template",
+      "description": "Remove an instruction from a template",
+      "method": "DELETE",
+      "path": "/templates/{id}/instructions/{instructionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID"
+          },
+          "instructionId": {
+            "type": "integer",
+            "description": "Instruction ID to remove"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instructionId"
+        ]
+      }
+    },
+    {
+      "name": "reorder_template_instructions",
+      "description": "Reorder the instructions within a template",
+      "method": "PUT",
+      "path": "/gigs/templates/{id}/instructions/reorder",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID"
+          },
+          "instructions": {
+            "type": "array",
+            "description": "Array of instruction order objects",
+            "items": {
+              "type": "object",
+              "properties": {
+                "instruction_id": {
+                  "type": "integer"
+                },
+                "step_number": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instructions"
+        ]
+      }
+    },
+    {
+      "name": "update_template_instruction",
+      "description": "Update settings for an instruction within a template (e.g., required status)",
+      "method": "PUT",
+      "path": "/templates/{id}/instructions/{instructionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Template ID"
+          },
+          "instructionId": {
+            "type": "integer",
+            "description": "Template instruction record ID"
+          },
+          "is_required": {
+            "type": "boolean",
+            "description": "Whether this instruction is required"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instructionId",
+          "is_required"
+        ]
+      }
+    },
+    {
+      "name": "remove_gig_instruction",
+      "description": "Remove an instruction from a gig. Use 'Get Gig Instructions' first to find the gig_instructions record ID for the instruction you want to remove.",
+      "method": "DELETE",
+      "path": "/gigs/{id}/instructions/{instructionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "instructionId": {
+            "type": "integer",
+            "description": "The gig_instructions record ID (the 'id' field returned by Get Gig Instructions), NOT the instruction library ID"
+          }
+        },
+        "required": [
+          "id",
+          "instructionId"
+        ]
+      }
+    },
+    {
+      "name": "customize_gig_instruction",
+      "description": "Customize an instruction for a specific gig with custom content or media. Use 'Get Gig Instructions' first to find the gig_instructions record ID.",
+      "method": "PUT",
+      "path": "/gigs/{id}/instructions/{instructionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "instructionId": {
+            "type": "integer",
+            "description": "The gig_instructions record ID (the 'id' field returned by Get Gig Instructions), NOT the instruction library ID"
+          },
+          "custom_content": {
+            "type": "string",
+            "description": "Custom content for this gig"
+          },
+          "custom_media_url": {
+            "type": "string",
+            "description": "Custom media URL for this gig"
+          },
+          "is_required": {
+            "type": "boolean",
+            "description": "Whether this instruction is required"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "instructionId"
+        ]
+      }
+    },
+    {
+      "name": "list_user_submissions",
+      "description": "List all submissions by a specific user across all gigs",
+      "method": "GET",
+      "path": "/submissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submitted_by": {
+            "type": "integer",
+            "description": "User ID who submitted the work"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by submission status",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "revision_requested"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of submissions to return",
+            "default": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_submission",
+      "description": "Delete a work submission from a gig",
+      "method": "DELETE",
+      "path": "/gigs/{id}/submissions/{submissionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "submissionId": {
+            "type": "integer",
+            "description": "Submission ID to delete"
+          },
+          "userId": {
+            "type": "integer",
+            "description": "Optional. User ID for audit trail / tracking"
+          }
+        },
+        "required": [
+          "id",
+          "submissionId"
+        ]
+      }
+    },
+    {
+      "name": "complete_gig",
+      "description": "Complete a gig by verifying all required instructions are done, creating a submissions folder, moving files, and updating status to completed",
+      "method": "POST",
+      "path": "/gigs/{id}/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID to complete"
+          },
+          "project_id": {
+            "type": "integer",
+            "description": "Project ID for storage operations (required for folder creation)"
+          }
+        },
+        "required": [
+          "id",
+          "project_id"
+        ]
+      }
+    },
+    {
+      "name": "reset_instruction_status",
+      "description": "Reset a gig instruction to not completed, clearing all submission data and files. Use 'Get Gig Instructions' first to find the gig_instructions record ID.",
+      "method": "PUT",
+      "path": "/gigs/{id}/instructions/{instructionId}/reset",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Gig ID"
+          },
+          "instructionId": {
+            "type": "integer",
+            "description": "The gig_instructions record ID (the 'id' field returned by Get Gig Instructions), NOT the instruction library ID"
+          }
+        },
+        "required": [
+          "id",
+          "instructionId"
+        ]
+      }
+    }
+  ]
+}

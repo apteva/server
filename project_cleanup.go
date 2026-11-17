@@ -59,7 +59,7 @@ func (s *Store) projectCleanupPlan(projectID string) (projectCleanupPlan, error)
 		}},
 	}
 	for _, item := range queries {
-		rows, err := s.db.Query(item.query, projectID)
+		rows, err := s.dbQuery(item.query, projectID)
 		if err != nil {
 			return plan, err
 		}
@@ -83,36 +83,62 @@ func quoteSQLiteIdentifier(name string) string {
 }
 
 func (s *Store) projectScopedTables() ([]string, error) {
-	rows, err := s.db.Query(`SELECT name FROM sqlite_master
+	rows, err := s.dbQuery(`SELECT name FROM sqlite_master
 		WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'projects'`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			return nil, err
+	type databaseRecord struct{ table string }
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.table); err != nil {
+			return record, err
 		}
-		columns, err := s.db.Query(`PRAGMA table_info(` + quoteSQLiteIdentifier(table) + `)`)
+		return record, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range readRecords {
+		table := record.table
+
+		columns, err := s.dbQuery(`PRAGMA table_info(` + quoteSQLiteIdentifier(table) + `)`)
 		if err != nil {
 			return nil, err
 		}
 		hasProjectID := false
-		for columns.Next() {
-			var cid, notNull, pk int
-			var name, kind string
-			var defaultValue any
-			if err := columns.Scan(&cid, &name, &kind, &notNull, &defaultValue, &pk); err == nil && name == "project_id" {
+		type databaseRecord struct {
+			cid          int
+			notNull      int
+			pk           int
+			name         string
+			kind         string
+			defaultValue any
+		}
+		readRecords, err := collectSQLRows(columns, func(scanner rowScanner) (databaseRecord, error) {
+			var record databaseRecord
+			if err := scanner.Scan(&record.cid, &record.name, &record.kind, &record.notNull, &record.defaultValue, &record.pk); err != nil {
+				return record, err
+			}
+			return record, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range readRecords {
+			if record.name == "project_id" {
 				hasProjectID = true
 			}
 		}
+
 		columns.Close()
 		if hasProjectID {
 			tables = append(tables, table)
 		}
 	}
+
 	sort.Strings(tables)
 	return tables, rows.Err()
 }
@@ -126,7 +152,7 @@ func (s *Store) DeleteProjectCascade(projectID string) error {
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -151,7 +177,11 @@ func (s *Store) DeleteProjectCascade(projectID string) error {
 	if _, err := tx.Exec(`DELETE FROM projects WHERE id=?`, projectID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.agentEligibilityRevision.Add(1)
+	return nil
 }
 
 func (s *Server) deleteProjectCompletely(projectID string) error {
@@ -203,7 +233,7 @@ func (s *Server) deleteProjectCompletely(projectID string) error {
 }
 
 func (s *Store) OwnedProjectIDs(userID int64) ([]string, error) {
-	rows, err := s.db.Query(`SELECT id FROM projects WHERE user_id=? ORDER BY created_at`, userID)
+	rows, err := s.dbQuery(`SELECT id FROM projects WHERE user_id=? ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +272,7 @@ func (s *Store) CreateProjectFromAccessPolicy(userID int64, policy AccessPolicy)
 		d, _ := time.ParseDuration(raw)
 		expiresAt = time.Now().UTC().Add(d).Format(time.RFC3339)
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +303,7 @@ func (s *Server) startWorkspaceLifecycle() {
 		if policy.WorkspaceLifecycle.ExpiresAfter == "" {
 			continue
 		}
-		rows, err := s.store.db.Query(`SELECT id,user_id FROM projects
+		rows, err := s.store.dbQuery(`SELECT id,user_id FROM projects
 			WHERE expires_at IS NOT NULL AND datetime(expires_at) <= CURRENT_TIMESTAMP`)
 		if err != nil {
 			log.Printf("[WORKSPACE-LIFECYCLE] list expired: %v", err)
@@ -319,7 +349,7 @@ func (s *Server) stopIdleAgents(policy AccessPolicy) {
 		return
 	}
 	cutoff := time.Now().UTC().Add(-idleFor).Format(time.RFC3339)
-	rows, err := s.store.db.Query(`SELECT a.id FROM agents a
+	rows, err := s.store.dbQuery(`SELECT a.id FROM agents a
 		JOIN users u ON u.id=a.user_id
 		WHERE a.status='running' AND COALESCE(a.kind,'user')='user' AND COALESCE(u.role,'user')!='admin'
 		AND datetime(COALESCE((SELECT MAX(t.time) FROM telemetry t WHERE t.agent_id=a.id), a.created_at)) < datetime(?)`, cutoff)

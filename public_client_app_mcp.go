@@ -39,7 +39,10 @@ func (s *Server) tryHandlePublicClientAppMCP(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 
-	key, err := s.store.GetPublicClientAPIKey(HashAPIKey(token))
+	key, err := s.store.GetPublicClientAPIKeyContext(r.Context(), HashAPIKey(token))
+	if databaseHTTPFailure(w, err) {
+		return true
+	}
 	if err != nil {
 		http.Error(w, "invalid public client key", http.StatusUnauthorized)
 		return true

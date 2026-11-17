@@ -1,0 +1,86 @@
+{
+  "slug": "harmonic",
+  "name": "Harmonic",
+  "description": "Company and person data enrichment platform. Enrich startup and professional profiles using LinkedIn URLs or website domains via the Harmonic.ai API.",
+  "logo": "https://www.google.com/s2/favicons?domain=harmonic.ai&sz=128",
+  "categories": [
+    "enrichment",
+    "companies",
+    "people",
+    "startups",
+    "data",
+    "linkedin"
+  ],
+  "base_url": "https://api.harmonic.ai",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "apikey",
+        "label": "Apikey",
+        "description": "Harmonic API key (from your Harmonic dashboard)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "enrich_company_by_linkedin",
+      "description": "Look up and enrich a company profile using its LinkedIn URL. Returns comprehensive company data including industry, location, funding history, employee count, and technology stack.",
+      "method": "GET",
+      "path": "/enrich-company-by-linkedin",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "linkedin_url": {
+            "type": "string",
+            "description": "The LinkedIn company URL to look up (e.g. 'https://www.linkedin.com/company/stripe/')."
+          }
+        },
+        "required": [
+          "linkedin_url"
+        ]
+      }
+    },
+    {
+      "name": "enrich_company_by_website",
+      "description": "Look up and enrich a company profile using its website domain. Returns comprehensive company data including industry, location, funding history, employee count, and technology stack.",
+      "method": "GET",
+      "path": "/enrich-company-by-website",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "website_domain": {
+            "type": "string",
+            "description": "The company website domain to look up (e.g. 'stripe.com'). Do not include the protocol (https://)."
+          }
+        },
+        "required": [
+          "website_domain"
+        ]
+      }
+    },
+    {
+      "name": "enrich_person_by_linkedin",
+      "description": "Look up and enrich a person's professional profile using their LinkedIn URL. Returns detailed person data including current and past roles, education, skills, and contact information.",
+      "method": "GET",
+      "path": "/enrich-person-by-linkedin",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "linkedin_url": {
+            "type": "string",
+            "description": "The LinkedIn profile URL to look up (e.g. 'https://www.linkedin.com/in/johndoe/')."
+          }
+        },
+        "required": [
+          "linkedin_url"
+        ]
+      }
+    }
+  ]
+}

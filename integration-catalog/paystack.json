@@ -1,0 +1,207 @@
+{
+  "slug": "paystack",
+  "name": "Paystack",
+  "description": "Paystack payments API for transactions, authorization charges, refunds, customers, plans, subscriptions, payment pages, transfer recipients, and transfers.",
+  "logo": "https://www.google.com/s2/favicons?domain=paystack.com&sz=128",
+  "categories": ["payments", "checkout", "billing", "transfers", "africa"],
+  "base_url": "https://api.paystack.co",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{secret_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "secret_key",
+        "label": "Secret Key",
+        "description": "Paystack secret key from the developer settings."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "initialize_transaction",
+      "description": "Initialize a Paystack transaction and return an authorization URL for checkout.",
+      "method": "POST",
+      "path": "/transaction/initialize",
+      "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "amount": { "type": "integer", "description": "Amount in kobo/pesewas or the provider's smallest currency unit." }, "currency": { "type": "string" }, "reference": { "type": "string" }, "callback_url": { "type": "string" }, "plan": { "type": "string" }, "invoice_limit": { "type": "integer" }, "metadata": { "type": "object" }, "channels": { "type": "array" }, "split_code": { "type": "string" }, "subaccount": { "type": "string" }, "transaction_charge": { "type": "integer" }, "bearer": { "type": "string" } }, "required": ["email", "amount"] }
+    },
+    {
+      "name": "verify_transaction",
+      "description": "Verify a Paystack transaction by reference.",
+      "method": "GET",
+      "path": "/transaction/verify/{reference}",
+      "input_schema": { "type": "object", "properties": { "reference": { "type": "string" } }, "required": ["reference"] }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List Paystack transactions.",
+      "method": "GET",
+      "path": "/transaction",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "customer": { "type": "string" }, "status": { "type": "string" }, "from": { "type": "string" }, "to": { "type": "string" }, "amount": { "type": "integer" } } }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Fetch a Paystack transaction by numeric ID.",
+      "method": "GET",
+      "path": "/transaction/{transaction_id}",
+      "input_schema": { "type": "object", "properties": { "transaction_id": { "type": "string" } }, "required": ["transaction_id"] }
+    },
+    {
+      "name": "charge_authorization",
+      "description": "Charge a returning customer using a saved authorization code.",
+      "method": "POST",
+      "path": "/transaction/charge_authorization",
+      "input_schema": { "type": "object", "properties": { "authorization_code": { "type": "string" }, "email": { "type": "string" }, "amount": { "type": "integer" }, "currency": { "type": "string" }, "reference": { "type": "string" }, "metadata": { "type": "object" }, "channels": { "type": "array" }, "subaccount": { "type": "string" }, "transaction_charge": { "type": "integer" }, "bearer": { "type": "string" } }, "required": ["authorization_code", "email", "amount"] }
+    },
+    {
+      "name": "create_refund",
+      "description": "Create a Paystack refund for a transaction.",
+      "method": "POST",
+      "path": "/refund",
+      "input_schema": { "type": "object", "properties": { "transaction": { "type": "string" }, "amount": { "type": "integer" }, "currency": { "type": "string" }, "customer_note": { "type": "string" }, "merchant_note": { "type": "string" } }, "required": ["transaction"] }
+    },
+    {
+      "name": "list_refunds",
+      "description": "List Paystack refunds.",
+      "method": "GET",
+      "path": "/refund",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "reference": { "type": "string" }, "currency": { "type": "string" }, "from": { "type": "string" }, "to": { "type": "string" } } }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a Paystack customer.",
+      "method": "POST",
+      "path": "/customer",
+      "input_schema": { "type": "object", "properties": { "email": { "type": "string" }, "first_name": { "type": "string" }, "last_name": { "type": "string" }, "phone": { "type": "string" }, "metadata": { "type": "object" } }, "required": ["email"] }
+    },
+    {
+      "name": "list_customers",
+      "description": "List Paystack customers.",
+      "method": "GET",
+      "path": "/customer",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "from": { "type": "string" }, "to": { "type": "string" } } }
+    },
+    {
+      "name": "get_customer",
+      "description": "Fetch a Paystack customer by email, customer code, or ID.",
+      "method": "GET",
+      "path": "/customer/{customer_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update a Paystack customer.",
+      "method": "PUT",
+      "path": "/customer/{customer_code}",
+      "input_schema": { "type": "object", "properties": { "customer_code": { "type": "string" }, "first_name": { "type": "string" }, "last_name": { "type": "string" }, "phone": { "type": "string" }, "metadata": { "type": "object" } }, "required": ["customer_code"] }
+    },
+    {
+      "name": "create_plan",
+      "description": "Create a Paystack subscription plan.",
+      "method": "POST",
+      "path": "/plan",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "amount": { "type": "integer" }, "interval": { "type": "string" }, "description": { "type": "string" }, "send_invoices": { "type": "boolean" }, "send_sms": { "type": "boolean" }, "currency": { "type": "string" }, "invoice_limit": { "type": "integer" } }, "required": ["name", "amount", "interval"] }
+    },
+    {
+      "name": "list_plans",
+      "description": "List Paystack plans.",
+      "method": "GET",
+      "path": "/plan",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "status": { "type": "string" }, "interval": { "type": "string" }, "amount": { "type": "integer" } } }
+    },
+    {
+      "name": "get_plan",
+      "description": "Fetch a Paystack plan by ID or plan code.",
+      "method": "GET",
+      "path": "/plan/{plan_id}",
+      "input_schema": { "type": "object", "properties": { "plan_id": { "type": "string" } }, "required": ["plan_id"] }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a Paystack subscription.",
+      "method": "POST",
+      "path": "/subscription",
+      "input_schema": { "type": "object", "properties": { "customer": { "type": "string" }, "plan": { "type": "string" }, "authorization": { "type": "string" }, "start_date": { "type": "string" } }, "required": ["customer", "plan"] }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List Paystack subscriptions.",
+      "method": "GET",
+      "path": "/subscription",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "customer": { "type": "string" }, "plan": { "type": "string" } } }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Fetch a Paystack subscription by ID or subscription code.",
+      "method": "GET",
+      "path": "/subscription/{subscription_id}",
+      "input_schema": { "type": "object", "properties": { "subscription_id": { "type": "string" } }, "required": ["subscription_id"] }
+    },
+    {
+      "name": "disable_subscription",
+      "description": "Disable a Paystack subscription using its code and email token.",
+      "method": "POST",
+      "path": "/subscription/disable",
+      "input_schema": { "type": "object", "properties": { "code": { "type": "string" }, "token": { "type": "string" } }, "required": ["code", "token"] }
+    },
+    {
+      "name": "enable_subscription",
+      "description": "Enable a Paystack subscription using its code and email token.",
+      "method": "POST",
+      "path": "/subscription/enable",
+      "input_schema": { "type": "object", "properties": { "code": { "type": "string" }, "token": { "type": "string" } }, "required": ["code", "token"] }
+    },
+    {
+      "name": "create_payment_page",
+      "description": "Create a Paystack payment page.",
+      "method": "POST",
+      "path": "/page",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "amount": { "type": "integer" }, "currency": { "type": "string" }, "slug": { "type": "string" }, "metadata": { "type": "object" }, "redirect_url": { "type": "string" }, "custom_fields": { "type": "array" } }, "required": ["name"] }
+    },
+    {
+      "name": "list_payment_pages",
+      "description": "List Paystack payment pages.",
+      "method": "GET",
+      "path": "/page",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" } } }
+    },
+    {
+      "name": "get_payment_page",
+      "description": "Fetch a Paystack payment page by ID or slug.",
+      "method": "GET",
+      "path": "/page/{page_id}",
+      "input_schema": { "type": "object", "properties": { "page_id": { "type": "string" } }, "required": ["page_id"] }
+    },
+    {
+      "name": "create_transfer_recipient",
+      "description": "Create a Paystack transfer recipient.",
+      "method": "POST",
+      "path": "/transferrecipient",
+      "input_schema": { "type": "object", "properties": { "type": { "type": "string" }, "name": { "type": "string" }, "account_number": { "type": "string" }, "bank_code": { "type": "string" }, "currency": { "type": "string" }, "description": { "type": "string" }, "metadata": { "type": "object" } }, "required": ["type", "name", "account_number", "bank_code"] }
+    },
+    {
+      "name": "list_transfer_recipients",
+      "description": "List Paystack transfer recipients.",
+      "method": "GET",
+      "path": "/transferrecipient",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "from": { "type": "string" }, "to": { "type": "string" } } }
+    },
+    {
+      "name": "create_transfer",
+      "description": "Initiate a Paystack transfer to a recipient.",
+      "method": "POST",
+      "path": "/transfer",
+      "input_schema": { "type": "object", "properties": { "source": { "type": "string", "default": "balance" }, "amount": { "type": "integer" }, "recipient": { "type": "string" }, "reason": { "type": "string" }, "currency": { "type": "string" }, "reference": { "type": "string" } }, "required": ["source", "amount", "recipient"] }
+    },
+    {
+      "name": "list_transfers",
+      "description": "List Paystack transfers.",
+      "method": "GET",
+      "path": "/transfer",
+      "input_schema": { "type": "object", "properties": { "perPage": { "type": "integer" }, "page": { "type": "integer" }, "customer": { "type": "string" }, "from": { "type": "string" }, "to": { "type": "string" } } }
+    }
+  ],
+  "health_check": { "tool": "list_transactions", "input": { "perPage": 1 } }
+}

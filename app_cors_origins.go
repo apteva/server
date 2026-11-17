@@ -119,7 +119,7 @@ func (s *Server) handleCallbackCORSOrigins(w http.ResponseWriter, r *http.Reques
 			Key: key, Origins: origins, Preflight: preflight, Credentials: credentials,
 		})
 	case http.MethodDelete:
-		if _, err := s.store.db.Exec(
+		if _, err := s.store.dbExecContext(r.Context(),
 			`DELETE FROM app_cors_origins WHERE install_id=? AND registration_key=?`, installID, key,
 		); err != nil {
 			http.Error(w, "delete CORS origins", http.StatusInternalServerError)
@@ -180,7 +180,7 @@ func normalizeAppCORSOrigins(raw []string) ([]string, error) {
 }
 
 func (s *Server) replaceAppCORSOrigins(installID int64, key string, origins []string, preflight string, credentials bool) error {
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -207,7 +207,7 @@ func (s *Server) listAppCORSOriginRegistrations(installID int64, key string) ([]
 		args = append(args, key)
 	}
 	query += ` ORDER BY registration_key, origin`
-	rows, err := s.store.db.Query(query, args...)
+	rows, err := s.store.dbQuery(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (s *Server) platformCORSOriginAllowed(origin string) bool {
 		return false
 	}
 	var found int
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT 1 FROM platform_cors_origins WHERE origin=? LIMIT 1`, origin,
 	).Scan(&found)
 	return err == nil && found == 1
@@ -284,7 +284,7 @@ func (s *Server) publicClientCORSOriginAllowed(r *http.Request, origin string) b
 	if !ok || isAppManagementRoute(appName) || appPath != "/mcp" || corsRequestedMethod(r) != http.MethodPost {
 		return false
 	}
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQueryContext(r.Context(), `
 		SELECT COALESCE(allowed_origins, '[]'), COALESCE(scopes, '[]')
 		FROM api_keys
 		WHERE kind='public_client'
@@ -346,7 +346,7 @@ func (s *Server) registeredAppCORSInstallPolicy(installID int64, origin string) 
 	if s == nil || s.store == nil || installID <= 0 || strings.TrimSpace(origin) == "" {
 		return dynamicCORSPolicy{}
 	}
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT preflight_mode, credentials FROM app_cors_origins
 		WHERE install_id=? AND origin=?`, installID, origin)
 	if err != nil {
@@ -400,7 +400,7 @@ func (s *Server) resolveCORSAppInstall(appName, appPath string, r *http.Request)
 	}
 	if selectedID > 0 {
 		var id int64
-		err := s.store.db.QueryRow(`
+		err := s.store.dbQueryRowContext(r.Context(), `
 			SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id
 			WHERE i.id=? AND a.name=? AND i.status='running'`, selectedID, appName,
 		).Scan(&id)
@@ -415,15 +415,15 @@ func (s *Server) resolveCORSAppInstall(appName, appPath string, r *http.Request)
 	var id int64
 	var err error
 	if projectID == "" {
-		err = s.store.db.QueryRow(`
+		err = s.store.dbQueryRowContext(r.Context(), `
 			SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id
-			WHERE a.name=? AND COALESCE(i.project_id,'')='' AND i.status='running'
+			WHERE a.name=? AND i.is_default=1 AND COALESCE(i.project_id,'')='' AND i.status='running'
 			LIMIT 1`, appName,
 		).Scan(&id)
 	} else {
-		err = s.store.db.QueryRow(`
+		err = s.store.dbQueryRowContext(r.Context(), `
 			SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id
-			WHERE a.name=? AND i.status='running'
+			WHERE a.name=? AND i.is_default=1 AND i.status='running'
 			  AND COALESCE(i.project_id,'') IN (?, '')
 			ORDER BY CASE WHEN COALESCE(i.project_id,'')=? THEN 0 ELSE 1 END
 			LIMIT 1`, appName, projectID, projectID,

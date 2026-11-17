@@ -1,0 +1,86 @@
+{
+  "slug": "fathom",
+  "name": "Fathom",
+  "description": "AI meeting assistant and note-taker. Access meeting recordings, transcripts, summaries, and action items from Fathom.",
+  "logo": "https://www.google.com/s2/favicons?domain=fathom.video&sz=128",
+  "categories": [
+    "meetings",
+    "transcripts",
+    "notes",
+    "ai-assistant",
+    "recordings"
+  ],
+  "base_url": "https://api.fathom.video/external/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Fathom API access token (generate from Fathom settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_meetings",
+      "description": "List and search meetings from Fathom. Supports filtering by recorder email, team, calendar invitees, and date range. Optionally include transcripts, summaries, and action items. Uses cursor-based pagination.",
+      "method": "GET",
+      "path": "/list-meetings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of meetings to return per page. Defaults to 20.",
+            "default": 20
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response's next_cursor field. Omit for the first page."
+          },
+          "created_after": {
+            "type": "string",
+            "description": "Filter to meetings created after this timestamp (inclusive). ISO 8601 format, e.g. 2025-01-01T00:00:00Z."
+          },
+          "created_before": {
+            "type": "string",
+            "description": "Filter to meetings created before this timestamp (exclusive). ISO 8601 format, e.g. 2025-12-31T23:59:59Z."
+          },
+          "recorded_by": {
+            "type": "string",
+            "description": "Email address of the meeting recorder to filter by. Returns meetings hosted by the specified user."
+          },
+          "teams": {
+            "type": "string",
+            "description": "Team name to filter by. Returns meetings belonging to the specified team."
+          },
+          "calendar_invitees": {
+            "type": "string",
+            "description": "Email address of a calendar invitee to filter by. Returns meetings where this person was invited."
+          },
+          "include_transcript": {
+            "type": "boolean",
+            "description": "Include the full transcript for each meeting in the response.",
+            "default": false
+          },
+          "include_summary": {
+            "type": "boolean",
+            "description": "Include the AI-generated summary for each meeting in the response.",
+            "default": false
+          },
+          "include_action_items": {
+            "type": "boolean",
+            "description": "Include action items extracted from each meeting in the response.",
+            "default": false
+          }
+        }
+      }
+    }
+  ]
+}

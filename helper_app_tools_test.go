@@ -78,11 +78,16 @@ func (f *helperBrokerFixture) request(t *testing.T, name string, args map[string
 	t.Helper()
 	args["_apteva_caller_thread"] = f.thread
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}})
-	req := httptest.NewRequest("POST", "/api/apps/apteva-server/mcp", strings.NewReader(string(body)))
+	req := httptest.NewRequest("POST", addQueryParam(platformMCPPath, "mcp_token", platformMCPToken(f.s.instanceSecret, f.agent)), strings.NewReader(string(body)))
 	req.RemoteAddr = "127.0.0.1:42123"
 	req.Header.Set("X-Apteva-Caller-Agent", itoa64(f.agent.ID))
 	rec := httptest.NewRecorder()
 	f.s.handlePlatformMCP(rec, req)
+	// Revoked project membership is rejected at HTTP ingress, before
+	// reaching the MCP broker's JSON-RPC error envelope.
+	if rec.Code == http.StatusForbidden {
+		return map[string]any{"isError": true, "http_status": rec.Code, "content": []any{map[string]any{"type": "text", "text": rec.Body.String()}}}
+	}
 	var reply map[string]any
 	if json.Unmarshal(rec.Body.Bytes(), &reply) != nil {
 		t.Fatalf("invalid reply: %s", rec.Body.String())
@@ -109,6 +114,9 @@ func (f *helperBrokerFixture) search(t *testing.T) string {
 	if len(out.Tools) != 1 || out.Tools[0].Schema == nil {
 		t.Fatalf("missing bounded schema result: %s", text)
 	}
+	if len(out.Tools[0].Reference) != 34 {
+		t.Fatalf("tool reference length=%d, want short opaque handle", len(out.Tools[0].Reference))
+	}
 	return out.Tools[0].Reference
 }
 func TestHelperAppToolsSearchAndCall(t *testing.T) {
@@ -120,6 +128,17 @@ func TestHelperAppToolsSearchAndCall(t *testing.T) {
 	}
 	if f.lastArgs["_project_id"] != f.project {
 		t.Fatal("project was not injected")
+	}
+}
+
+func TestHelperProxyResponseDoesNotRejectValidLargeResult(t *testing.T) {
+	recorder := &helperProxyResponse{header: make(http.Header)}
+	payload := strings.Repeat("x", 64*1024)
+	if _, err := recorder.Write([]byte(payload)); err != nil {
+		t.Fatalf("large app result rejected: %v", err)
+	}
+	if recorder.body.Len() != len(payload) {
+		t.Fatalf("large app result bytes=%d want=%d", recorder.body.Len(), len(payload))
 	}
 }
 func TestHelperAppToolsRecheckRestrictions(t *testing.T) {
@@ -159,9 +178,42 @@ func TestHelperAppToolsRecheckRestrictions(t *testing.T) {
 				args["_apteva_caller_thread"] = "main"
 			}
 			result := f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": args})
+			if kind == "revoked" && result["http_status"] != http.StatusForbidden {
+				t.Fatalf("revocation not enforced at ingress: %#v", result)
+			}
 			if result["isError"] != true || f.called != 0 {
 				t.Fatalf("restriction %s bypassed: %v", kind, result)
 			}
 		})
+	}
+}
+
+func TestHelperAppToolSearchUsesAppMetadata(t *testing.T) {
+	f := newHelperBrokerFixture(t)
+	entry := f.s.installedApps.Get(f.install)
+	entry.Manifest.DisplayName = "Customer Service Desk"
+	entry.Manifest.Description = "Investigate onboarding procedures and escalation evidence"
+	for _, query := range []string{"onboarding", "escalation", "customer service"} {
+		result := f.request(t, "app_tool_search", map[string]any{"query": query})
+		if result["isError"] == true {
+			t.Fatalf("metadata search failed: %#v", result)
+		}
+		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+		var out struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				DisplayName string `json:"app_display_name"`
+				Description string `json:"app_description"`
+			} `json:"tools"`
+		}
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatal(err)
+		}
+		if len(out.Tools) != 1 || out.Tools[0].Name != "tickets_list" || out.Tools[0].DisplayName != entry.Manifest.DisplayName || out.Tools[0].Description != entry.Manifest.Description {
+			t.Fatalf("app metadata query %q did not discover filtered tools: %s", query, text)
+		}
+		if strings.Contains(text, "internal_secret") {
+			t.Fatal("metadata search exposed private tool")
+		}
 	}
 }

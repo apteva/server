@@ -1,0 +1,202 @@
+{
+  "slug": "openai-codex",
+  "name": "OpenAI Codex",
+  "description": "Subscription-backed OpenAI Codex runtime using device-code sign-in. Exposes Responses, chat/vision, and image generation tools for apps that need OpenAI model calls without an OpenAI API key.",
+  "logo": "https://www.google.com/s2/favicons?domain=openai.com&sz=128",
+  "categories": ["ai", "openai", "codex", "chat", "vision", "image-generation", "subscription"],
+  "base_url": "https://chatgpt.com/backend-api/codex",
+  "auth": {
+    "types": ["oauth_device_code"]
+  },
+  "tools": [
+    {
+      "name": "responses_create",
+      "description": "Create a response through the subscription-backed Codex Responses runtime. Accepts the Responses API request shape: model, input, instructions, tools, text, max_output_tokens, temperature, stream, and store.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Codex/runtime model to use. Omit to use the account-aware GPT-6.1 Sol/default fallback."
+          },
+          "input": {
+            "description": "Responses API input: a string or array of input items."
+          },
+          "instructions": {
+            "type": "string",
+            "description": "System/developer instructions for the response."
+          },
+          "tools": {
+            "type": "array",
+            "description": "Responses API tools such as function tools."
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "description": "Maximum output tokens."
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "store": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": ["input"]
+      }
+    },
+    {
+      "name": "chat_completion",
+      "description": "Compatibility wrapper for OpenAI-style chat completions. Converts messages, including multimodal image_url parts, into a Codex Responses request and returns an OpenAI chat-completion shaped response.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Optional Codex model. Omit to use the account-aware GPT-6.1 Sol/default fallback."
+          },
+          "messages": {
+            "type": "array",
+            "description": "OpenAI chat messages. Content may be a string or an array of {type:'text'} / {type:'image_url'} parts.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["system", "user", "assistant", "tool"]
+                },
+                "content": {}
+              },
+              "required": ["role"]
+            }
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 0.3
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Mapped to Responses max_output_tokens."
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Mapped to Responses text.format when supplied."
+          }
+        },
+        "required": ["messages"]
+      }
+    },
+    {
+      "name": "vision_describe",
+      "description": "Alias of chat_completion for integrations that declare a vision.describe capability. Pass multimodal chat messages with image_url content parts.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Optional Codex model. Omit to use the account-aware GPT-6.1 Sol/default fallback."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": { "type": "string" },
+                "content": {}
+              }
+            }
+          }
+        },
+        "required": ["messages"]
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate an image through the subscription-backed Codex Responses runtime using the hosted image_generation tool. Returns an OpenAI Images-compatible {data:[{b64_json,revised_prompt}]} response.",
+      "method": "POST",
+      "path": "/responses",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the image to generate."
+          },
+          "instructions": {
+            "type": "string",
+            "description": "Responses instructions required by the Codex runtime. Tell the model to use the hosted image_generation tool and return the completed image result.",
+            "default": "Generate the requested image using the hosted image_generation tool. Return the completed image result."
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional Codex/runtime model that should call the hosted image_generation tool. Omit to use the account-aware GPT-6.1 Sol/default fallback."
+          },
+          "size": {
+            "type": "string",
+            "description": "Output size for the image_generation tool, e.g. 1024x1024, 1024x1536, 1536x1024, or auto.",
+            "default": "1024x1024"
+          },
+          "quality": {
+            "type": "string",
+            "description": "Rendering quality for the image_generation tool.",
+            "enum": ["low", "medium", "high", "auto"],
+            "default": "auto"
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Image output format.",
+            "enum": ["png", "jpeg", "webp"],
+            "default": "png"
+          },
+          "background": {
+            "type": "string",
+            "description": "Background handling when supported by the image generation model.",
+            "enum": ["auto", "transparent", "opaque"]
+          },
+          "output_compression": {
+            "type": "integer",
+            "description": "Compression level for jpeg/webp output.",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": ["prompt", "instructions"]
+      }
+    }
+  ],
+  "runtime": {
+    "role": "llm",
+    "provider_key": "openai-codex",
+    "env": {
+      "OPENAI_CODEX_ACCESS_TOKEN": "{{credentials.access_token}}",
+      "OPENAI_CODEX_ACCOUNT_ID": "{{credentials.account_id}}",
+      "OPENAI_CODEX_PROVIDER_ID": "{{connection.provider_ref}}"
+    },
+    "capabilities": [
+      "llm",
+      "subscription",
+      "subscription_usage",
+      "codex_responses",
+      "streaming",
+      "native_tools"
+    ]
+  }
+}

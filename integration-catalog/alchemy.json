@@ -1,0 +1,120 @@
+{
+  "slug": "alchemy",
+  "name": "Alchemy",
+  "description": "Blockchain node API + enhanced APIs \u2014 token balances, transfers, NFTs, and transaction data across Ethereum, Polygon, Arbitrum, Base, Solana.",
+  "logo": "https://www.google.com/s2/favicons?domain=alchemy.com&sz=128",
+  "categories": [
+    "blockchain",
+    "node",
+    "web3",
+    "tokens",
+    "nft",
+    "ethereum",
+    "solana"
+  ],
+  "base_url": "https://eth-mainnet.g.alchemy.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Alchemy API key (from https://dashboard.alchemy.com/)"
+      },
+      {
+        "name": "network",
+        "label": "Network",
+        "description": "Default network: eth-mainnet, polygon-mainnet, arb-mainnet, opt-mainnet, base-mainnet, sol-mainnet"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_token_balances",
+      "description": "Get all ERC20 token balances for a wallet address.",
+      "method": "POST",
+      "path": "/get-token-balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address (0x...)"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_asset_transfers",
+      "description": "Get historical token transfers for an address \u2014 inbound, outbound, ERC20, ERC721, internal transactions.",
+      "method": "POST",
+      "path": "/get-asset-transfers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Wallet address"
+          },
+          "category": {
+            "type": "string",
+            "description": "Transfer categories: external,internal,erc20,erc721,erc1155",
+            "default": "external,erc20"
+          },
+          "maxCount": {
+            "type": "string",
+            "description": "Max results (hex, e.g., 0x64 = 100)",
+            "default": "0x64"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "get_block_number",
+      "description": "Get the latest block number on Ethereum.",
+      "method": "POST",
+      "path": "/get-block-number",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_token_metadata",
+      "description": "Get metadata (name, symbol, decimals, logo) for an ERC20 token by contract address.",
+      "method": "POST",
+      "path": "/get-token-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contractAddress": {
+            "type": "string",
+            "description": "Token contract address"
+          }
+        },
+        "required": [
+          "contractAddress"
+        ]
+      }
+    }
+  ]
+}

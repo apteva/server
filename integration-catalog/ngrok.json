@@ -1,0 +1,29 @@
+{
+  "slug": "ngrok",
+  "name": "ngrok",
+  "description": "ngrok tunnel agent — exposes a local port behind a public URL. Used by the live-link app as an alternative to Cloudflare Tunnel. v1 stores only the agent authtoken; the integration's tools[] is intentionally empty because live-link drives the ngrok agent (binary) directly with the token rather than calling ngrok's REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=ngrok.com&sz=128",
+  "categories": [
+    "tunnel",
+    "infrastructure",
+    "dev"
+  ],
+  "base_url": "https://api.ngrok.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{authtoken}}",
+      "Ngrok-Version": "2"
+    },
+    "credential_fields": [
+      {
+        "name": "authtoken",
+        "label": "Authtoken",
+        "description": "Your ngrok agent authtoken. Find it at ngrok dashboard → Your Authtoken (https://dashboard.ngrok.com/get-started/your-authtoken). The live-link app passes this to the local ngrok agent — it never calls ngrok's REST API."
+      }
+    ]
+  },
+  "tools": []
+}

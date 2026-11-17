@@ -1,0 +1,273 @@
+{
+  "slug": "wise",
+  "name": "Wise",
+  "description": "MCP server for Wise money transfers - transfers, recipients, quotes",
+  "logo": "https://www.google.com/s2/favicons?domain=wise.com&sz=128",
+  "categories": [
+    "finance",
+    "transfers",
+    "international",
+    "payments"
+  ],
+  "base_url": "https://api.wise.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_profiles",
+      "description": "Get user profiles",
+      "method": "GET",
+      "path": "/get-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_balances",
+      "description": "Get account balances",
+      "method": "GET",
+      "path": "/get-balances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID"
+          }
+        },
+        "required": [
+          "profile_id"
+        ]
+      }
+    },
+    {
+      "name": "create_quote",
+      "description": "Create a transfer quote",
+      "method": "POST",
+      "path": "/create-quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID"
+          },
+          "source_currency": {
+            "type": "string",
+            "description": "Source currency code"
+          },
+          "target_currency": {
+            "type": "string",
+            "description": "Target currency code"
+          },
+          "source_amount": {
+            "type": "number",
+            "description": "Amount in source currency"
+          },
+          "target_amount": {
+            "type": "number",
+            "description": "Amount in target currency"
+          }
+        },
+        "required": [
+          "profile_id",
+          "source_currency",
+          "target_currency"
+        ]
+      }
+    },
+    {
+      "name": "get_quote",
+      "description": "Get quote details",
+      "method": "GET",
+      "path": "/get-quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "quote_id": {
+            "type": "string",
+            "description": "Quote ID"
+          }
+        },
+        "required": [
+          "quote_id"
+        ]
+      }
+    },
+    {
+      "name": "create_recipient",
+      "description": "Create a transfer recipient",
+      "method": "POST",
+      "path": "/create-recipient",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID"
+          },
+          "account_holder_name": {
+            "type": "string",
+            "description": "Recipient name"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code"
+          },
+          "type": {
+            "type": "string",
+            "description": "Account type"
+          },
+          "details": {
+            "type": "object",
+            "description": "Bank account details"
+          }
+        },
+        "required": [
+          "profile_id",
+          "account_holder_name",
+          "currency",
+          "type",
+          "details"
+        ]
+      }
+    },
+    {
+      "name": "list_recipients",
+      "description": "List saved recipients",
+      "method": "GET",
+      "path": "/list-recipients",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Filter by currency"
+          }
+        },
+        "required": [
+          "profile_id"
+        ]
+      }
+    },
+    {
+      "name": "create_transfer",
+      "description": "Create a money transfer",
+      "method": "POST",
+      "path": "/create-transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target_account": {
+            "type": "string",
+            "description": "Recipient account ID"
+          },
+          "quote_uuid": {
+            "type": "string",
+            "description": "Quote UUID"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Transfer reference"
+          }
+        },
+        "required": [
+          "target_account",
+          "quote_uuid"
+        ]
+      }
+    },
+    {
+      "name": "get_transfer",
+      "description": "Get transfer details",
+      "method": "GET",
+      "path": "/get-transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transfer_id": {
+            "type": "string",
+            "description": "Transfer ID"
+          }
+        },
+        "required": [
+          "transfer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_transfers",
+      "description": "List transfers",
+      "method": "GET",
+      "path": "/list-transfers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "profile_id"
+        ]
+      }
+    },
+    {
+      "name": "fund_transfer",
+      "description": "Fund a transfer from balance",
+      "method": "GET",
+      "path": "/fund-transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "description": "Profile ID"
+          },
+          "transfer_id": {
+            "type": "string",
+            "description": "Transfer ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "BALANCE"
+            ],
+            "description": "Funding type"
+          }
+        },
+        "required": [
+          "profile_id",
+          "transfer_id",
+          "type"
+        ]
+      }
+    }
+  ]
+}

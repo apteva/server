@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func (s *Server) appTokenCipherKey() ([]byte, error) {
@@ -30,10 +33,21 @@ func (s *Server) appTokenCipherKey() ([]byte, error) {
 // Older installs are upgraded lazily so a server update does not require a
 // destructive migration or reinstall.
 func (s *Server) appInstallToken(installID int64) (string, error) {
+	return s.appInstallTokenContext(nil, installID)
+}
+func (s *Server) appInstallTokenContext(parent context.Context, installID int64) (string, error) {
+	ctx, cancel := s.store.databaseContext(parent)
+	defer cancel()
 	if s == nil || s.store == nil || installID <= 0 {
 		return "", fmt.Errorf("invalid app install")
 	}
-	s.appTokenMu.Lock()
+	for !s.appTokenMu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
 	defer s.appTokenMu.Unlock()
 	key, err := s.appTokenCipherKey()
 	if err != nil {
@@ -41,7 +55,7 @@ func (s *Server) appInstallToken(installID int64) (string, error) {
 	}
 
 	var encrypted, hash string
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(ctx,
 		`SELECT COALESCE(app_token_encrypted,''), COALESCE(app_token_hash,'') FROM app_installs WHERE id=?`,
 		installID,
 	).Scan(&encrypted, &hash)
@@ -59,7 +73,7 @@ func (s *Server) appInstallToken(installID int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(ctx,
 		`UPDATE app_installs SET app_token_hash=?, app_token_encrypted=? WHERE id=?`,
 		HashAPIKey(token), encrypted, installID,
 	); err != nil {
@@ -69,14 +83,65 @@ func (s *Server) appInstallToken(installID int64) (string, error) {
 }
 
 func (s *Server) appInstallForToken(token string) (installID, installedBy int64, status string, err error) {
+	return s.appInstallForTokenContext(nil, token)
+}
+func (s *Server) appInstallForTokenContext(ctx context.Context, token string) (installID, installedBy int64, status string, err error) {
 	if token == "" {
 		return 0, 0, "", sql.ErrNoRows
 	}
-	err = s.store.db.QueryRow(
-		`SELECT id, COALESCE(installed_by,0), status FROM app_installs WHERE app_token_hash=?`,
+	err = s.store.dbQueryRowContext(ctx,
+		`SELECT id, COALESCE(installed_by,0), status FROM app_installs
+		  WHERE app_token_hash=? AND app_token_hash <> ''`,
 		HashAPIKey(token),
 	).Scan(&installID, &installedBy, &status)
+	if err == sql.ErrNoRows {
+		return s.runtimeGrantInstallContext(ctx, token)
+	}
+	if err == nil {
+		allowed, policyErr := s.runtimeLegacyTokenAllowedContext(ctx, installID)
+		if policyErr != nil {
+			return 0, 0, "", policyErr
+		}
+		if !allowed {
+			return 0, 0, "", sql.ErrNoRows
+		}
+	}
 	return
+}
+
+// POST /api/apps/installs/:id/runtime-token returns the opaque credential a
+// manually launched sidecar must use for outbound PlatformAPI callbacks. The
+// route is owner-gated in main.go and uses POST plus no-store because the
+// response contains a secret. This also gives external `apteva test --server`
+// runs a supported way to launch the checkout under test without falling back
+// to the retired predictable dev-<install-id> credentials.
+func (s *Server) handleIssueInstallRuntimeToken(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[1] != "runtime-token" {
+		http.NotFound(w, r)
+		return
+	}
+	installID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || installID <= 0 {
+		http.Error(w, "invalid install id", http.StatusBadRequest)
+		return
+	}
+	if s.runtimeManaged(installID) {
+		http.Error(w, "managed runtime credentials are issued by the deployment controller", http.StatusConflict)
+		return
+	}
+	token, err := s.appInstallToken(installID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "install not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "app credential unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]string{"token": token})
 }
 
 // App credentials are capabilities for the app data plane, not user API

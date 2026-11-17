@@ -1,0 +1,111 @@
+{
+  "slug": "reply-io",
+  "name": "Reply.io",
+  "description": "Multichannel sales engagement (email, LinkedIn, calls, SMS, WhatsApp). All-in-one for SDR teams running structured cadences across multiple channels.",
+  "logo": "https://www.google.com/s2/favicons?domain=reply.io&sz=128",
+  "categories": ["email", "outreach", "sequencing", "campaigns", "sales", "linkedin", "multichannel"],
+  "base_url": "https://api.reply.io/v1",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Api-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Reply.io API key from app.reply.io → Settings → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_campaigns",
+      "description": "List all campaigns.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get one campaign by id.",
+      "method": "GET",
+      "path": "/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "push_to_campaign",
+      "description": "Add a contact directly into a campaign (creates the contact if needed and starts the sequence).",
+      "method": "POST",
+      "path": "/actions/pushtocampaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "email": { "type": "string" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "company": { "type": "string" },
+          "title": { "type": "string" },
+          "phone": { "type": "string" },
+          "linkedInProfile": { "type": "string" },
+          "city": { "type": "string" },
+          "country": { "type": "string" },
+          "notes": { "type": "string" }
+        },
+        "required": ["campaignId", "email"]
+      }
+    },
+    {
+      "name": "remove_from_campaign",
+      "description": "Stop a contact's campaign sequence.",
+      "method": "POST",
+      "path": "/actions/removepersonfromcampaignbyid",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "integer" },
+          "personId": { "type": "integer" }
+        },
+        "required": ["campaignId", "personId"]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact (without enrolling in a campaign).",
+      "method": "POST",
+      "path": "/people",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "company": { "type": "string" },
+          "title": { "type": "string" },
+          "phone": { "type": "string" },
+          "linkedInProfile": { "type": "string" }
+        },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "search_contacts",
+      "description": "Search contacts by email/name/company.",
+      "method": "GET",
+      "path": "/people",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

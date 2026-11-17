@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	sdk "github.com/apteva/app-sdk"
 
@@ -25,28 +27,33 @@ import (
 
 // AppRow — what /api/apps returns for the dashboard's Installed view.
 type AppRow struct {
-	InstallID           int64            `json:"install_id"`
-	AppID               int64            `json:"app_id"`
-	Name                string           `json:"name"`
-	DisplayName         string           `json:"display_name"`
-	Version             string           `json:"version"`
-	AvailableVersion    string           `json:"available_version,omitempty"`
-	Description         string           `json:"description"`
-	Icon                string           `json:"icon"`
-	IconStyle           string           `json:"icon_style,omitempty"`
-	ProjectID           string           `json:"project_id"`
-	Status              string           `json:"status"`
-	StatusMessage       string           `json:"status_message,omitempty"`
-	ErrorMessage        string           `json:"error_message,omitempty"`
-	Source              string           `json:"source"`
-	UpgradePolicy       string           `json:"upgrade_policy"`
-	DefaultForNewAgents bool             `json:"default_for_new_agents"`
-	Permissions         []sdk.Permission `json:"permissions"`
-	Surfaces            AppSurfaces      `json:"surfaces"`
-	Deprecated          bool             `json:"deprecated,omitempty"`
-	Deprecation         string           `json:"deprecation,omitempty"`
-	Replacement         string           `json:"replacement,omitempty"`
-	UIPanels            []sdk.UIPanel    `json:"ui_panels,omitempty"`
+	MCPName string `json:"mcp_name,omitempty"`
+	appInstallation
+	Components          []appComponentSummary     `json:"components,omitempty"`
+	AgentSetup          *sdk.AgentSetup           `json:"agent_setup,omitempty"`
+	Deployment          *runtimeDeploymentSummary `json:"deployment,omitempty"`
+	InstallID           int64                     `json:"install_id"`
+	AppID               int64                     `json:"app_id"`
+	Name                string                    `json:"name"`
+	DisplayName         string                    `json:"display_name"`
+	Version             string                    `json:"version"`
+	AvailableVersion    string                    `json:"available_version,omitempty"`
+	Description         string                    `json:"description"`
+	Icon                string                    `json:"icon"`
+	IconStyle           string                    `json:"icon_style,omitempty"`
+	ProjectID           string                    `json:"project_id"`
+	Status              string                    `json:"status"`
+	StatusMessage       string                    `json:"status_message,omitempty"`
+	ErrorMessage        string                    `json:"error_message,omitempty"`
+	Source              string                    `json:"source"`
+	UpgradePolicy       string                    `json:"upgrade_policy"`
+	DefaultForNewAgents bool                      `json:"default_for_new_agents"`
+	Permissions         []sdk.Permission          `json:"permissions"`
+	Surfaces            AppSurfaces               `json:"surfaces"`
+	Deprecated          bool                      `json:"deprecated,omitempty"`
+	Deprecation         string                    `json:"deprecation,omitempty"`
+	Replacement         string                    `json:"replacement,omitempty"`
+	UIPanels            []sdk.UIPanel             `json:"ui_panels,omitempty"`
 	// UISurfaces are code-free native UI descriptors. Mobile clients use
 	// Entry through the authenticated /api/apps/<name>/... proxy and validate
 	// the downloaded document against Schema before rendering it.
@@ -84,21 +91,22 @@ type AppRow struct {
 // the dashboard's AppDetailPanel — additions here flow through to
 // the side panel automatically.
 type AppSurfaces struct {
-	Kind            string   `json:"kind"` // service | source | static
-	MCPToolCount    int      `json:"mcp_tool_count"`
-	MCPToolNames    []string `json:"mcp_tool_names,omitempty"`
-	SkillCount      int      `json:"skill_count"`
-	HTTPRouteCount  int      `json:"http_route_count"`
-	HTTPRoutes      []string `json:"http_routes,omitempty"`
-	UIPanelCount    int      `json:"ui_panel_count"`
-	UIApp           bool     `json:"ui_app"`
-	UIAppMount      string   `json:"ui_app_mount,omitempty"`
-	ChannelCount    int      `json:"channel_count"`
-	ChannelNames    []string `json:"channel_names,omitempty"`
-	WorkerCount     int      `json:"worker_count"`
-	PromptFragments int      `json:"prompt_fragment_count"`
-	Permissions     []string `json:"permissions,omitempty"`
-	ConfigKeys      []string `json:"config_keys,omitempty"`
+	Widgets         []marketplaceWidget `json:"widgets,omitempty"`
+	Kind            string              `json:"kind"` // service | source | static
+	MCPToolCount    int                 `json:"mcp_tool_count"`
+	MCPToolNames    []string            `json:"mcp_tool_names,omitempty"`
+	SkillCount      int                 `json:"skill_count"`
+	HTTPRouteCount  int                 `json:"http_route_count"`
+	HTTPRoutes      []string            `json:"http_routes,omitempty"`
+	UIPanelCount    int                 `json:"ui_panel_count"`
+	UIApp           bool                `json:"ui_app"`
+	UIAppMount      string              `json:"ui_app_mount,omitempty"`
+	ChannelCount    int                 `json:"channel_count"`
+	ChannelNames    []string            `json:"channel_names,omitempty"`
+	WorkerCount     int                 `json:"worker_count"`
+	PromptFragments int                 `json:"prompt_fragment_count"`
+	Permissions     []string            `json:"permissions,omitempty"`
+	ConfigKeys      []string            `json:"config_keys,omitempty"`
 	// RequiredApps lists this app's `requires.apps` entries — other
 	// Apteva apps that must be installed alongside this one. The
 	// dashboard shows them in the side panel and the install handler
@@ -126,21 +134,81 @@ type AppDependency struct {
 
 // RegistryEntry — one row in the marketplace registry.json.
 type RegistryEntry struct {
-	Name        string   `json:"name"`
-	DisplayName string   `json:"display_name"`
-	Version     string   `json:"version"`
-	Description string   `json:"description"`
-	Author      string   `json:"author"`
-	Repo        string   `json:"repo"`
-	ManifestURL string   `json:"manifest_url"`
-	Icon        string   `json:"icon"`
-	IconStyle   string   `json:"icon_style,omitempty"`
-	Tags        []string `json:"tags"`
-	Official    bool     `json:"official"`
-	Category    string   `json:"category"`
-	Deprecated  bool     `json:"deprecated,omitempty"`
-	Deprecation string   `json:"deprecation,omitempty"`
-	Replacement string   `json:"replacement,omitempty"`
+	AgentSetup  *sdk.AgentSetup `json:"agent_setup,omitempty"`
+	Name        string          `json:"name"`
+	DisplayName string          `json:"display_name"`
+	Version     string          `json:"version"`
+	Description string          `json:"description"`
+	Author      string          `json:"author"`
+	Repo        string          `json:"repo"`
+	ManifestURL string          `json:"manifest_url"`
+	Icon        string          `json:"icon"`
+	IconStyle   string          `json:"icon_style,omitempty"`
+	Tags        []string        `json:"tags"`
+	Official    bool            `json:"official"`
+	Category    string          `json:"category"`
+	Deprecated  bool            `json:"deprecated,omitempty"`
+	Deprecation string          `json:"deprecation,omitempty"`
+	Replacement string          `json:"replacement,omitempty"`
+}
+
+// marketplaceSearchScore keeps direct app-name matches ahead of incidental
+// matches in tags or descriptions. Every query term must match somewhere.
+// The dashboard uses the same tiers for installed-app search.
+func marketplaceSearchScore(e RegistryEntry, query string, terms []string) int {
+	name := strings.ToLower(e.Name)
+	displayName := strings.ToLower(e.DisplayName)
+	score := 0
+	switch {
+	case name == query:
+		score = 1_000_000
+	case displayName == query:
+		score = 900_000
+	case strings.HasPrefix(name, query):
+		score = 10_000
+	case strings.HasPrefix(displayName, query):
+		score = 9_000
+	}
+	for _, term := range terms {
+		best := 120 * appSearchMatchStrength(name, term)
+		best = max(best, 120*appSearchMatchStrength(displayName, term))
+		for _, tag := range e.Tags {
+			best = max(best, 60*appSearchMatchStrength(tag, term))
+		}
+		best = max(best, 20*appSearchMatchStrength(e.Description, term))
+		if best == 0 {
+			return 0
+		}
+		score += best
+	}
+	return score
+}
+
+// Strength falls from exact field to prefix, whole word, word prefix, and
+// finally substring. The last tier retains useful partial searches while
+// keeping matches such as "barcode" below a search for the "code" app.
+func appSearchMatchStrength(value, term string) int {
+	value = strings.ToLower(value)
+	switch {
+	case value == term:
+		return 5
+	case strings.HasPrefix(value, term):
+		return 4
+	}
+	for _, word := range strings.FieldsFunc(value, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if word == term {
+			return 3
+		}
+		if strings.HasPrefix(word, term) {
+			return 2
+		}
+	}
+	if strings.Contains(value, term) {
+		return 1
+	}
+	return 0
 }
 
 // Default registry URL used when the operator hasn't overridden it via
@@ -185,7 +253,8 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "parse registry: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	search := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("q")))
+	searchTerms := strings.Fields(strings.ToLower(r.URL.Query().Get("q")))
+	search := strings.Join(searchTerms, " ")
 	category := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("category")))
 	if category == "all" {
 		category = ""
@@ -236,13 +305,13 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	var installRows *sql.Rows
 	var qerr error
 	if projectID != "" {
-		installRows, qerr = s.store.db.Query(
+		installRows, qerr = s.store.dbQueryContext(r.Context(),
 			`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id
 			 WHERE i.project_id = '' OR i.project_id = ?`, projectID)
 	} else {
 		// No project context (rare — pre-project view, admin tools).
 		// Fall back to the unfiltered "any install anywhere" view.
-		installRows, qerr = s.store.db.Query(
+		installRows, qerr = s.store.dbQueryContext(r.Context(),
 			`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id`)
 	}
 	if qerr == nil {
@@ -289,6 +358,9 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	categoryCounts := map[string]int{}
 	filtered := make([]RegistryEntry, 0, len(reg.Apps))
 	for _, e := range reg.Apps {
+		if sdk.ValidateAgentSetup(e.AgentSetup) != nil {
+			e.AgentSetup = nil
+		}
 		// Internal framework components use the app runtime as an
 		// implementation detail. They are neither installable products nor
 		// operator-managed inventory, so omit them from Marketplace too.
@@ -299,19 +371,39 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		if entryCategory == "" {
 			entryCategory = "other"
 		}
-		if search != "" {
-			hay := strings.ToLower(strings.Join(append([]string{
-				e.Name, e.DisplayName, e.Description,
-			}, e.Tags...), " "))
-			if !strings.Contains(hay, search) {
-				continue
-			}
+		if search != "" && marketplaceSearchScore(e, search, searchTerms) == 0 {
+			continue
 		}
 		categoryCounts[entryCategory]++
 		if category != "" && entryCategory != category {
 			continue
 		}
 		filtered = append(filtered, e)
+	}
+	if search != "" {
+		// Sort the entire result set before slicing a page. Stable ties keep
+		// registry order, and an empty search keeps the registry's curation.
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return marketplaceSearchScore(filtered[i], search, searchTerms) > marketplaceSearchScore(filtered[j], search, searchTerms)
+		})
+	}
+	suggestions := false
+	if search != "" && len(filtered) == 0 {
+		for _, entry := range reg.Apps {
+			if internal[normalizeAppName(entry.Name)] || category != "" && strings.ToLower(entry.Category) != category {
+				continue
+			}
+			if marketplaceSuggestionScore(entry, searchTerms) > 0 {
+				filtered = append(filtered, entry)
+			}
+		}
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return marketplaceSuggestionScore(filtered[i], searchTerms) > marketplaceSuggestionScore(filtered[j], searchTerms)
+		})
+		if len(filtered) > 5 {
+			filtered = filtered[:5]
+		}
+		suggestions = len(filtered) > 0
 	}
 	total := len(filtered)
 	pageEntries := filtered
@@ -336,16 +428,19 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 	versionByName := map[string]string{}
 	iconByName := map[string]string{}
 	iconStyleByName := map[string]string{}
+	agentSetupByName := map[string]*sdk.AgentSetup{}
 	for k, v := range builtinSurfaces {
 		surfacesByName[k] = v
 	}
 	{
 		type result struct {
-			name      string
-			surf      AppSurfaces
-			version   string
-			icon      string
-			iconStyle string
+			name       string
+			resolved   bool
+			agentSetup *sdk.AgentSetup
+			surf       AppSurfaces
+			version    string
+			icon       string
+			iconStyle  string
 		}
 		ch := make(chan result, len(reg.Apps))
 		dispatched := 0
@@ -365,17 +460,22 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				ch <- result{
-					name:      name,
-					surf:      surfacesFromManifest(m),
-					version:   m.Version,
-					icon:      resolveMarketplaceAppIcon(url, m.Icon),
-					iconStyle: m.IconStyle,
+					name:       name,
+					resolved:   true,
+					agentSetup: m.AgentSetup,
+					surf:       surfacesFromManifest(m),
+					version:    m.Version,
+					icon:       resolveMarketplaceAppIcon(url, m.Icon),
+					iconStyle:  m.IconStyle,
 				}
 			}(e.Name, e.ManifestURL)
 		}
 		for i := 0; i < dispatched; i++ {
 			r := <-ch
 			key := normalizeAppName(r.name)
+			if r.resolved {
+				agentSetupByName[key] = r.agentSetup
+			}
 			if _, hasBuiltin := surfacesByName[key]; !hasBuiltin {
 				surfacesByName[key] = r.surf
 			}
@@ -429,6 +529,9 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 		if style, ok := iconStyleByName[key]; ok && style != "" {
 			e.IconStyle = style
 		}
+		if metadata, ok := agentSetupByName[key]; ok {
+			e.AgentSetup = metadata
+		}
 		out = append(out, entryWithStatus{
 			RegistryEntry: e,
 			Installed:     installed[key],
@@ -436,14 +539,21 @@ func (s *Server) handleMarketplace(w http.ResponseWriter, r *http.Request) {
 			Surfaces:      surfacesByName[key],
 		})
 	}
-	writeJSON(w, map[string]any{
+	response := map[string]any{
 		"registry_url": url,
 		"apps":         out,
 		"total":        total,
 		"page":         page,
 		"page_size":    pageSize,
 		"categories":   categoryCounts,
-	})
+	}
+	if suggestions {
+		response["apps"] = []entryWithStatus{}
+		response["total"] = 0
+		response["suggestions"] = out
+		response["match_type"] = "suggestions"
+	}
+	writeJSON(w, response)
 }
 
 func getRegistryURLFromEnv() string {
@@ -629,6 +739,9 @@ func (s *Server) lookupRegistryManifestURL(appName string) string {
 // for the requested project plus all globals. Built-in apps appear with
 // source='builtin'.
 func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.store.databaseContext(r.Context())
+	defer cancel()
+	r = r.WithContext(ctx)
 	projectID := r.URL.Query().Get("project_id")
 	scope := r.URL.Query().Get("scope")
 	q := `
@@ -637,8 +750,10 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			COALESCE(NULLIF(i.source, ''), a.source),
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 			COALESCE(i.integration_bindings, '{}'), COALESCE(i.has_pending_options, 0),
-			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != ''
-		FROM app_installs i JOIN apps a ON a.id = i.app_id`
+			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != '',
+            i.installation_key,i.installation_name,i.is_default,
+			(EXISTS(SELECT 1 FROM app_component_declarations c WHERE c.install_id=i.id AND c.parent_version=i.version) OR EXISTS(SELECT 1 FROM app_installs c WHERE c.owner_install_id=i.id))
+		FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.owner_install_id=0`
 	if scope != "" && scope != "global" {
 		http.Error(w, "unsupported app scope", http.StatusBadRequest)
 		return
@@ -650,12 +765,18 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	}
 	args := []any{}
 	if scope == "global" {
-		q += ` WHERE i.project_id = ''`
+		q += ` AND i.project_id = ''`
 	} else if projectID != "" {
-		q += ` WHERE i.project_id = '' OR i.project_id = ?`
+		q += ` AND (i.project_id = '' OR i.project_id = ?)`
 		args = append(args, projectID)
-	} else if s.store.GetPlatformRole(getUserID(r)) != PlatformAdmin {
-		q += ` WHERE i.project_id = ''`
+	} else {
+		role, err := s.store.GetPlatformRoleContext(r.Context(), getUserID(r))
+		if databaseHTTPFailure(w, err) {
+			return
+		}
+		if role != PlatformAdmin {
+			q += ` AND i.project_id = ''`
+		}
 	}
 	q += ` ORDER BY a.name`
 	// Refresh manifest_json from upstream IN THE BACKGROUND. The list
@@ -670,7 +791,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 	// (which depends on this endpoint loading) hung indefinitely.
 	type appPair struct{ name, manifestJSON string }
 	var pairs []appPair
-	if rs, err := s.store.db.Query(`SELECT name, manifest_json FROM apps WHERE source != 'builtin'`); err == nil {
+	if rs, err := s.store.dbQueryContext(r.Context(), `SELECT name, manifest_json FROM apps WHERE source != 'builtin'`); err == nil {
 		for rs.Next() {
 			var p appPair
 			if rs.Scan(&p.name, &p.manifestJSON) == nil {
@@ -689,30 +810,55 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		go func(pairs []appPair) {
 			defer s.manifestRefreshInFlight.Store(false)
 			for _, p := range pairs {
+				if s.store.guard().ctx.Err() != nil {
+					return
+				}
 				s.refreshManifestFromUpstream(p.name, p.manifestJSON)
 			}
 		}(pairs)
 	}
-	rows, err := s.store.db.Query(q, args...)
+	records, err := s.readListedApps(r.Context(), q, args...)
 	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		if !databaseHTTPFailure(w, err) {
+			http.Error(w, "internal error", 500)
+		}
+		return
+	}
+	parents := []int64{}
+	for _, record := range records {
+		if record.hasComponents {
+			parents = append(parents, record.installID)
+		}
+	}
+	components, err := s.componentSummariesBatch(r.Context(), parents)
+	if err != nil {
+		if !databaseHTTPFailure(w, err) {
+			http.Error(w, "component metadata unavailable", 500)
+		}
 		return
 	}
 	out := []AppRow{}
-	for rows.Next() {
-		var (
-			installID, appID                                                int64
-			projID, status, statusMsg, errMsg                               string
-			upgradePolicy, version, permsJSON                               string
-			name, source, manifestJSON, availableManifestJSON, bindingsJSON string
-			hasPendingOptions, defaultForNewAgents                          int
-			upgrading                                                       bool
-		)
-		if err := rows.Scan(&installID, &appID, &projID, &status, &statusMsg, &errMsg,
-			&upgradePolicy, &version, &permsJSON, &name, &source, &manifestJSON, &availableManifestJSON,
-			&bindingsJSON, &hasPendingOptions, &defaultForNewAgents, &upgrading); err != nil {
-			continue
-		}
+	for _, record := range records {
+		installID := record.installID
+		appID := record.appID
+		projID := record.projID
+		status := record.status
+		statusMsg := record.statusMsg
+		errMsg := record.errMsg
+		upgradePolicy := record.upgradePolicy
+		version := record.version
+		permsJSON := record.permsJSON
+		name := record.name
+		source := record.source
+		manifestJSON := record.manifestJSON
+		availableManifestJSON := record.availableManifestJSON
+		bindingsJSON := record.bindingsJSON
+		hasPendingOptions := record.hasPendingOptions
+		defaultForNewAgents := record.defaultForNewAgents
+		installation := record.installation
+		upgrading := record.upgrading
+		hasComponents := record.hasComponents
+
 		var manifest sdk.Manifest
 		_ = json.Unmarshal([]byte(manifestJSON), &manifest)
 		var availableManifest sdk.Manifest
@@ -743,8 +889,16 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 		if upgrading && serving {
 			status = "pending"
 		}
+		var componentRows []appComponentSummary
+		if hasComponents {
+			componentRows = components[installID]
+		}
 		out = append(out, AppRow{
-			InstallID: installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
+			appInstallation: installation,
+			MCPName:         installationMCPName(name, installation.Key, installID),
+			Components:      componentRows,
+			InstallID:       installID, AppID: appID, Name: name, DisplayName: manifest.DisplayName,
+			AgentSetup:        manifest.AgentSetup,
 			Bindings:          bindings,
 			HasPendingOptions: hasPendingOptions != 0,
 			Version:           version,
@@ -772,13 +926,16 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			Imports:      manifest.Imports,
 		})
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		http.Error(w, "internal error", http.StatusInternalServerError)
+
+	for i := range out {
+		v := s.appRuntimeManager().deploymentSummaryContext(r.Context(), out[i].InstallID)
+		out[i].Deployment = &v
+	}
+
+	if err := r.Context().Err(); err != nil {
+		databaseHTTPFailure(w, err)
 		return
 	}
-	rows.Close()
-
 	// Backfill Surfaces.RequiredApps[].Installed from the live install
 	// set so the install-detail panel shows the correct ✓/✗ badge.
 	// surfacesFromManifest only fills name/version/reason/optional —
@@ -826,7 +983,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			connectionScope = ""
 			connectionQuery = `SELECT DISTINCT app_slug FROM connections WHERE project_id = '' AND status != 'disabled'`
 		}
-		connRows, err := s.store.db.Query(connectionQuery, connectionScope)
+		connRows, err := s.store.dbQueryContext(r.Context(), connectionQuery, connectionScope)
 		if err == nil {
 			defer connRows.Close()
 			for connRows.Next() {
@@ -845,17 +1002,18 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 				uiComps := make([]sdk.UIComponent, 0, len(tmpl.UIComponents))
 				for _, c := range tmpl.UIComponents {
 					uiComps = append(uiComps, sdk.UIComponent{
-						Name:            c.Name,
-						Entry:           c.Entry,
-						Slots:           c.Slots,
-						SupportedSizes:  c.SupportedSizes,
-						DefaultSize:     c.DefaultSize,
-						Visibility:      c.Visibility,
-						DashboardScopes: c.DashboardScopes,
-						RefreshTopics:   c.RefreshTopics,
-						PropsSchema:     c.PropsSchema,
-						SettingsSchema:  c.SettingsSchema,
-						PreviewProps:    c.PreviewProps,
+						Name:             c.Name,
+						Entry:            c.Entry,
+						Slots:            c.Slots,
+						SupportedSizes:   c.SupportedSizes,
+						RecommendedViews: c.RecommendedViews,
+						DefaultSize:      c.DefaultSize,
+						Visibility:       c.Visibility,
+						DashboardScopes:  c.DashboardScopes,
+						RefreshTopics:    c.RefreshTopics,
+						PropsSchema:      c.PropsSchema,
+						SettingsSchema:   c.SettingsSchema, SettingsUI: c.SettingsUI,
+						PreviewProps: c.PreviewProps,
 					})
 				}
 				icon := ""
@@ -935,6 +1093,7 @@ func surfacesFromManifest(m *sdk.Manifest) AppSurfaces {
 	for _, t := range visibleTools {
 		s.MCPToolNames = append(s.MCPToolNames, t.Name)
 	}
+	s.Widgets = marketplaceWidgets(m)
 	for _, rt := range m.Provides.HTTPRoutes {
 		s.HTTPRoutes = append(s.HTTPRoutes, rt.Prefix)
 	}
@@ -984,14 +1143,16 @@ func (s *Server) handlePreviewApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	manifest, err := sdk.ParseManifest(yamlBytes)
+	manifest, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	components := manifest.Components
 	writeJSON(w, map[string]any{
-		"manifest": manifest,
-		"surfaces": surfacesFromManifest(manifest),
+		"manifest":   manifest,
+		"components": components,
+		"surfaces":   surfacesFromManifest(manifest),
 	})
 }
 
@@ -1012,13 +1173,17 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := getUserID(r)
 	var body struct {
-		ManifestURL   string            `json:"manifest_url"`
-		ManifestYAML  string            `json:"manifest_yaml"`
-		Repo          string            `json:"repo"`
-		Ref           string            `json:"ref"`
-		ProjectID     string            `json:"project_id"`
-		Config        map[string]string `json:"config"`
-		UpgradePolicy string            `json:"upgrade_policy"`
+		ReuseExisting    bool              `json:"reuse_existing,omitempty"`
+		InstallationKey  string            `json:"installation_key"`
+		InstallationName string            `json:"installation_name"`
+		Placement        *runtimePlacement `json:"placement,omitempty"`
+		ManifestURL      string            `json:"manifest_url"`
+		ManifestYAML     string            `json:"manifest_yaml"`
+		Repo             string            `json:"repo"`
+		Ref              string            `json:"ref"`
+		ProjectID        string            `json:"project_id"`
+		Config           map[string]string `json:"config"`
+		UpgradePolicy    string            `json:"upgrade_policy"`
 		// Bindings: role → connection_id (kind=integration) or
 		// install_id (kind=app) | null. Sent by the dashboard's
 		// install modal after the operator picks targets for each
@@ -1031,14 +1196,68 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	body.InstallationKey = strings.TrimSpace(body.InstallationKey)
+	if body.InstallationKey == "" {
+		body.InstallationKey = "default"
+	}
+	if !installationKeyPattern.MatchString(body.InstallationKey) {
+		http.Error(w, "installation key must start with a letter and contain up to 40 lowercase letters, digits or hyphens", 400)
+		return
+	}
+	body.InstallationName = strings.TrimSpace(body.InstallationName)
+	if body.InstallationName == "" {
+		body.InstallationName = body.InstallationKey
+	}
+	if len(body.InstallationName) > 100 || strings.ContainsAny(body.InstallationName, "\r\n\x00") {
+		http.Error(w, "invalid installation name", 400)
+		return
+	}
+	installRequestKey, installFingerprint := "", ""
+	if body.ReuseExisting {
+		r.Header.Set("X-Apteva-MCP-Install", "1")
+		if body.Placement == nil {
+			if os.Getenv("APTEVA_APPS_REMOTE") != "" {
+				http.Error(w, "a managed backend placement is required on this server", 409)
+				return
+			}
+			body.Placement = &runtimePlacement{Type: "local"}
+		}
+		if r.Header.Get("Idempotency-Key") == "" {
+			r.Header.Set("Idempotency-Key", "mcp-install-"+runtimeHash([]byte(runtimeJSON(body))))
+		}
+	}
+	if body.Placement != nil && r.Header.Get("Idempotency-Key") != "" {
+		runtimeConsoleInstallMu.Lock()
+		defer runtimeConsoleInstallMu.Unlock()
+		installRequestKey = runtimeHash([]byte(r.Header.Get("Idempotency-Key")))
+		installFingerprint = runtimeHash([]byte(runtimeJSON(body)))
+		if s.replayRuntimeConsoleInstall(w, r, userID, installRequestKey, installFingerprint, *body.Placement) {
+			return
+		}
+	}
+	if body.Placement != nil {
+		if err := s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
 	yamlBytes, err := s.fetchManifestBytes(body.ManifestURL, body.ManifestYAML)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	manifest, err := sdk.ParseManifest(yamlBytes)
+	manifest, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	components := manifest.Components
+	if err := validateAppRuntimeCompatibility(manifest, Version); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if manifest.Runtime.ActivationStrategy == sdk.ActivationExclusive && os.Getenv("APTEVA_APPS_REMOTE") != "" && body.Placement == nil {
+		http.Error(w, "exclusive activation requires the local app supervisor", http.StatusBadRequest)
 		return
 	}
 	if info, ok := deprecatedApp(manifest.Name); ok {
@@ -1062,6 +1281,25 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if !manifestAllowsScope(manifest, scope) {
 		http.Error(w, fmt.Sprintf("app does not support scope %q", scope), http.StatusBadRequest)
+		return
+	}
+
+	var existingInstall int64
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=? AND COALESCE(i.project_id,'')=? AND i.installation_key=?`, manifest.Name, body.ProjectID, body.InstallationKey).Scan(&existingInstall)
+	if err == nil {
+		if body.ReuseExisting {
+			if !s.compatibleMCPInstall(existingInstall, manifest, body.Config, body.Bindings, body.UpgradePolicy, body.Repo, body.Ref) {
+				http.Error(w, "existing installation has different release, configuration or bindings; inspect it before requesting an explicit change", 409)
+				return
+			}
+			s.writeInstallReadiness(w, existingInstall, true)
+			return
+		}
+		http.Error(w, "an installation with this key already exists in this scope", http.StatusConflict)
+		return
+	}
+	if err != sql.ErrNoRows {
+		http.Error(w, "check installation identity", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1116,9 +1354,9 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 
 	// Upsert the app row.
 	var appID int64
-	err = s.store.db.QueryRow(`SELECT id FROM apps WHERE name = ?`, manifest.Name).Scan(&appID)
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT id FROM apps WHERE name = ?`, manifest.Name).Scan(&appID)
 	if err != nil {
-		res, e := s.store.db.Exec(
+		res, e := s.store.dbExecContext(r.Context(),
 			`INSERT INTO apps (name, source, repo, ref, manifest_json) VALUES (?, ?, ?, ?, ?)`,
 			manifest.Name, source, body.Repo, body.Ref, string(manifestJSON))
 		if e != nil {
@@ -1179,14 +1417,26 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	bindingsJSON, _ := json.Marshal(body.Bindings)
 
 	// Install row.
+	managedIntent := 0
+	queuedMessage := ""
+	placementJSON := `{"type":"local"}`
+	if body.ReuseExisting && body.Placement != nil && (!body.Placement.local() || manifestHasLocalDelivery(manifest)) {
+		managedIntent = 1
+		queuedMessage = mcpInstallQueued
+		placementJSON = runtimeJSON(body.Placement)
+	}
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
-	res, err := s.store.db.Exec(
+	res, err := s.insertManifestInstall(userID, installRequestKey, installFingerprint, manifest.Version, components,
 		`INSERT INTO app_installs
-		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings,installation_key,installation_name,runtime_managed,runtime_placement_json,status_message)
+		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?)`,
 		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(manifestJSON), source, body.Repo, body.Ref,
-		string(permsJSON), userID, string(bindingsJSON))
+		string(permsJSON), userID, string(bindingsJSON), body.InstallationKey, body.InstallationName, managedIntent, placementJSON, queuedMessage)
 	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			http.Error(w, "an installation with this key already exists in this scope", http.StatusConflict)
+			return
+		}
 		http.Error(w, "create install: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1212,6 +1462,27 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	// works on any host with Go), then per-platform binaries, then fall
 	// back. Failures flip the install row to 'error' with the message
 	// stored.
+	if body.ReuseExisting && body.Placement.local() && !manifestHasLocalDelivery(manifest) {
+		s.writeInstallReadiness(w, installID, false)
+		return
+	}
+	if body.Placement != nil {
+		if err := s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		op, err := s.appRuntimeManager().begin(installID, "deploy", runtimeConsoleInstallOperationKey(installRequestKey), *body.Placement, manifest)
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		if body.ReuseExisting {
+			s.writeInstallReadiness(w, installID, false)
+		} else {
+			writeJSONStatus(w, 202, map[string]any{"install_id": installID, "app_id": appID, "operation": op})
+		}
+		return
+	}
 	preferLocal := os.Getenv("APTEVA_APPS_REMOTE") == "" // default: local mode
 	if preferLocal {
 		if manifest.Runtime.Kind == "static" {
@@ -1245,7 +1516,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			// installFromSource doesn't re-acquire (would deadlock).
 			// "Queued" status surfaced before the slot blocks so the
 			// dashboard pill reads coherently while the user waits.
-			s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(manifest), installID)
+			s.store.dbExecContext(r.Context(), `UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(manifest), installID)
 			go func() {
 				release := s.localApps.acquireRuntimeBuildSlot(manifest)
 				defer release()
@@ -1262,7 +1533,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, ok := manifest.Runtime.Binaries[localPlatform()]; ok {
-			s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(manifest), installID)
+			s.store.dbExecContext(r.Context(), `UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(manifest), installID)
 			go func() {
 				release := s.localApps.acquireRuntimeBuildSlot(manifest)
 				defer release()
@@ -1300,6 +1571,10 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	if s.hasOwnedComponents(installID) {
+		http.Error(w, "remove owned components before uninstalling their owner; force does not bypass resource cleanup", http.StatusConflict)
+		return
+	}
 	receipt := struct {
 		Status      string `json:"status"`
 		AppName     string `json:"app_name"`
@@ -1309,7 +1584,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		ProjectID   string `json:"project_id"`
 		Version     string `json:"version"`
 	}{Status: "uninstalled"}
-	err = s.store.db.QueryRow(`
+	err = s.store.dbQueryRowContext(r.Context(), `
 		SELECT ai.id, ai.app_id, a.name,
 		       COALESCE(NULLIF(json_extract(COALESCE(NULLIF(ai.manifest_json, ''), a.manifest_json), '$.display_name'), ''), a.name),
 		       COALESCE(ai.project_id, ''), COALESCE(ai.version, '')
@@ -1376,9 +1651,9 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		id   int64
 		slug string
 	}
-	_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,''), installed_by FROM app_installs WHERE id = ?`, installID).
+	_ = s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,''), installed_by FROM app_installs WHERE id = ?`, installID).
 		Scan(&sweepProjectID, &sweepUserID)
-	skillRows, _ := s.store.db.Query(`SELECT id, slug FROM skills WHERE install_id = ?`, installID)
+	skillRows, _ := s.store.dbQueryContext(r.Context(), `SELECT id, slug FROM skills WHERE install_id = ?`, installID)
 	if skillRows != nil {
 		for skillRows.Next() {
 			var rowID int64
@@ -1392,9 +1667,19 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		}
 		skillRows.Close()
 	}
+	if s.runtimeProviderInUse(installID) {
+		http.Error(w, "installation owns active deployment resources", http.StatusConflict)
+		return
+	}
+	if s.runtimeManaged(installID) {
+		if err := s.appRuntimeManager().stopSync(installID, true); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
 	detachPlan := s.captureAppToolsDetachPlan(installID)
 	s.cleanupInactiveIntegrationWebhooks(installID, true)
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "begin uninstall: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1407,6 +1692,12 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		{`DELETE FROM app_agent_bindings WHERE install_id=?`, installID},
 		{`DELETE FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)},
 		{`DELETE FROM skills WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_credentials WHERE deployment_id IN (SELECT id FROM app_runtime_deployments WHERE install_id=?)`, installID},
+		{`DELETE FROM app_runtime_ports WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_deployments WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_operations WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_scaling WHERE install_id=?`, installID},
+		{`DELETE FROM app_runtime_backends WHERE install_id=?`, installID},
 		{`DELETE FROM app_installs WHERE id=?`, installID},
 	}
 	for _, statement := range statements {
@@ -1428,8 +1719,9 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	if s.localApps != nil {
 		if err := s.localApps.Stop(installID); err != nil {
 			log.Printf("[APPS] uninstall committed but process stop failed install=%d: %v", installID, err)
+		} else {
+			s.localApps.ReleaseFixedPorts(installID)
 		}
-		s.localApps.ReleaseFixedPorts(installID)
 	}
 	for _, skill := range pendingSkills {
 		s.sweepSkillFromProject(sweepUserID, sweepProjectID, skill.id, skill.slug, "app uninstalled")
@@ -1441,8 +1733,7 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 }
 
 // PUT /api/apps/installs/:id/status — operator-side status flip.
-// Used today as the manual "I deployed the sidecar; mount it" trigger.
-// In the orchestrator-driven flow this becomes automatic.
+// Enables/disables an installed app or mounts an externally managed sidecar.
 func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 	parts := strings.SplitN(rest, "/", 2)
@@ -1468,20 +1759,99 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "status must be running|disabled|error", http.StatusBadRequest)
 		return
 	}
+	if body.Status != "running" && s.ownedComponentsBusy(installID) {
+		http.Error(w, "stop owned components before disabling their owner", http.StatusConflict)
+		return
+	}
+	if body.Status != "running" && s.runtimeProviderInUse(installID) {
+		http.Error(w, "installation owns active deployment resources", http.StatusConflict)
+		return
+	}
+	if s.runtimeManaged(installID) {
+		if body.ServiceName != "" || body.SidecarURL != "" {
+			http.Error(w, "managed endpoint is owned by the deployment controller", http.StatusConflict)
+			return
+		}
+		if body.Status == "disabled" || body.Status == "error" {
+			if err := s.appRuntimeManager().stopSync(installID, false); err != nil {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+		}
+		if body.Status == "running" {
+			d, err := s.appRuntimeManager().active(installID)
+			if err != nil {
+				http.Error(w, "no managed deployment", 409)
+				return
+			}
+			op, err := s.appRuntimeManager().begin(installID, "restart", "enable-"+generateToken(12), d.Placement, nil)
+			if err == nil {
+				err = s.appRuntimeManager().waitOperation(op.ID)
+			}
+			if err != nil {
+				http.Error(w, err.Error(), 409)
+				return
+			}
+			writeJSON(w, map[string]string{"status": "running"})
+			return
+		}
+	}
 	effectiveSidecarURL := strings.TrimSpace(body.SidecarURL)
 	if body.Status == "running" {
-		var localBinPath string
+		var localBinPath, previousStatus string
 		var localPort int64
-		if err := s.store.db.QueryRow(
-			`SELECT COALESCE(local_bin_path, ''), COALESCE(local_port, 0)
+		err := s.store.dbQueryRowContext(r.Context(),
+			`SELECT COALESCE(local_bin_path, ''), COALESCE(local_port, 0), status
 				   FROM app_installs
 				  WHERE id = ?`,
 			installID,
-		).Scan(&localBinPath, &localPort); err == nil && localBinPath != "" && localPort > 0 {
+		).Scan(&localBinPath, &localPort, &previousStatus)
+		if err == sql.ErrNoRows {
+			http.Error(w, "install not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, "load install: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if (previousStatus == "disabled" || previousStatus == "error") && localBinPath != "" {
+			// Restore the cached runtime before advertising availability.
+			if s.localApps == nil {
+				http.Error(w, "local app runtime is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if !s.localApps.acquireInstall(installID) {
+				http.Error(w, "app already has an operation in progress", http.StatusConflict)
+				return
+			}
+			defer s.localApps.releaseInstall(installID)
+			// OnMount runs before the health check completes and may call the
+			// platform. A disabled token is intentionally rejected by auth, so
+			// enter the normal pre-running state before spawning the sidecar.
+			// Keep it out of the running registry until readiness succeeds.
+			if _, err := s.store.dbExecContext(r.Context(), `UPDATE app_installs SET status='pending', status_message='Starting local runtime' WHERE id=?`, installID); err != nil {
+				http.Error(w, "enable app: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := s.RespawnLocalInstall(installID); err != nil {
+				s.store.dbExecContext(r.Context(), `UPDATE app_installs SET status=?, status_message='', error_message=? WHERE id=?`, previousStatus, err.Error(), installID)
+				http.Error(w, "enable app: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if body.ServiceName != "" {
+				if _, err := s.store.dbExecContext(r.Context(), `UPDATE app_installs SET service_name=? WHERE id=?`, body.ServiceName, installID); err != nil {
+					http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+			writeJSON(w, map[string]string{"status": "running"})
+			return
+		}
+		if localBinPath != "" && localPort > 0 {
 			effectiveSidecarURL = localSidecarURL(localPort)
 		}
 	}
-	upd, err := s.store.db.Exec(
+	upd, err := s.store.dbExecContext(r.Context(),
 		`UPDATE app_installs SET
 				status = ?,
 				service_name = COALESCE(NULLIF(?, ''), service_name),
@@ -1532,6 +1902,10 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid id", http.StatusBadRequest)
 		return
 	}
+	lock := s.bindingUpdateLock(installID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -1586,8 +1960,13 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	if supportsLiveBindings(manifest) {
+		s.setLiveBindings(w, installID, bindingsForInstall(s, installID), merged)
+		return
+	}
+
 	bj, _ := json.Marshal(merged)
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		`UPDATE app_installs SET integration_bindings = ?, has_pending_options = 0 WHERE id = ?`,
 		string(bj), installID,
 	); err != nil {
@@ -1672,15 +2051,18 @@ func (s *Server) handlePreflightApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	manifest, err := sdk.ParseManifest(yamlBytes)
+	manifest, err := parseServerAppManifest(yamlBytes)
 	if err != nil {
 		http.Error(w, "invalid manifest: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	components := manifest.Components
 	roles := s.buildPreflightRoles(manifest, body.ProjectID, userID)
 	writeJSON(w, map[string]any{
-		"manifest": manifest,
-		"roles":    roles,
+		"components":     components,
+		"manifest":       manifest,
+		"setup_features": setupFeatures(manifest),
+		"roles":          roles,
 	})
 }
 
@@ -1713,7 +2095,7 @@ func (s *Server) handlePreflightInstalled(w http.ResponseWriter, r *http.Request
 	var (
 		projectID, manifestJSON string
 	)
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRowContext(r.Context(),
 		`SELECT COALESCE(i.project_id,''), COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
@@ -1729,8 +2111,10 @@ func (s *Server) handlePreflightInstalled(w http.ResponseWriter, r *http.Request
 	roles := s.buildPreflightRoles(&manifest, projectID, userID)
 	writeJSON(w, map[string]any{
 		"manifest":         manifest,
+		"setup_features":   setupFeatures(&manifest),
 		"roles":            roles,
 		"current_bindings": bindingsForInstall(s, installID),
+		"project_id":       projectID,
 	})
 }
 
@@ -1738,6 +2122,8 @@ type installMCPToolInfo struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
+	Meta        map[string]any `json:"_meta,omitempty"`
 }
 
 func (s *Server) handleInstallTools(w http.ResponseWriter, r *http.Request) {
@@ -1835,9 +2221,9 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 		} else if kind == "app" {
 			row.Compatible = dep.CompatibleAppNames
 			row.CanCreateNew = false
-			rs, err := s.store.db.Query(
+			rs, err := s.store.dbQuery(
 				`SELECT i.id, a.name,
-				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name)
+				        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name) || ' · ' || i.installation_name || ' · v' || i.version, COALESCE(i.project_id,'')
 				 FROM app_installs i JOIN apps a ON a.id=i.app_id
 				 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 				projectID,
@@ -1845,12 +2231,12 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			if err == nil {
 				for rs.Next() {
 					var (
-						instID             int64
-						aName, displayName string
+						instID                               int64
+						aName, displayName, candidateProject string
 					)
-					if rs.Scan(&instID, &aName, &displayName) == nil && contains(dep.CompatibleAppNames, aName) {
+					if rs.Scan(&instID, &aName, &displayName, &candidateProject) == nil && contains(dep.CompatibleAppNames, aName) {
 						row.AppCands = append(row.AppCands, preflightAppCandidate{
-							InstallID: instID, AppName: aName, DisplayName: displayName,
+							InstallID: instID, AppName: aName, DisplayName: displayName, ProjectID: candidateProject,
 						})
 					}
 				}
@@ -1869,9 +2255,9 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 			Compatible:   []string{dep.Name},
 			CanCreateNew: false,
 		}
-		rs, err := s.store.db.Query(
+		rs, err := s.store.dbQuery(
 			`SELECT i.id, a.name,
-			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name)
+			        COALESCE(json_extract(COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),'$.display_name'), a.name) || ' · ' || i.installation_name || ' · v' || i.version, COALESCE(i.project_id,'')
 			 FROM app_installs i JOIN apps a ON a.id=i.app_id
 			 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 			projectID,
@@ -1879,12 +2265,12 @@ func (s *Server) buildPreflightRoles(manifest *sdk.Manifest, projectID string, u
 		if err == nil {
 			for rs.Next() {
 				var (
-					instID             int64
-					aName, displayName string
+					instID                               int64
+					aName, displayName, candidateProject string
 				)
-				if rs.Scan(&instID, &aName, &displayName) == nil && normalizeAppName(aName) == normalizeAppName(dep.Name) {
+				if rs.Scan(&instID, &aName, &displayName, &candidateProject) == nil && normalizeAppName(aName) == normalizeAppName(dep.Name) {
 					row.AppCands = append(row.AppCands, preflightAppCandidate{
-						InstallID: instID, AppName: aName, DisplayName: displayName,
+						InstallID: instID, AppName: aName, DisplayName: displayName, ProjectID: candidateProject,
 					})
 				}
 			}
@@ -1908,6 +2294,7 @@ type preflightIntegrationCandidate struct {
 }
 
 type preflightAppCandidate struct {
+	ProjectID   string `json:"project_id"`
 	InstallID   int64  `json:"install_id"`
 	AppName     string `json:"app_name"`
 	DisplayName string `json:"display_name"`
@@ -1955,7 +2342,9 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ApproveNewPermissions bool `json:"approve_new_permissions"`
+		Placement             *runtimePlacement `json:"placement,omitempty"`
+		ApproveNewPermissions bool              `json:"approve_new_permissions"`
+		ManifestURL           string            `json:"manifest_url,omitempty"`
 	}
 	if r.Body != nil && r.Body != http.NoBody {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
@@ -1972,7 +2361,11 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		source, manifestJSON, availableManifestJSON, currentVersion, projectID, configEnc, permissionsJSON string
 		catalogRepo, catalogRef                                                                            string
 	)
-	err = s.store.db.QueryRow(
+	if s.isOwnedComponent(installID) {
+		http.Error(w, "deploy the component release declared by its owner through the components endpoint", http.StatusConflict)
+		return
+	}
+	err = s.store.dbQueryRowContext(r.Context(),
 		`SELECT COALESCE(NULLIF(i.source, ''), a.source),
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.manifest_json,
 		        i.version, i.project_id, COALESCE(i.config_encrypted,''), COALESCE(i.permissions_json,'[]')
@@ -2037,8 +2430,9 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		}
 		requiredPermissionsJSON, _ := json.Marshal(available.Requires.Permissions)
 		oldMCPSurface := s.snapshotAppMCPSurface(installID)
-		if _, err := s.store.db.Exec(
-			`UPDATE app_installs SET version = ?, manifest_json = ?, permissions_json = ? WHERE id = ?`,
+		if _, err := s.store.dbExecContext(r.Context(),
+			`UPDATE app_installs SET version = ?, manifest_json = ?, permissions_json = ?,
+			 mcp_activation_revision=mcp_activation_revision+1 WHERE id = ?`,
 			available.Version, availableManifestJSON, string(requiredPermissionsJSON), installID,
 		); err != nil {
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
@@ -2070,7 +2464,10 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Curated registry entries already provide the authoritative moving
 	// manifest URL. Prefer it over the catalog's human-facing repo field;
 	// that field may be a GitHub tree URL rather than a clone root.
-	url := s.lookupRegistryManifestURL(stored.Name)
+	url := body.ManifestURL
+	if url == "" {
+		url = s.lookupRegistryManifestURL(stored.Name)
+	}
 	if url == "" && catalogRepo != "" {
 		candidate := stored
 		entry := ""
@@ -2087,13 +2484,22 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "manifest has no github source — uninstall + reinstall at the desired ref", http.StatusNotImplemented)
 		return
 	}
-	live, err := s.fetchAndCacheManifest(url)
+	release, err := s.fetchAndCacheAppRelease(url)
+	live := release.manifest
 	if err != nil || live == nil {
 		http.Error(w, "fetch upstream manifest: "+errString(err), http.StatusBadGateway)
 		return
 	}
+	if live.Name != stored.Name {
+		http.Error(w, "selected release belongs to a different app", 400)
+		return
+	}
 	if live.Version == "" {
 		http.Error(w, "upstream manifest has no version", http.StatusBadGateway)
+		return
+	}
+	if err := validateAppRuntimeCompatibility(live, Version); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if missing := missingRequiredPermissions(approvedPermissions, live.Requires.Permissions); len(missing) > 0 {
@@ -2108,6 +2514,27 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if body.Placement != nil {
+		if err := s.persistAppComponentDeclarations(installID, live.Version, release.components); err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		if !s.runtimeManaged(installID) {
+			http.Error(w, "placement changes require a managed installation", 409)
+			return
+		}
+		if err = s.appRuntimeManager().normalizePlacement(body.Placement); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		op, e := s.appRuntimeManager().begin(installID, "upgrade", r.Header.Get("Idempotency-Key"), *body.Placement, live)
+		if e != nil {
+			http.Error(w, e.Error(), 409)
+			return
+		}
+		writeJSONStatus(w, http.StatusAccepted, map[string]any{"status": "pending", "version": live.Version, "operation_id": op.ID})
+		return
+	}
 	// Decrypt the config_encrypted blob so the rebuild gets the same
 	// env that was passed at install time.
 	var cfg map[string]string
@@ -2119,14 +2546,14 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Capture the currently active sidecar's agent-visible tools/list before
 	// replacing it. installFromSource swaps the sidecar asynchronously; the
 	// post-activation comparison must retain this pre-upgrade snapshot so
-	// bound running agents restart when a source app changes its MCP surface.
+	// bound running agents refresh after the healthy replacement is activated.
 	oldMCPSurface := s.snapshotAppMCPSurface(installID)
 
 	// Persist the new manifest immediately so the next list call
 	// reflects the in-flight version even before the build completes.
 	s.updateAppCatalogMetadataByName(live.Name, live)
 
-	if err := s.stageAppUpgrade(installID, live); err != nil {
+	if err := s.stageAppUpgrade(installID, live, release.components); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -2141,7 +2568,7 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 	// Acquires the global build slot here (outermost goroutine) so
 	// concurrent upgrade-all clicks queue cleanly instead of OOM-ing
 	// the host with N parallel `go build` processes.
-	s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(live), installID)
+	s.store.dbExecContext(r.Context(), `UPDATE app_installs SET status_message=? WHERE id=?`, runtimeQueuedMessage(live), installID)
 	go func() {
 		release := s.localApps.acquireRuntimeBuildSlot(live)
 		defer release()
@@ -2154,7 +2581,7 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		// leaves old capabilities available indefinitely even though the
 		// app no longer declares them.
 		requiredPermissionsJSON, _ := json.Marshal(live.Requires.Permissions)
-		if _, err := s.store.db.Exec(
+		if _, err := s.store.dbExec(
 			`UPDATE app_installs SET permissions_json=? WHERE id=?`,
 			string(requiredPermissionsJSON), installID,
 		); err != nil {
@@ -2166,7 +2593,8 @@ func (s *Server) handleUpgradeApp(w http.ResponseWriter, r *http.Request) {
 		// portable-only skills immediately after an Agent Plugin upgrade.
 		// installFromSource has now activated the healthy replacement.
 		// Refresh the bridge and compare the new live tools/list with the
-		// pre-upgrade snapshot; only agents bound to a changed surface restart.
+		// pre-upgrade snapshot. The activation revision also refreshes identical
+		// surfaces; repeated registration of this activation is idempotent.
 		if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
 			log.Printf("[APPS] register MCP after source upgrade install=%d: %v", installID, err)
 		}
@@ -2229,7 +2657,7 @@ func (s *Server) approveAppInstallPermissions(installID int64, approved, missing
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.store.db.Exec(`UPDATE app_installs SET permissions_json = ? WHERE id = ?`, string(body), installID); err != nil {
+	if _, err := s.store.dbExec(`UPDATE app_installs SET permissions_json = ? WHERE id = ?`, string(body), installID); err != nil {
 		return nil, err
 	}
 	return merged, nil
@@ -2288,7 +2716,7 @@ func (s *Server) handleSetInstallBindings(w http.ResponseWriter, r *http.Request
 	// disagree. UI/worker-only apps still use this endpoint because they have
 	// no MCP runtime configuration to synchronize.
 	var mcpServerID int64
-	_ = s.store.db.QueryRow(`SELECT id FROM mcp_servers WHERE upstream_id=?`,
+	_ = s.store.dbQueryRowContext(r.Context(), `SELECT id FROM mcp_servers WHERE upstream_id=?`,
 		appMCPUpstreamID(installID)).Scan(&mcpServerID)
 	if mcpServerID > 0 {
 		writeJSONStatus(w, http.StatusGone, map[string]any{
@@ -2299,7 +2727,7 @@ func (s *Server) handleSetInstallBindings(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "begin: "+err.Error(), http.StatusInternalServerError)
 		return

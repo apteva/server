@@ -166,11 +166,12 @@ func TestEnvironment_RealSocial_DBWrite(t *testing.T) {
 	s := newEnvironmentTestServer(t)
 
 	environment, err := s.environments.Create(EnvironmentSpec{
-		ID:           "e2e-social",
-		GatewayURL:   s.localGatewayURL(),
-		AppSrcDirs:   map[string]string{"social": srcDir},
-		Mode:         EdgeBlock,
-		HealthBudget: 120 * time.Second,
+		ID:            "e2e-social",
+		GatewayURL:    s.localGatewayURL(),
+		CreatorUserID: 1,
+		AppSrcDirs:    map[string]string{"social": srcDir},
+		Mode:          EdgeBlock,
+		HealthBudget:  120 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("create environment with real social: %v", err)
@@ -268,10 +269,11 @@ func TestEnvironment_RealSocial_InterceptorMocksTweet(t *testing.T) {
 	s := newEnvironmentTestServer(t)
 
 	environment, err := s.environments.Create(EnvironmentSpec{
-		ID:         "e2e-social-tweet",
-		GatewayURL: s.localGatewayURL(),
-		AppSrcDirs: map[string]string{"social": srcDir},
-		Mode:       EdgeBlock,
+		ID:            "e2e-social-tweet",
+		GatewayURL:    s.localGatewayURL(),
+		CreatorUserID: 1,
+		AppSrcDirs:    map[string]string{"social": srcDir},
+		Mode:          EdgeBlock,
 		// The interceptor that answers social's tweet, keyed to this environment.
 		IntegrationFixtures: []IntegrationFixture{{
 			App:    "twitter-api",

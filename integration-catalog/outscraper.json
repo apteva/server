@@ -1,0 +1,118 @@
+{
+  "slug": "outscraper",
+  "name": "Outscraper",
+  "description": "Pay-as-you-go Google Maps scraper with built-in email/contact enrichment. Best dedicated tool for harvesting local SMB lead lists from Google Maps + Reviews + Search.",
+  "logo": "https://www.google.com/s2/favicons?domain=outscraper.com&sz=128",
+  "categories": ["scraping", "google-maps", "leads", "local", "prospecting", "enrichment"],
+  "base_url": "https://api.app.outscraper.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-API-KEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Outscraper API key from app.outscraper.com → Profile → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "google_maps_search",
+      "description": "Scrape Google Maps for businesses matching a query. Returns name, address, phone, website, rating, reviews count, hours, place id, lat/lng. Use `enrichment` to also pull emails and social links from each result's website.",
+      "method": "GET",
+      "path": "/maps/search-v3",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Free-form query, e.g. 'marketing agency, Lyon, France'" },
+          "limit": { "type": "integer", "default": 20, "description": "Max results per query" },
+          "language": { "type": "string", "description": "Language code, e.g. 'en'" },
+          "region": { "type": "string", "description": "ISO country code, e.g. 'FR'" },
+          "coordinates": { "type": "string", "description": "Center as 'lat,lng' for proximity bias" },
+          "fields": { "type": "string", "description": "Comma-separated fields to return — restrict for cheaper queries" },
+          "async": { "type": "boolean", "default": false, "description": "Return a request id immediately and poll get_request_results later" },
+          "enrichment": { "type": "string", "description": "Comma-separated enrichments: 'domains_service' (emails + socials), 'whitepages_phones', 'company_websites_finder'" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "google_maps_reviews",
+      "description": "Pull all reviews for one or more Google Maps places. Useful for sentiment / pain-point research before outreach.",
+      "method": "GET",
+      "path": "/maps/reviews-v3",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Place URL, place id, or 'name, city'" },
+          "reviewsLimit": { "type": "integer", "default": 10 },
+          "sort": { "type": "string", "enum": ["most_relevant", "newest", "highest_rating", "lowest_rating"], "default": "most_relevant" },
+          "language": { "type": "string" },
+          "async": { "type": "boolean", "default": false }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "emails_and_contacts",
+      "description": "Given a list of domains, return emails (with role/title where possible), phones, and social links found on the site. Pure contact enrichment — no Google Maps needed.",
+      "method": "GET",
+      "path": "/emails-and-contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Domain or comma-separated list of domains" },
+          "async": { "type": "boolean", "default": false }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "phones_enricher",
+      "description": "Find names + addresses associated with US phone numbers (whitepages-style).",
+      "method": "GET",
+      "path": "/whitepages-phones",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Phone number or comma-separated list" },
+          "async": { "type": "boolean", "default": false }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "google_search",
+      "description": "Scrape Google web search results.",
+      "method": "GET",
+      "path": "/google-search-v3",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "pagesPerQuery": { "type": "integer", "default": 1 },
+          "language": { "type": "string" },
+          "region": { "type": "string" },
+          "async": { "type": "boolean", "default": false }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "get_request_results",
+      "description": "Poll an async job (when `async: true` was used) for completion + results.",
+      "method": "GET",
+      "path": "/requests/{requestId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requestId": { "type": "string" }
+        },
+        "required": ["requestId"]
+      }
+    }
+  ]
+}

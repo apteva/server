@@ -1,0 +1,246 @@
+{
+  "slug": "bloobirds",
+  "name": "Bloobirds",
+  "description": "Bloobirds (now Harmonix AI) sales engagement platform. Search and manage companies, leads, and sales pipeline data through the Bobject API.",
+  "logo": "https://www.google.com/s2/favicons?domain=bloobirds.com&sz=128",
+  "categories": [
+    "sales",
+    "crm",
+    "leads",
+    "prospecting",
+    "engagement"
+  ],
+  "base_url": "https://app.bloobirds.com/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Bloobirds API key (generate from Bloobirds admin settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_companies",
+      "description": "Search for companies in Bloobirds using filters. Returns matching company bobjects with their field values. Supports pagination and field-based filtering.",
+      "method": "POST",
+      "path": "/bobjects/Company/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "description": "Search query filters. Use field names as keys and filter values. Example: {\"COMPANY__NAME\": [\"Acme Corp\"]}."
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination. Starts at 0. Defaults to 0."
+          },
+          "pageSize": {
+            "type": "number",
+            "description": "Number of results per page. Defaults to 25. Maximum 1000."
+          },
+          "injectReferences": {
+            "type": "boolean",
+            "description": "Whether to resolve referenced bobject fields inline. Defaults to false."
+          },
+          "sort": {
+            "type": "array",
+            "description": "Array of sort objects. Each object has 'field' and 'direction' ('ASC' or 'DESC').",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Field name to sort by."
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "ASC",
+                    "DESC"
+                  ],
+                  "description": "Sort direction."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "search_leads",
+      "description": "Search for leads in Bloobirds using filters. Returns matching lead bobjects with their field values. Supports pagination and field-based filtering.",
+      "method": "POST",
+      "path": "/bobjects/Lead/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "object",
+            "description": "Search query filters. Use field names as keys and filter values. Example: {\"LEAD__EMAIL\": [\"john@example.com\"]}."
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination. Starts at 0. Defaults to 0."
+          },
+          "pageSize": {
+            "type": "number",
+            "description": "Number of results per page. Defaults to 25. Maximum 1000."
+          },
+          "injectReferences": {
+            "type": "boolean",
+            "description": "Whether to resolve referenced bobject fields inline. Defaults to false."
+          },
+          "sort": {
+            "type": "array",
+            "description": "Array of sort objects. Each object has 'field' and 'direction' ('ASC' or 'DESC').",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string",
+                  "description": "Field name to sort by."
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "ASC",
+                    "DESC"
+                  ],
+                  "description": "Sort direction."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "create_company",
+      "description": "Create a new company bobject in Bloobirds. Provide company field values to create the record in your sales pipeline.",
+      "method": "POST",
+      "path": "/bobjects/Company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "COMPANY__NAME": {
+            "type": "string",
+            "description": "Name of the company."
+          },
+          "COMPANY__WEBSITE": {
+            "type": "string",
+            "description": "Company website URL."
+          },
+          "COMPANY__INDUSTRY": {
+            "type": "string",
+            "description": "Industry of the company."
+          },
+          "COMPANY__COUNTRY": {
+            "type": "string",
+            "description": "Country where the company is located."
+          },
+          "COMPANY__CITY": {
+            "type": "string",
+            "description": "City where the company is located."
+          },
+          "COMPANY__SIZE": {
+            "type": "string",
+            "description": "Size category of the company (e.g. '1-10', '11-50', '51-200')."
+          }
+        },
+        "required": [
+          "COMPANY__NAME"
+        ]
+      }
+    },
+    {
+      "name": "create_lead",
+      "description": "Create a new lead bobject in Bloobirds. Provide lead field values including the associated company reference to create the record.",
+      "method": "POST",
+      "path": "/bobjects/Lead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "LEAD__FULL_NAME": {
+            "type": "string",
+            "description": "Full name of the lead."
+          },
+          "LEAD__EMAIL": {
+            "type": "string",
+            "description": "Email address of the lead."
+          },
+          "LEAD__PHONE": {
+            "type": "string",
+            "description": "Phone number of the lead."
+          },
+          "LEAD__JOB_TITLE": {
+            "type": "string",
+            "description": "Job title of the lead."
+          },
+          "LEAD__LINKEDIN_URL": {
+            "type": "string",
+            "description": "LinkedIn profile URL of the lead."
+          },
+          "LEAD__COMPANY": {
+            "type": "string",
+            "description": "Reference ID of the associated company bobject."
+          }
+        },
+        "required": [
+          "LEAD__FULL_NAME",
+          "LEAD__EMAIL"
+        ]
+      }
+    },
+    {
+      "name": "update_lead",
+      "description": "Update an existing lead bobject in Bloobirds. Provide the lead's bobject ID and the fields to update.",
+      "method": "PUT",
+      "path": "/bobjects/Lead/{{param.bobject_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bobject_id": {
+            "type": "string",
+            "description": "The unique bobject ID of the lead to update."
+          },
+          "LEAD__FULL_NAME": {
+            "type": "string",
+            "description": "Updated full name of the lead."
+          },
+          "LEAD__EMAIL": {
+            "type": "string",
+            "description": "Updated email address of the lead."
+          },
+          "LEAD__PHONE": {
+            "type": "string",
+            "description": "Updated phone number of the lead."
+          },
+          "LEAD__JOB_TITLE": {
+            "type": "string",
+            "description": "Updated job title of the lead."
+          },
+          "LEAD__LINKEDIN_URL": {
+            "type": "string",
+            "description": "Updated LinkedIn profile URL."
+          },
+          "LEAD__COMPANY": {
+            "type": "string",
+            "description": "Updated company bobject reference ID."
+          }
+        },
+        "required": [
+          "bobject_id"
+        ]
+      }
+    }
+  ]
+}

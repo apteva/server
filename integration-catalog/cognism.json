@@ -1,0 +1,293 @@
+{
+  "slug": "cognism",
+  "name": "Cognism",
+  "description": "Official Cognism B2B sales-intelligence API for entitlement-aware contact and account search, preview/redeem, enrichment, filter discovery, and opt-out compliance checks.",
+  "logo": "https://www.google.com/s2/favicons?domain=cognism.com&sz=128",
+  "categories": ["sales", "leads", "enrichment", "prospecting", "b2b", "compliance", "europe"],
+  "base_url": "https://app.cognism.com/api/search",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Cognism API key",
+        "description": "API key generated in Cognism Prospector or Cognism Refresh. Cognism API keys expire after six months and require API entitlements.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": { "tool": "get_contact_entitlements" },
+  "tools": [
+    {
+      "name": "search_contacts",
+      "description": "Search and preview Cognism contacts without redeeming them. Supports job, geography, seniority, quality, skills, and nested account filters. Use lastReturnedKey from the response for sequential pagination.",
+      "method": "POST",
+      "path": "/contact/search",
+      "query_params": ["indexSize", "lastReturnedKey"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+          "lastReturnedKey": { "type": "string", "description": "Opaque key from the previous page; omit for the first page." },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "jobTitles": { "type": "array", "items": { "type": "string" } },
+          "excludeJobTitles": { "type": "array", "items": { "type": "string" } },
+          "managementLevels": { "type": "array", "items": { "type": "string" } },
+          "jobFunctions": { "type": "array", "items": { "type": "string" } },
+          "seniority": { "type": "array", "items": { "type": "string" } },
+          "regions": { "type": "array", "items": { "type": "string" } },
+          "countries": { "type": "array", "items": { "type": "string" } },
+          "states": { "type": "array", "items": { "type": "string" } },
+          "skills": { "type": "array", "items": { "type": "string" } },
+          "emailQuality": { "type": "object", "description": "Quality flags such as {highPlus:true}." },
+          "mobilePhoneNumbers": { "type": "object", "description": "Phone quality flags such as {highPlus:true}." },
+          "account": { "type": "object", "description": "Nested company filters: names, domains, industries, sizes, locations, technologies, revenue, events, and phone quality." }
+        }
+      }
+    },
+    {
+      "name": "search_accounts",
+      "description": "Search and preview Cognism companies using names, domains, location, size, revenue, industry, technology, and event filters. Use lastReturnedKey for the next page.",
+      "method": "POST",
+      "path": "/account/search",
+      "query_params": ["indexSize", "lastReturnedKey"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "indexSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+          "lastReturnedKey": { "type": "string" },
+          "names": { "type": "array", "items": { "type": "string" } },
+          "domains": { "type": "array", "items": { "type": "string" } },
+          "industries": { "type": "array", "items": { "type": "string" } },
+          "technologies": { "type": "array", "items": { "type": "string" } },
+          "countries": { "type": "array", "items": { "type": "string" } },
+          "states": { "type": "array", "items": { "type": "string" } },
+          "companySizes": { "type": "array", "items": { "type": "string" } },
+          "companyTypes": { "type": "array", "items": { "type": "string" } },
+          "accountSearchOptions": { "type": "object", "description": "Matching options including match_exact_account_name, match_exact_domain, filter_domain, and events_operator." }
+        }
+      }
+    },
+    {
+      "name": "redeem_contacts",
+      "description": "Redeem full entitled contact records from preview IDs returned by search_contacts. This may consume contact credits.",
+      "method": "POST",
+      "path": "/contact/redeem",
+      "query_params": ["mergePhonesAndLocations"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "redeemIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "mergePhonesAndLocations": { "type": "boolean", "description": "Merge phone and location variants in the returned records." }
+        },
+        "required": ["redeemIds"]
+      }
+    },
+    {
+      "name": "redeem_accounts",
+      "description": "Redeem full entitled company records from preview IDs returned by search_accounts.",
+      "method": "POST",
+      "path": "/account/redeem",
+      "query_params": ["mergePhonesAndLocations"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "redeemIds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "mergePhonesAndLocations": { "type": "boolean" }
+        },
+        "required": ["redeemIds"]
+      }
+    },
+    {
+      "name": "enrich_contact",
+      "description": "Match and enrich one contact. Supply the strongest identifiers available; email or LinkedIn URL gives the highest precision, while name matching should include company data.",
+      "method": "POST",
+      "path": "/contact/enrich",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "linkedinUrl": { "type": "string" },
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "fullName": { "type": "string" },
+          "jobTitle": { "type": "string" },
+          "phone": { "type": "string" },
+          "accountName": { "type": "string" },
+          "accountDomain": { "type": "string" }
+        },
+        "minProperties": 1
+      }
+    },
+    {
+      "name": "enrich_account",
+      "description": "Match and enrich one company by website/domain, name, LinkedIn URL, or Cognism account ID.",
+      "method": "POST",
+      "path": "/account/enrich",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "website": { "type": "string" },
+          "domain": { "type": "string" },
+          "name": { "type": "string" },
+          "linkedinUrl": { "type": "string" },
+          "id": { "type": "string" }
+        },
+        "minProperties": 1
+      }
+    },
+    {
+      "name": "get_contact_entitlements",
+      "description": "Return the contact fields and capabilities enabled for this Cognism API key. Use this first to verify credentials and understand response coverage.",
+      "method": "GET",
+      "path": "/entitlement/contactEntitlementSubscription",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_account_entitlements",
+      "description": "Return the account fields and capabilities enabled for this Cognism API key.",
+      "method": "GET",
+      "path": "/entitlement/accountEntitlementSubscription",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "search_technologies",
+      "description": "List or search Cognism's supported technology filters. Use lastReturnedKey for pagination.",
+      "method": "GET",
+      "path": "/filter/technologiesSearch",
+      "query_params": ["search", "indexSize", "lastReturnedKey"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": { "type": "string" },
+          "indexSize": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 20 },
+          "lastReturnedKey": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_management_levels",
+      "description": "List supported contact management-level filters.",
+      "method": "GET",
+      "path": "/filter/managementLevels",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_company_sizes",
+      "description": "List supported company-size filters.",
+      "method": "GET",
+      "path": "/filter/companySizes",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_industries",
+      "description": "List supported industry filters.",
+      "method": "GET",
+      "path": "/filter/industries",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_job_functions",
+      "description": "List supported job-function filters.",
+      "method": "GET",
+      "path": "/filter/jobFunctions",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_regions",
+      "description": "List supported world-region filters.",
+      "method": "GET",
+      "path": "/filter/regions",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_countries",
+      "description": "List supported country filters.",
+      "method": "GET",
+      "path": "/filter/countries",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_states",
+      "description": "List supported state/region filters.",
+      "method": "GET",
+      "path": "/filter/states",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_classification_codes",
+      "description": "List supported SIC, ISIC, or NAICS classification codes.",
+      "method": "GET",
+      "path": "/filter/{standard}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "standard": { "type": "string", "enum": ["sic", "isic", "naics"] } },
+        "required": ["standard"]
+      }
+    },
+    {
+      "name": "list_skills",
+      "description": "List supported contact-skill filters.",
+      "method": "GET",
+      "path": "/filter/skills",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_company_types",
+      "description": "List supported company-type filters.",
+      "method": "GET",
+      "path": "/filter/companyTypes",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_seniority",
+      "description": "List supported seniority filters.",
+      "method": "GET",
+      "path": "/filter/seniority",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_opt_outs",
+      "description": "Return contacts that have opted out. Use pageKey from the response to fetch the next page.",
+      "method": "GET",
+      "path": "/contact/optOut",
+      "query_params": ["pageSize", "pageKey"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 },
+          "pageKey": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "check_opt_out_by_email",
+      "description": "Check whether a contact has opted out by email. Cognism returns 200 when opted out and 404 when not opted out.",
+      "method": "GET",
+      "path": "/contact/optOut/email/{email}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "email": { "type": "string" } },
+        "required": ["email"]
+      }
+    },
+    {
+      "name": "check_opt_out_by_id",
+      "description": "Check whether a contact has opted out by Cognism contact ID. Cognism returns 200 when opted out and 404 when not opted out.",
+      "method": "GET",
+      "path": "/contact/optOut/id/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "contact_id": { "type": "string" } },
+        "required": ["contact_id"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,240 @@
+{
+  "slug": "cal-com",
+  "name": "Cal.com",
+  "description": "Cal.com open-source scheduling platform. Manage event types, bookings, and availability slots for appointments and meetings.",
+  "logo": "https://www.google.com/s2/favicons?domain=cal.com&sz=128",
+  "categories": [
+    "scheduling",
+    "calendar",
+    "bookings",
+    "appointments",
+    "availability"
+  ],
+  "base_url": "https://api.cal.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Cal.com API key (generate at cal.com/settings/developer/api-keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_event_types",
+      "description": "Retrieve all event types configured for the authenticated user. Returns event type details including ID, title, slug, description, length, locations, and booking fields. Useful for discovering available event types before creating bookings.",
+      "method": "GET",
+      "path": "/event-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventSlug": {
+            "type": "string",
+            "description": "Optional slug to filter event types by a specific slug."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_bookings",
+      "description": "Retrieve all bookings for the authenticated user. Supports filtering by status, event type, and date range. Returns booking details including attendees, start/end times, and status.",
+      "method": "GET",
+      "path": "/bookings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter bookings by status.",
+            "enum": [
+              "upcoming",
+              "recurring",
+              "past",
+              "cancelled",
+              "unconfirmed"
+            ]
+          },
+          "eventTypeId": {
+            "type": "integer",
+            "description": "Filter bookings by event type ID."
+          },
+          "afterStart": {
+            "type": "string",
+            "description": "Filter bookings starting after this date (ISO 8601 format)."
+          },
+          "beforeEnd": {
+            "type": "string",
+            "description": "Filter bookings ending before this date (ISO 8601 format)."
+          },
+          "sortStart": {
+            "type": "string",
+            "description": "Sort by start time: 'asc' or 'desc'.",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "sortEnd": {
+            "type": "string",
+            "description": "Sort by end time: 'asc' or 'desc'.",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "sortCreated": {
+            "type": "string",
+            "description": "Sort by creation time: 'asc' or 'desc'.",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "take": {
+            "type": "integer",
+            "description": "Number of bookings to return (pagination limit)."
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of bookings to skip (pagination offset)."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_booking",
+      "description": "Create a new booking for a specific event type. Provide the event type ID, start time in UTC, and attendee details (name, email, timezone). Supports regular, recurring, and instant bookings depending on the event type configuration.",
+      "method": "POST",
+      "path": "/bookings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventTypeId": {
+            "type": "integer",
+            "description": "The ID of the event type to book."
+          },
+          "start": {
+            "type": "string",
+            "description": "The start time of the booking in UTC ISO 8601 format (e.g. '2026-03-15T14:00:00Z'). Must be in UTC timezone."
+          },
+          "attendee": {
+            "type": "object",
+            "description": "The attendee information for the booking.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Full name of the attendee."
+              },
+              "email": {
+                "type": "string",
+                "description": "Email address of the attendee."
+              },
+              "timeZone": {
+                "type": "string",
+                "description": "IANA timezone of the attendee (e.g. 'America/New_York', 'Europe/London')."
+              },
+              "phoneNumber": {
+                "type": "string",
+                "description": "Phone number in international format (e.g. '+19876543210'). Required if SMS reminders are enabled."
+              }
+            },
+            "required": [
+              "name",
+              "email",
+              "timeZone"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Optional metadata key-value pairs to store with the booking. Max 50 keys."
+          },
+          "bookingFieldsResponses": {
+            "type": "object",
+            "description": "Responses to custom booking fields defined on the event type."
+          }
+        },
+        "required": [
+          "eventTypeId",
+          "start",
+          "attendee"
+        ]
+      }
+    },
+    {
+      "name": "cancel_booking",
+      "description": "Cancel an existing booking by its unique identifier. Optionally provide a cancellation reason. For seated bookings, provide a seatUid to cancel a specific attendee's seat. For recurring bookings, cancels all recurrences when using the recurring booking UID.",
+      "method": "POST",
+      "path": "/bookings/{{param.bookingUid}}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bookingUid": {
+            "type": "string",
+            "description": "The unique identifier (UID) of the booking to cancel."
+          },
+          "cancellationReason": {
+            "type": "string",
+            "description": "Optional reason for the cancellation."
+          },
+          "seatUid": {
+            "type": "string",
+            "description": "For seated bookings, the UID of the specific seat to cancel."
+          }
+        },
+        "required": [
+          "bookingUid"
+        ]
+      }
+    },
+    {
+      "name": "get_availability",
+      "description": "Retrieve available time slots for a specific event type within a date range. Returns available slots grouped by date in the specified timezone. Identify the event type by ID, or by slug and username combination.",
+      "method": "GET",
+      "path": "/slots/available",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "startTime": {
+            "type": "string",
+            "description": "Start of the time range to check for availability in UTC ISO 8601 format (e.g. '2026-03-15T00:00:00Z')."
+          },
+          "endTime": {
+            "type": "string",
+            "description": "End of the time range to check for availability in UTC ISO 8601 format (e.g. '2026-03-16T00:00:00Z')."
+          },
+          "eventTypeId": {
+            "type": "integer",
+            "description": "The event type ID to check availability for. Use this or eventTypeSlug+username."
+          },
+          "eventTypeSlug": {
+            "type": "string",
+            "description": "The event type slug. Must be combined with username."
+          },
+          "username": {
+            "type": "string",
+            "description": "The username of the host. Used with eventTypeSlug to identify the event type."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA timezone for returned slots (e.g. 'America/New_York'). Defaults to UTC."
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Duration in minutes for event types that support multiple durations. Defaults to the event type's default duration."
+          }
+        },
+        "required": [
+          "startTime",
+          "endTime"
+        ]
+      }
+    }
+  ]
+}

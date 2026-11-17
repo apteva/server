@@ -1,0 +1,153 @@
+{
+  "slug": "deepseek",
+  "name": "DeepSeek",
+  "description": "DeepSeek AI large language model API. OpenAI-compatible chat completions and model listing. Supports deepseek-chat and deepseek-reasoner models.",
+  "logo": "https://www.google.com/s2/favicons?domain=deepseek.com&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "chat",
+    "reasoning",
+    "deepseek"
+  ],
+  "base_url": "https://api.deepseek.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "DeepSeek API key (generate at platform.deepseek.com/api_keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create a chat completion using DeepSeek models. Send a conversation of messages and receive an AI-generated response. Supports deepseek-chat (standard) and deepseek-reasoner (thinking/reasoning mode). The API is OpenAI-compatible.",
+      "method": "POST",
+      "path": "/chat/completions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "The model to use for chat completion. 'deepseek-chat' for standard mode, 'deepseek-reasoner' for thinking/reasoning mode.",
+            "enum": [
+              "deepseek-chat",
+              "deepseek-reasoner"
+            ],
+            "default": "deepseek-chat"
+          },
+          "messages": {
+            "type": "array",
+            "description": "Array of message objects representing the conversation history.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant"
+                  ],
+                  "description": "The role of the message author."
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The content of the message."
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Maximum number of tokens to generate in the response. The total of input + output tokens is limited by the model's context length.",
+            "default": 4096
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature between 0 and 2. Lower values make output more focused and deterministic, higher values make it more random.",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 1
+          },
+          "top_p": {
+            "type": "number",
+            "description": "Nucleus sampling parameter. The model considers tokens with top_p cumulative probability mass. Alternative to temperature.",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 1
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "If true, partial message deltas will be sent as server-sent events. If false, the complete response is returned at once.",
+            "default": false
+          },
+          "stop": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 16 sequences where the API will stop generating further tokens."
+          },
+          "frequency_penalty": {
+            "type": "number",
+            "description": "Penalizes new tokens based on their frequency in the text so far. Range -2.0 to 2.0.",
+            "minimum": -2,
+            "maximum": 2,
+            "default": 0
+          },
+          "presence_penalty": {
+            "type": "number",
+            "description": "Penalizes new tokens based on whether they appear in the text so far. Range -2.0 to 2.0.",
+            "minimum": -2,
+            "maximum": 2,
+            "default": 0
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Specify the output format. Use {\"type\": \"json_object\"} to enforce valid JSON output.",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "json_object"
+                ],
+                "description": "The format type for the response."
+              }
+            }
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List all available DeepSeek models. Returns model IDs, object type, and ownership information. Currently available models include deepseek-chat and deepseek-reasoner.",
+      "method": "GET",
+      "path": "/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

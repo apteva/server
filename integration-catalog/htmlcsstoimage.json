@@ -1,0 +1,92 @@
+{
+  "slug": "htmlcsstoimage",
+  "name": "HTML/CSS to Image",
+  "description": "Render arbitrary HTML + CSS to a PNG/JPEG/WebP. Unlike URL-to-screenshot APIs, this takes raw markup and renders it — great for templated images, social cards, OG images, certificates, charts. HTTP Basic auth with user_id + api_key.",
+  "logo": "https://www.google.com/s2/favicons?domain=htmlcsstoimage.com&sz=128",
+  "categories": ["screenshots", "rendering", "templates", "images"],
+  "base_url": "https://hcti.io/v1",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      { "name": "user_id", "label": "HCTI user ID" },
+      { "name": "api_key", "label": "HCTI API key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "image",
+      "description": "Render HTML + CSS to an image. Returns a JSON object with `url` pointing at the hosted image. Use `template_id` to render against a previously-saved template instead of inline HTML. NOTE: this template uses HTTP Basic auth — the dashboard's connect form should accept user_id + api_key, and apteva will base64 them as user_id:api_key automatically.",
+      "method": "POST",
+      "path": "/image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "html": { "type": "string", "description": "HTML markup to render" },
+          "css": { "type": "string", "description": "CSS to apply" },
+          "google_fonts": { "type": "string", "description": "Google Fonts to load (comma-separated)" },
+          "selector": { "type": "string", "description": "CSS selector — render only this element" },
+          "ms_delay": { "type": "integer", "description": "Wait this many ms after page load before rendering" },
+          "device_scale": { "type": "number", "default": 1, "description": "Device pixel ratio (2 = retina)" },
+          "render_when_ready": { "type": "boolean", "default": false, "description": "Wait for window.signalReady() to fire" },
+          "viewport_width": { "type": "integer" },
+          "viewport_height": { "type": "integer" },
+          "format": { "type": "string", "enum": ["png", "jpg", "webp", "pdf"], "default": "png" },
+          "template_id": { "type": "string", "description": "ID of a saved template to render against" },
+          "template_data": { "type": "object", "description": "Variables to interpolate into the template" }
+        },
+        "required": ["html"]
+      }
+    },
+    {
+      "name": "get_image",
+      "description": "Get details about a previously-rendered image by id.",
+      "method": "GET",
+      "path": "/image/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "delete_image",
+      "description": "Delete a previously-rendered image.",
+      "method": "DELETE",
+      "path": "/image/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a saved HTML template you can render later by id with template_data variables.",
+      "method": "POST",
+      "path": "/template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "html": { "type": "string" },
+          "css": { "type": "string" },
+          "name": { "type": "string" }
+        },
+        "required": ["html"]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List saved templates.",
+      "method": "GET",
+      "path": "/template",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

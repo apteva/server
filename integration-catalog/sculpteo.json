@@ -1,0 +1,159 @@
+{
+  "slug": "sculpteo",
+  "name": "Sculpteo",
+  "description": "Sculpteo WebAPI for multipart model uploads, material discovery, print pricing, invoice-enabled production orders, notifications, and tracking.",
+  "logo": "https://www.google.com/s2/favicons?domain=sculpteo.com&sz=128",
+  "categories": ["3d-printing", "sculpteo", "manufacturing", "prototyping", "materials"],
+  "base_url": "https://www.sculpteo.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    "body_params": {
+      "login": "{{login}}",
+      "password": "{{password}}"
+    },
+    "credential_fields": [
+      {
+        "name": "login",
+        "label": "Login",
+        "description": "Sculpteo account login/email used by order APIs."
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "type": "password",
+        "description": "Sculpteo account password used by order APIs."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_materials",
+      "description": "List Sculpteo materials in JSON. Material ids are used by price and order calls.",
+      "method": "GET",
+      "path": "/{language}/api/material/list/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" }
+        },
+        "required": ["language"]
+      }
+    },
+    {
+      "name": "list_designs",
+      "description": "Search or page Sculpteo public designs.",
+      "method": "GET",
+      "path": "/{language}/gallery/x_design_list/",
+      "query_params": ["order_by", "designer", "design_list", "search", "start", "count", "paginate_by", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "order_by": { "type": "string", "enum": ["timestamp", "rate"] },
+          "designer": { "type": "string" },
+          "design_list": { "type": "string" },
+          "search": { "type": "string" },
+          "start": { "type": "integer" },
+          "count": { "type": "integer" },
+          "paginate_by": { "type": "integer" },
+          "page": { "type": "integer" }
+        },
+        "required": ["language"]
+      }
+    },
+    {
+      "name": "upload_design",
+      "description": "Upload a model with Sculpteo's documented multipart endpoint. file may be base64, a data URL, or raw bytes represented as a string; use a ZIP when the design references textures. The maximum documented upload size is 500 MB.",
+      "method": "POST",
+      "path": "/{language}/upload_design/a/3D/",
+      "multipart_form": {
+        "file_fields": { "file": "file" },
+        "field_names": ["name", "description", "keywords", "share", "print_authorization", "customizable", "unit", "scale", "materials", "sizes", "trackid"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "file": { "type": "string", "description": "Model or ZIP file data as base64, a data URL, or raw string bytes." },
+          "filename": { "type": "string", "description": "Filename with extension." },
+          "name": { "type": "string", "description": "Design name." },
+          "description": { "type": "string" },
+          "keywords": { "type": "string" },
+          "share": { "type": "integer", "enum": [0, 1], "default": 0 },
+          "print_authorization": { "type": "integer", "enum": [0, 1], "default": 1 },
+          "customizable": { "type": "integer", "enum": [0, 1], "default": 0 },
+          "unit": { "type": "string", "enum": ["mm", "cm", "in", "ft", "yd"], "default": "cm" },
+          "scale": { "type": "number", "default": 1 },
+          "materials": { "type": "string", "description": "Comma-separated material ids to allow." },
+          "sizes": { "type": "string", "description": "Comma-separated allowed scale factors, for example 0.5,1,2." },
+          "trackid": { "type": "string", "description": "Optional Sculpteo design-tracking UUID configured on the account." }
+        },
+        "required": ["language", "file", "filename", "name"]
+      }
+    },
+    {
+      "name": "get_price_by_uuid",
+      "description": "Get 3D print price for a Sculpteo design UUID, material, scale, quantity, unit, and currency.",
+      "method": "GET",
+      "path": "/{language}/api/design/3D/price_by_uuid/",
+      "query_params": ["uuid", "quantity", "scale", "unit", "currency", "productname"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "uuid": { "type": "string", "description": "Sculpteo design UUID." },
+          "quantity": { "type": "integer", "default": 1 },
+          "scale": { "type": "number", "default": 1 },
+          "unit": { "type": "string", "enum": ["mm", "cm", "m", "in", "ft", "yd"], "default": "cm" },
+          "currency": { "type": "string", "enum": ["EUR", "USD", "GBP"] },
+          "productname": { "type": "string", "description": "Material id, or comma-separated material ids for multi-material pricing." }
+        },
+        "required": ["language", "uuid"]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create a Sculpteo production order using documented form keys item[0], item[1], etc. Each item is '<uuid>:<qty>:<scale>:<unit>:<material>'. This is billable unless fake=1, and invoice payment must first be enabled by Sculpteo. Confirm price, address, and item strings before calling.",
+      "method": "POST",
+      "path": "/{language}/api/store/3D/order/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "enum": ["en", "fr"], "default": "en" },
+          "item[0]": { "type": "string", "description": "First item as <uuid>:<qty>:<scale>:<unit>:<material>." },
+          "item[1]": { "type": "string", "description": "Optional second item as <uuid>:<qty>:<scale>:<unit>:<material>." },
+          "item[2]": { "type": "string", "description": "Optional third item as <uuid>:<qty>:<scale>:<unit>:<material>." },
+          "ship_addressee": { "type": "string" },
+          "ship_street1": { "type": "string" },
+          "ship_street2": { "type": "string" },
+          "ship_city": { "type": "string" },
+          "ship_state": { "type": "string" },
+          "ship_postal_code": { "type": "string" },
+          "ship_country": { "type": "string", "description": "ISO 3166-1 alpha-2 country code." },
+          "ship_method": { "type": "string", "enum": ["express", "quick"] },
+          "notification_url": { "type": "string", "description": "Optional webhook URL for order status changes." },
+          "fake": { "type": "integer", "enum": [0, 1], "description": "Use 1 for Sculpteo API test orders where supported." },
+          "comment": { "type": "string" }
+        },
+        "required": ["language", "item[0]"]
+      }
+    },
+    {
+      "name": "get_order_tracking",
+      "description": "Open tracking/status information for a Sculpteo order reference returned by create_order.",
+      "method": "GET",
+      "path": "/shop/tracking/reference/{reference}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reference": { "type": "string" }
+        },
+        "required": ["reference"]
+      }
+    }
+  ]
+}

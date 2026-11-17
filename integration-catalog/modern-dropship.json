@@ -1,0 +1,263 @@
+{
+  "slug": "modern-dropship",
+  "name": "Carro / Modern Dropship",
+  "description": "Modern Dropship buyer API for retailer-side catalog discovery, variants, pricing lists, dropship orders, cancellations, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=moderndropship.com&sz=128",
+  "categories": ["dropshipping", "ecommerce", "supplier-catalog", "fulfillment", "webhooks"],
+  "base_url": "https://api.moderndropship.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Authorization": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Modern Dropship API key. The API expects it in the Authorization header."
+      }
+    ]
+  },
+  "health_check": { "tool": "me_get" },
+  "tools": [
+    {
+      "name": "me_get",
+      "description": "Get the authenticated Modern Dropship account.",
+      "method": "GET",
+      "path": "/auth/me",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "partners_list",
+      "description": "List connected Modern Dropship partners/suppliers.",
+      "method": "GET",
+      "path": "/partners",
+      "query_params": ["page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 50 }
+        }
+      }
+    },
+    {
+      "name": "buyer_products_list",
+      "description": "List products available to the buyer/retailer. Use filters to discover supplier catalog items for import.",
+      "method": "GET",
+      "path": "/buyer/products",
+      "query_params": ["page", "limit", "updatedMin", "companyId", "title", "productCode", "buyerProductCode"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 50 },
+          "updatedMin": { "type": "string", "description": "Filter products updated after this ISO timestamp." },
+          "companyId": { "type": "string", "description": "Supplier/company ID." },
+          "title": { "type": "string", "description": "Product title search." },
+          "productCode": { "type": "string", "description": "Supplier product code." },
+          "buyerProductCode": { "type": "string", "description": "Buyer product code." }
+        }
+      }
+    },
+    {
+      "name": "buyer_product_get",
+      "description": "Get one Modern Dropship buyer product.",
+      "method": "GET",
+      "path": "/buyer/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "product_id": { "type": "string", "description": "Modern Dropship product ID." } },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "buyer_product_variants_list",
+      "description": "List variants for one Modern Dropship buyer product.",
+      "method": "GET",
+      "path": "/buyer/products/{product_id}/variants",
+      "query_params": ["page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string", "description": "Modern Dropship product ID." },
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 50 }
+        },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "buyer_product_variant_get",
+      "description": "Get one Modern Dropship buyer product variant.",
+      "method": "GET",
+      "path": "/buyer/products/{product_id}/variants/{variant_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string", "description": "Modern Dropship product ID." },
+          "variant_id": { "type": "string", "description": "Modern Dropship variant ID." }
+        },
+        "required": ["product_id", "variant_id"]
+      }
+    },
+    {
+      "name": "price_list_get",
+      "description": "Get a Modern Dropship price list by ID.",
+      "method": "GET",
+      "path": "/buyer/price-lists/{listID}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "listID": { "type": "string", "description": "Price list ID." } },
+        "required": ["listID"]
+      }
+    },
+    {
+      "name": "price_list_entries_list",
+      "description": "List Modern Dropship price-list entries.",
+      "method": "GET",
+      "path": "/buyer/price-lists/{listID}/entries",
+      "query_params": ["page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listID": { "type": "string", "description": "Price list ID." },
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 50 }
+        },
+        "required": ["listID"]
+      }
+    },
+    {
+      "name": "buyer_orders_list",
+      "description": "List Modern Dropship buyer orders.",
+      "method": "GET",
+      "path": "/buyer/orders",
+      "query_params": ["page", "limit", "status", "updatedMin", "createdMin", "createdMax"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 50 },
+          "status": { "type": "string", "description": "Order status filter." },
+          "updatedMin": { "type": "string", "description": "Updated-after ISO timestamp." },
+          "createdMin": { "type": "string", "description": "Created-after ISO timestamp." },
+          "createdMax": { "type": "string", "description": "Created-before ISO timestamp." }
+        }
+      }
+    },
+    {
+      "name": "buyer_order_create",
+      "description": "Create a Modern Dropship buyer order. Pass the provider's order create object as order.",
+      "method": "POST",
+      "path": "/buyer/orders",
+      "body_root_param": "order",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order": { "type": "object", "description": "Modern Dropship order-create request body." } },
+        "required": ["order"]
+      }
+    },
+    {
+      "name": "buyer_order_get",
+      "description": "Get one Modern Dropship buyer order.",
+      "method": "GET",
+      "path": "/buyer/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "order_id": { "type": "string", "description": "Modern Dropship order ID." } },
+        "required": ["order_id"]
+      }
+    },
+    {
+      "name": "buyer_order_update",
+      "description": "Update one Modern Dropship buyer order.",
+      "method": "PATCH",
+      "path": "/buyer/orders/{order_id}",
+      "body_root_param": "order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string", "description": "Modern Dropship order ID." },
+          "order": { "type": "object", "description": "Modern Dropship order update body." }
+        },
+        "required": ["order_id", "order"]
+      }
+    },
+    {
+      "name": "buyer_order_cancel",
+      "description": "Cancel one Modern Dropship buyer order.",
+      "method": "POST",
+      "path": "/buyer/orders/{order_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string", "description": "Modern Dropship order ID." },
+          "unfulfilledOnly": { "type": "boolean", "description": "Only cancel unfulfilled lines when supported." }
+        },
+        "required": ["order_id"]
+      }
+    },
+    {
+      "name": "webhook_topics_list",
+      "description": "List Modern Dropship webhook topics.",
+      "method": "GET",
+      "path": "/webhooks/topics",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "webhooks_list",
+      "description": "List Modern Dropship webhooks.",
+      "method": "GET",
+      "path": "/webhooks",
+      "query_params": ["page", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 50 }
+        }
+      }
+    },
+    {
+      "name": "webhook_create",
+      "description": "Create a Modern Dropship webhook. Pass the provider's webhook object as webhook.",
+      "method": "POST",
+      "path": "/webhooks",
+      "body_root_param": "webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": { "webhook": { "type": "object", "description": "Modern Dropship webhook create request body, including topic/event and target URL fields required by the API." } },
+        "required": ["webhook"]
+      }
+    },
+    {
+      "name": "webhook_get",
+      "description": "Get one Modern Dropship webhook.",
+      "method": "GET",
+      "path": "/webhooks/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "description": "Webhook ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "webhook_update",
+      "description": "Update one Modern Dropship webhook.",
+      "method": "PATCH",
+      "path": "/webhooks/{id}",
+      "body_root_param": "webhook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Webhook ID." },
+          "webhook": { "type": "object", "description": "Modern Dropship webhook update request body." }
+        },
+        "required": ["id", "webhook"]
+      }
+    }
+  ]
+}

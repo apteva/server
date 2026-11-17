@@ -1,0 +1,348 @@
+{
+  "slug": "target-circle",
+  "name": "Target Circle (Circlewise)",
+  "description": "Target Circle Publisher API used by Circlewise publishers. Search available offers, fetch offer details and ads, generate tracking codes/deeplinks, and retrieve publisher performance reports.",
+  "logo": "https://www.google.com/s2/favicons?domain=targetcircle.com&sz=128",
+  "categories": [
+    "affiliate",
+    "publisher",
+    "offers",
+    "links",
+    "marketing",
+    "circlewise"
+  ],
+  "base_url": "https://api.targetcircle.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Api-Token": "{{api_token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_token",
+        "label": "Publisher API token",
+        "description": "Target Circle / Circlewise publisher API token.",
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "offers_list",
+    "input": {
+      "limit": 1
+    },
+    "expect_status": [
+      200
+    ]
+  },
+  "tools": [
+    {
+      "name": "offers_list",
+      "description": "List available publisher offers/trades from Target Circle. The live v1 endpoint returns offers grouped by ad inventory. Supports filtering by offer, advertiser, status, ad inventory, provider, category, vertical, country, currency, start/end dates, and pagination.",
+      "method": "GET",
+      "path": "/api/v1/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum number of offer groups to return. Target Circle rejects values above 50.",
+            "maximum": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset."
+          },
+          "offerSid": {
+            "type": "string",
+            "description": "Offer slug/SID filter from the Target Circle tester."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer ID filter from the Publisher API docs."
+          },
+          "offerName": {
+            "type": "string",
+            "description": "Offer name filter. Comma-separated values mean OR."
+          },
+          "device": {
+            "type": "string",
+            "description": "Offer device filter."
+          },
+          "status": {
+            "type": "string",
+            "description": "Offer status filter, for example accepted."
+          },
+          "adInventoryName": {
+            "type": "string",
+            "description": "Ad inventory name filter."
+          },
+          "adInventorySid": {
+            "type": "string",
+            "description": "Ad inventory slug/SID filter."
+          },
+          "adInventory": {
+            "type": "string",
+            "description": "Ad inventory filter from the Publisher API docs."
+          },
+          "advertiser": {
+            "type": "string",
+            "description": "Advertiser filter. Comma-separated values mean OR."
+          },
+          "country": {
+            "type": "string",
+            "description": "Country filter. Comma-separated values mean OR."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code, for example EUR or USD."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider filter. Comma-separated values mean OR."
+          },
+          "category": {
+            "type": "string",
+            "description": "Category filter. Comma-separated values mean OR."
+          },
+          "vertical": {
+            "type": "string",
+            "description": "Vertical filter. Comma-separated values mean OR."
+          },
+          "startDateFrom": {
+            "type": "string",
+            "description": "Start date lower bound."
+          },
+          "startDateTo": {
+            "type": "string",
+            "description": "Start date upper bound."
+          },
+          "endDateFrom": {
+            "type": "string",
+            "description": "End date lower bound."
+          },
+          "endDateTo": {
+            "type": "string",
+            "description": "End date upper bound."
+          }
+        }
+      }
+    },
+    {
+      "name": "offer_get",
+      "description": "Fetch one offer by slug/SID, including provider, advertiser, ad inventories, tracking/deeplinking settings, policies, target countries, and target URL.",
+      "method": "GET",
+      "path": "/api/v1/offers/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Offer slug/SID."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "offer_ads_list",
+      "description": "List text and banner ads for an offer. Use together with codes_list type filters when you need specific ad assets.",
+      "method": "GET",
+      "path": "/api/v1/offers/{slug}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Offer slug/SID."
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "codes_list",
+      "description": "Generate/list tracking codes and click URLs for an offer/ad inventory, optionally with a deeplink and tracking parameters. The live API requires at least one parameters[...] query value, such as parameters[ref1] or parameters[source_id].",
+      "method": "GET",
+      "path": "/api/v1/codes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum number of codes to return."
+          },
+          "offerSid": {
+            "type": "string",
+            "description": "Offer slug/SID from the official tester."
+          },
+          "offerId": {
+            "type": "string",
+            "description": "Offer ID from the Publisher API docs."
+          },
+          "adInventorySid": {
+            "type": "string",
+            "description": "Ad inventory slug/SID from the official tester."
+          },
+          "adInventory": {
+            "type": "string",
+            "description": "Ad inventory identifier from the Publisher API docs."
+          },
+          "deeplink": {
+            "type": "string",
+            "description": "Optional destination URL to deep-link to when the offer permits deeplinking."
+          },
+          "parameters[idfa]": {
+            "type": "string",
+            "description": "iOS advertising identifier tracking parameter."
+          },
+          "parameters[gaid]": {
+            "type": "string",
+            "description": "Google advertising identifier tracking parameter."
+          },
+          "parameters[waid]": {
+            "type": "string",
+            "description": "Windows advertising identifier tracking parameter."
+          },
+          "parameters[click_id]": {
+            "type": "string",
+            "description": "External click ID tracking parameter."
+          },
+          "parameters[source_id]": {
+            "type": "string",
+            "description": "External source ID tracking parameter."
+          },
+          "parameters[ref1]": {
+            "type": "string",
+            "description": "Publisher reference/sub ID 1. Include at least one parameters[...] value; the live API returns 500 when the parameters object is omitted."
+          },
+          "parameters[ref2]": {
+            "type": "string",
+            "description": "Publisher reference/sub ID 2."
+          },
+          "parameters[ref3]": {
+            "type": "string",
+            "description": "Publisher reference/sub ID 3."
+          },
+          "parameters[ref4]": {
+            "type": "string",
+            "description": "Publisher reference/sub ID 4."
+          },
+          "parameters[ref5]": {
+            "type": "string",
+            "description": "Publisher reference/sub ID 5."
+          },
+          "type": {
+            "type": "string",
+            "description": "Ad/code type, for example text or banner."
+          },
+          "maxHeight": {
+            "type": "integer",
+            "description": "Maximum banner height."
+          },
+          "minHeight": {
+            "type": "integer",
+            "description": "Minimum banner height."
+          },
+          "maxWidth": {
+            "type": "integer",
+            "description": "Maximum banner width."
+          },
+          "minWidth": {
+            "type": "integer",
+            "description": "Minimum banner width."
+          },
+          "maxSize": {
+            "type": "integer",
+            "description": "Maximum banner file size."
+          },
+          "minSize": {
+            "type": "integer",
+            "description": "Minimum banner file size."
+          }
+        }
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "List transactions from the live Target Circle publisher tester endpoint. Filter by currency, saved date range, offer/ad inventory, country, transaction type, conversion status, reference, and sort options.",
+      "method": "GET",
+      "path": "/api/v1/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Maximum number of transactions to return. The live publisher endpoint is documented/tested with a maximum of 25.",
+            "maximum": 25
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code, for example EUR."
+          },
+          "savedFrom": {
+            "type": "string",
+            "description": "Saved date lower bound, for example 2026-05-01."
+          },
+          "savedTo": {
+            "type": "string",
+            "description": "Saved date upper bound, for example 2026-05-25."
+          },
+          "offerSid": {
+            "type": "string",
+            "description": "Offer slug/SID."
+          },
+          "adInventorySid": {
+            "type": "string",
+            "description": "Ad inventory slug/SID."
+          },
+          "country": {
+            "type": "string",
+            "description": "Country filter. Comma-separated values mean OR."
+          },
+          "type": {
+            "type": "string",
+            "description": "Transaction type IDs. The official tester describes 1 sale, 2 lead, 3 install, 4 click, 5 impression."
+          },
+          "status": {
+            "type": "string",
+            "description": "Conversion status IDs. The official tester describes 1 pending, 2 failed, 3 approved, 4 declined, 5 approved/invoiced, 6 approved/paid in, 7 approved/paid out."
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference filter over ref1-ref5."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field."
+          },
+          "sortDir": {
+            "type": "string",
+            "enum": [
+              "ASC",
+              "DESC",
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction."
+          }
+        }
+      }
+    }
+  ]
+}

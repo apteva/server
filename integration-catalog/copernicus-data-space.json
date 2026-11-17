@@ -1,0 +1,272 @@
+{
+  "slug": "copernicus-data-space",
+  "name": "Copernicus Data Space",
+  "description": "Search, process, and analyze free Copernicus Sentinel satellite imagery through the Copernicus Data Space Ecosystem APIs",
+  "logo": "https://www.google.com/s2/favicons?domain=dataspace.copernicus.eu&sz=128",
+  "categories": [
+    "satellite-imagery",
+    "earth-observation",
+    "sentinel",
+    "remote-sensing",
+    "geospatial",
+    "open-data"
+  ],
+  "base_url": "https://sh.dataspace.copernicus.eu",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "OAuth Client ID",
+        "description": "Client ID created in the Copernicus Data Space Sentinel Hub dashboard",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "client_secret",
+        "label": "OAuth Client Secret",
+        "description": "Client secret created with the Copernicus Data Space OAuth client",
+        "required": true,
+        "type": "password"
+      }
+    ],
+    "token_exchange": {
+      "url": "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{client_id}}",
+        "client_secret": "{{client_secret}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    }
+  },
+  "health_check": {
+    "tool": "list_sentinel_collections"
+  },
+  "tools": [
+    {
+      "name": "list_sentinel_collections",
+      "description": "List Sentinel and other Earth-observation collections available through the Sentinel Hub catalog",
+      "method": "GET",
+      "path": "/catalog/v1/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_sentinel_collection",
+      "description": "Get metadata, spatial extent, temporal extent, and links for one Sentinel Hub data collection",
+      "method": "GET",
+      "path": "/catalog/v1/collections/{collection_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "description": "Collection identifier such as sentinel-2-l2a or sentinel-1-grd"
+          }
+        },
+        "required": [
+          "collection_id"
+        ]
+      }
+    },
+    {
+      "name": "search_sentinel_imagery",
+      "description": "Search Sentinel imagery by collection, bounding box or geometry, acquisition time, cloud cover, and other STAC filters",
+      "method": "POST",
+      "path": "/catalog/v1/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "description": "Collection IDs to search, for example sentinel-2-l2a or sentinel-1-grd",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "description": "WGS84 bounding box [west, south, east, north]",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "intersects": {
+            "type": "object",
+            "description": "GeoJSON geometry intersecting desired scenes"
+          },
+          "datetime": {
+            "type": "string",
+            "description": "RFC 3339 instant or interval, for example 2026-01-01T00:00:00Z/2026-02-01T00:00:00Z"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 10
+          },
+          "filter": {
+            "type": "object",
+            "description": "STAC CQL2 JSON filter, for example an eo:cloud_cover comparison"
+          },
+          "filter-lang": {
+            "type": "string",
+            "enum": [
+              "cql2-json",
+              "cql2-text"
+            ]
+          },
+          "fields": {
+            "type": "object",
+            "description": "STAC fields include/exclude selection"
+          },
+          "sortby": {
+            "type": "array",
+            "description": "STAC sort definitions",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "collections"
+        ]
+      }
+    },
+    {
+      "name": "process_sentinel_image",
+      "description": "Render or download a Sentinel image for an area and time range using Sentinel Hub Process API and an evalscript",
+      "method": "POST",
+      "path": "/api/v1/process",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "Process API input containing bounds and a data array with collection type and timeRange"
+          },
+          "output": {
+            "type": "object",
+            "description": "Output dimensions or resolution and response format definitions"
+          },
+          "evalscript": {
+            "type": "string",
+            "description": "Sentinel Hub Evalscript V3 defining input bands and rendered output"
+          }
+        },
+        "required": [
+          "input",
+          "output",
+          "evalscript"
+        ]
+      },
+      "timeout_ms": 120000
+    },
+    {
+      "name": "calculate_sentinel_statistics",
+      "description": "Calculate band statistics, histograms, or spectral-index time series over an area without downloading full imagery",
+      "method": "POST",
+      "path": "/api/v1/statistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "Statistics input data definition and time range"
+          },
+          "aggregation": {
+            "type": "object",
+            "description": "Time interval, resolution, and evalscript aggregation definition"
+          },
+          "calculations": {
+            "type": "object",
+            "description": "Optional histogram and percentile calculations by output band"
+          }
+        },
+        "required": [
+          "input",
+          "aggregation"
+        ]
+      },
+      "timeout_ms": 120000
+    },
+    {
+      "name": "list_cdse_stac_collections",
+      "description": "List product collections in the broader Copernicus Data Space STAC 1.1 catalog",
+      "method": "GET",
+      "base_url": "https://stac.dataspace.copernicus.eu/v1",
+      "path": "/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_cdse_products",
+      "description": "Search the broader Copernicus Data Space STAC product catalog using STAC 1.1 spatial, temporal, and collection filters",
+      "method": "POST",
+      "base_url": "https://stac.dataspace.copernicus.eu/v1",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "intersects": {
+            "type": "object",
+            "description": "GeoJSON search geometry"
+          },
+          "datetime": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "filter": {
+            "description": "CQL2 JSON object or text filter"
+          },
+          "filter-lang": {
+            "type": "string",
+            "enum": [
+              "cql2-json",
+              "cql2-text"
+            ]
+          },
+          "sortby": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

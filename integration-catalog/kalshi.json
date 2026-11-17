@@ -1,0 +1,144 @@
+{
+  "slug": "kalshi",
+  "name": "Kalshi",
+  "description": "Kalshi is the US's first CFTC-regulated event-contract exchange — prediction markets on economics (CPI prints, Fed cuts, unemployment), elections, weather, climate, geopolitics, and sports. Comparable to Polymarket but US-regulated, USD-denominated, and accessible to US persons. Read-only public market data (no auth required). Trading endpoints exist but require API key + RSA signing; this integration ships read-only for v1 — use the public_read tools for market discovery, orderbook snapshots, and arbitrage detection vs Polymarket. Full trading auth (key_id + private_key RSA-PSS) is a follow-up that needs server-side signer support.",
+  "logo": "https://www.google.com/s2/favicons?domain=kalshi.com&sz=128",
+  "categories": [
+    "prediction-markets",
+    "events",
+    "regulated",
+    "cftc",
+    "us"
+  ],
+  "base_url": "https://api.elections.kalshi.com/trade-api/v2",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "list_series",
+      "description": "Every series Kalshi runs (a series is a recurring market family — e.g. 'CPI year-over-year prints'). Returns series_ticker, title, category, settlement_sources.",
+      "method": "GET",
+      "path": "/series",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": "string", "description": "Filter by category — Economics, Politics, Sports, Climate, Geopolitics, etc."},
+          "tags":     {"type": "string", "description": "Comma-separated tag filter."}
+        }
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "Browse open + recently-resolved events. An event is a specific instance of a series ('CPI YoY for Sep 2026'). Each event holds 1+ markets (which are the actual binary contracts). Use to discover what's tradable.",
+      "method": "GET",
+      "path": "/events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "series_ticker": {"type": "string", "description": "Filter to one series — return only its events."},
+          "status":        {"type": "string", "enum": ["unopened","open","closed","settled"], "description": "Lifecycle stage."},
+          "cursor":        {"type": "string", "description": "Pagination cursor."},
+          "limit":         {"type": "integer", "description": "Max events (1-200). Default 100."},
+          "with_nested_markets": {"type": "boolean", "description": "Include the event's child markets in the response — saves a follow-up call."}
+        }
+      }
+    },
+    {
+      "name": "list_markets",
+      "description": "Every market — filterable by event, series, status. Returns ticker, event_ticker, series_ticker, yes_bid, yes_ask, no_bid, no_ask, last_price, open_interest, close_time, status. yes_bid + yes_ask are in cents (1-99) and convert directly to implied probability — divide by 100. Use to find specific Kalshi markets comparable to Polymarket markets for arbitrage.",
+      "method": "GET",
+      "path": "/markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_ticker":  {"type": "string"},
+          "series_ticker": {"type": "string"},
+          "ticker":        {"type": "string", "description": "Comma-separated specific market tickers."},
+          "status":        {"type": "string", "enum": ["open","closed","settled","unopened"]},
+          "min_close_ts":  {"type": "integer", "description": "Unix-seconds — only markets closing on/after."},
+          "max_close_ts":  {"type": "integer", "description": "Unix-seconds — only markets closing on/before."},
+          "cursor":        {"type": "string"},
+          "limit":         {"type": "integer", "description": "Max markets (1-1000). Default 100."}
+        }
+      }
+    },
+    {
+      "name": "get_market",
+      "description": "Full detail for one market — ticker, event, series, rules (settlement description, the actual question), yes/no prices, volume, open interest, close + expiration timestamps. Use after list_markets to inspect a specific contract.",
+      "method": "GET",
+      "path": "/markets/{ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {"type": "string", "description": "Market ticker — e.g. 'PRES-2028-DJT-YES'."}
+        },
+        "required": ["ticker"]
+      }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Top of book + depth for a market. Returns yes side + no side as arrays of [price_cents, size] pairs. Critical for assessing actual liquidity vs Polymarket's depth before committing to an arb.",
+      "method": "GET",
+      "path": "/markets/{ticker}/orderbook",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker": {"type": "string"},
+          "depth":  {"type": "integer", "description": "Number of levels each side. Default 50."}
+        },
+        "required": ["ticker"]
+      }
+    },
+    {
+      "name": "get_market_history",
+      "description": "Price history (last trade per period) for a market. Use to see how the market price has evolved + spot mean-reversion or trend setups vs polymarket.",
+      "method": "GET",
+      "path": "/markets/{ticker}/candlesticks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker":          {"type": "string"},
+          "start_ts":        {"type": "integer", "description": "Unix-seconds lower bound."},
+          "end_ts":          {"type": "integer", "description": "Unix-seconds upper bound."},
+          "period_interval": {"type": "integer", "description": "Bar width in minutes. 1, 60, 1440 etc."}
+        },
+        "required": ["ticker"]
+      }
+    },
+    {
+      "name": "get_market_trades",
+      "description": "Recent trades for a market — full tape including price + size + side + timestamp. Use to see actual taker flow + verify quoted prices are real (vs stale book).",
+      "method": "GET",
+      "path": "/markets/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticker":   {"type": "string", "description": "Market ticker filter."},
+          "cursor":   {"type": "string"},
+          "limit":    {"type": "integer", "default": 100},
+          "min_ts":   {"type": "integer"},
+          "max_ts":   {"type": "integer"}
+        },
+        "required": ["ticker"]
+      }
+    },
+    {
+      "name": "exchange_status",
+      "description": "Is Kalshi's exchange currently accepting trades? Returns trading_active + exchange_active. Cheap health check; useful when an agent is about to place orders to confirm the venue is live.",
+      "method": "GET",
+      "path": "/exchange/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "exchange_status"
+  }
+}

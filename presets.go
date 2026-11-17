@@ -17,6 +17,10 @@ const projectSetupPresetKind = "project_setup"
 // Dashboard keeps the compact component list used by bundled schema-v1 files;
 // DashboardLayout is the lossless representation used by captured presets.
 type ProjectSetupPresetDefinition struct {
+	Recommended     bool                      `json:"recommended,omitempty"`
+	Setup           []ProjectPresetSetupStep  `json:"setup,omitempty"`
+	Layouts         *ProjectPresetLayouts     `json:"layouts,omitempty"`
+	Connections     []ProjectPresetConnection `json:"connections,omitempty"`
 	InterfaceLevel  string                    `json:"interface_level,omitempty"`
 	Category        string                    `json:"category"`
 	Match           []string                  `json:"match,omitempty"`
@@ -68,7 +72,7 @@ func scanStoredPreset(scanner interface{ Scan(...any) error }) (storedPreset, er
 
 func (s *Store) listPresets(userID int64, kind string, admin ...bool) ([]storedPreset, error) {
 	isAdmin := len(admin) > 0 && admin[0]
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets
 		WHERE kind=? AND (?=1 OR scope='shared' OR (scope='personal' AND user_id=?) OR (scope='project' AND EXISTS(
@@ -90,7 +94,7 @@ func (s *Store) listPresets(userID int64, kind string, admin ...bool) ([]storedP
 }
 
 func (s *Store) listProjectTemplates(projectID, kind string) ([]storedPreset, error) {
-	rows, err := s.db.Query(`SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
+	rows, err := s.dbQuery(`SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets WHERE kind=? AND scope='project' AND project_id=? ORDER BY name COLLATE NOCASE,id`, kind, projectID)
 	if err != nil {
 		return nil, err
@@ -108,13 +112,13 @@ func (s *Store) listProjectTemplates(projectID, kind string) ([]storedPreset, er
 }
 
 func (s *Store) getPreset(_ int64, id string) (storedPreset, error) {
-	return scanStoredPreset(s.db.QueryRow(`
+	return scanStoredPreset(s.dbQueryRow(`
 		SELECT id,user_id,COALESCE(project_id,''),kind,scope,schema_version,revision,name,description,definition_json,created_at,updated_at
 		FROM presets WHERE id=?`, id))
 }
 
 func (s *Store) insertPreset(row storedPreset) (storedPreset, error) {
-	_, err := s.db.Exec(`
+	_, err := s.dbExec(`
 		INSERT INTO presets(id,user_id,project_id,kind,scope,schema_version,revision,name,description,definition_json)
 		VALUES(?,?,?,?,?,?,?,?,?,?)`, row.ID, row.UserID, nullablePresetProjectID(row.ProjectID), row.Kind, row.Scope, row.SchemaVersion, 1,
 		row.Name, row.Description, string(row.Definition))
@@ -132,7 +136,7 @@ func nullablePresetProjectID(value string) any {
 }
 
 func (s *Store) updatePreset(userID int64, row storedPreset) (storedPreset, error) {
-	result, err := s.db.Exec(`
+	result, err := s.dbExec(`
 		UPDATE presets SET project_id=?,scope=?,schema_version=?,revision=revision+1,name=?,description=?,definition_json=?,updated_at=CURRENT_TIMESTAMP
 		WHERE id=?`, nullablePresetProjectID(row.ProjectID), row.Scope, row.SchemaVersion, row.Name, row.Description,
 		string(row.Definition), row.ID)
@@ -146,7 +150,7 @@ func (s *Store) updatePreset(userID int64, row storedPreset) (storedPreset, erro
 }
 
 func (s *Store) deletePreset(_ int64, id string) error {
-	result, err := s.db.Exec(`DELETE FROM presets WHERE id=?`, id)
+	result, err := s.dbExec(`DELETE FROM presets WHERE id=?`, id)
 	if err != nil {
 		return err
 	}
@@ -177,7 +181,7 @@ func systemPresetEnvelope(preset ProjectPreset) Preset {
 		ID: preset.ID, Kind: projectSetupPresetKind, Scope: "system", Source: "system",
 		SchemaVersion: 1, Name: preset.Name, Description: preset.Description,
 		Definition: ProjectSetupPresetDefinition{
-			InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
+			Recommended: preset.Recommended, Setup: preset.Setup, Layouts: preset.Layouts, Connections: preset.Connections, DashboardLayout: preset.DashboardLayout, InterfaceLevel: preset.InterfaceLevel, Category: preset.Category, Match: preset.Match, Highlights: preset.Highlights, Agents: preset.Agents, Dashboard: preset.Dashboard,
 		},
 	}
 }
@@ -186,9 +190,9 @@ func projectPresetFromEnvelope(preset Preset) ProjectPreset {
 	return ProjectPreset{
 		ID: preset.ID, Kind: preset.Kind, Scope: preset.Scope, Source: preset.Source,
 		SchemaVersion: preset.SchemaVersion, OwnerID: preset.OwnerID, OwnerProjectID: preset.OwnerProjectID, Revision: preset.Revision,
-		InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
+		Recommended: preset.Definition.Recommended, InterfaceLevel: preset.Definition.InterfaceLevel, Category: preset.Definition.Category, Name: preset.Name, Description: preset.Description,
 		Match: preset.Definition.Match, Highlights: preset.Definition.Highlights, Agents: preset.Definition.Agents,
-		Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout,
+		Setup: preset.Definition.Setup, Dashboard: preset.Definition.Dashboard, DashboardLayout: preset.Definition.DashboardLayout, Layouts: preset.Definition.Layouts, Connections: preset.Definition.Connections,
 	}
 }
 
@@ -266,7 +270,7 @@ func (s *Store) availablePresetID(userID int64, scope, projectID, name string) s
 			candidate += "-" + i64s(suffix)
 		}
 		var exists int
-		if s.db.QueryRow(`SELECT 1 FROM presets WHERE id=?`, candidate).Scan(&exists) == sql.ErrNoRows {
+		if s.dbQueryRow(`SELECT 1 FROM presets WHERE id=?`, candidate).Scan(&exists) == sql.ErrNoRows {
 			return candidate
 		}
 	}
@@ -697,57 +701,134 @@ func (s *Server) captureProjectPreset(userID int64, body presetCaptureRequest) (
 	if scope == "" {
 		scope = "personal"
 	}
-	rows, err := s.store.db.Query(`SELECT id,name,directive,COALESCE(mode,'autonomous'),COALESCE(config,'{}')
+	rows, err := s.store.dbQuery(`SELECT id,name,directive,COALESCE(mode,'autonomous'),COALESCE(config,'{}')
 		FROM agents WHERE project_id=? AND COALESCE(kind,'user')='user' ORDER BY id`, body.ProjectID)
 	if err != nil {
 		return Preset{}, err
 	}
 	defer rows.Close()
 	var agents []ProjectPresetAgent
+	agentKeys := map[int64]string{}
 	keys := map[string]int{}
-	for rows.Next() {
-		var id int64
-		var agent ProjectPresetAgent
-		var configRaw string
-		if err := rows.Scan(&id, &agent.Name, &agent.Directive, &agent.Mode, &configRaw); err != nil {
-			return Preset{}, err
+	type databaseRecord struct {
+		id        int64
+		agent     ProjectPresetAgent
+		configRaw string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.agent.Name, &record.agent.Directive, &record.agent.Mode, &record.configRaw); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return Preset{}, err
+	}
+	for _, record := range readRecords {
+		id := record.id
+		agent := record.agent
+		configRaw := record.configRaw
+
 		base := presetSlug(agent.Name)
 		keys[base]++
 		agent.Key = base
 		if keys[base] > 1 {
 			agent.Key += "-" + i64s(int64(keys[base]))
 		}
+		agentKeys[id] = agent.Key
+		_ = s.store.dbQueryRow("SELECT icon FROM agent_appearances WHERE agent_id=?", id).Scan(&agent.Icon)
 		var config map[string]any
 		if json.Unmarshal([]byte(configRaw), &config) == nil {
 			agent.Unconscious, _ = config["unconscious"].(bool)
+			probe := &Agent{Config: configRaw}
+			if policy, restricted := platformToolPolicy(probe); restricted && platformMCPAttached(probe) {
+				tools := make([]string, 0, len(policy))
+				for name := range policy {
+					tools = append(tools, name)
+				}
+				sort.Strings(tools)
+				agent.Capabilities = []AgentCapability{{Name: platformMCPName, AllowedTools: tools}}
+			}
 		}
-		appRows, err := s.store.db.Query(`SELECT a.name FROM app_agent_bindings b
+		appRows, err := s.store.dbQuery(`SELECT a.name FROM app_agent_bindings b
 			JOIN app_installs i ON i.id=b.install_id JOIN apps a ON a.id=i.app_id
 			WHERE b.agent_id=? AND b.enabled=1 ORDER BY a.name`, id)
 		if err != nil {
 			return Preset{}, err
 		}
-		for appRows.Next() {
-			var app string
-			if appRows.Scan(&app) == nil {
-				agent.Apps = append(agent.Apps, app)
+		type databaseRecord struct{ app string }
+		readRecords, err := collectSQLRows(appRows, func(scanner rowScanner) (databaseRecord, error) {
+			var record databaseRecord
+			if err := scanner.Scan(&record.app); err != nil {
+				return record, err
 			}
+			return record, nil
+		})
+		if err != nil {
+			return Preset{}, err
 		}
+		for _, record := range readRecords {
+			agent.Apps = append(agent.Apps, record.app)
+		}
+
 		appRows.Close()
 		agents = append(agents, agent)
 	}
+
 	if err := rows.Err(); err != nil {
 		return Preset{}, err
 	}
 	document, _ := s.store.GetUserUILayoutWithRevision(userID)
 	layout := resolvedDashboardHomeLayout(document, body.ProjectID)
-	for i := range layout {
-		layout[i].ID = "captured:" + i64s(int64(i+1))
+	layouts := &ProjectPresetLayouts{Home: portablePresetWidgets(layout, agentKeys), AgentOverview: map[string][]ProjectPresetWidget{}}
+	connections := []ProjectPresetConnection{}
+	seenSetup := map[string]bool{}
+	collectSetup := func(widgets []dashboardWidgetInstance) {
+		for _, widget := range widgets {
+			for _, step := range widget.Setup {
+				key := step.App + ":" + step.Title
+				if !seenSetup[key] {
+					seenSetup[key] = true
+					connections = append(connections, step)
+				}
+			}
+		}
+	}
+	collectSetup(layout)
+	level := s.store.GetUserInterfaceLevel(userID)
+	for id, key := range agentKeys {
+		widgets := resolvedWidgetLayout(document, body.ProjectID, fmt.Sprintf("agent.%d.%s.overview", id, level))
+		if len(widgets) == 0 {
+			widgets = resolvedWidgetLayout(document, body.ProjectID, "dashboard.agent_detail")
+		}
+		if len(widgets) > 0 {
+			portable := portablePresetWidgets(widgets, agentKeys)
+			filtered := []ProjectPresetWidget{}
+			for _, widget := range portable {
+				app, _, _ := strings.Cut(widget.Component, ":")
+				if widget.AgentKey != "" && widget.AgentKey != key {
+					continue
+				}
+				for _, agent := range agents {
+					if agent.Key == key && (app == "native" || containsString(agent.Apps, app)) {
+						filtered = append(filtered, widget)
+						break
+					}
+				}
+			}
+			layouts.AgentOverview[key] = filtered
+			collectSetup(widgets)
+		}
+	}
+	// Preserve the legacy Home representation for older clients, sanitized too.
+	layout = nil
+	for _, widget := range layouts.Home {
+		layout = append(layout, widget.dashboardWidgetInstance)
 	}
 	preset := Preset{Kind: projectSetupPresetKind, Scope: scope, Source: "user", SchemaVersion: 2,
 		Name: name, Description: strings.TrimSpace(body.Description), OwnerProjectID: body.OwnerProjectID,
-		Definition: ProjectSetupPresetDefinition{InterfaceLevel: s.store.GetUserInterfaceLevel(userID), Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout}}
+		Definition: ProjectSetupPresetDefinition{InterfaceLevel: s.store.GetUserInterfaceLevel(userID), Category: category, Highlights: body.Highlights, Agents: agents, DashboardLayout: layout, Layouts: layouts, Connections: connections}}
 	preset.ID = s.store.availablePresetID(userID, scope, preset.OwnerProjectID, name)
 	if err := validatePresetEnvelope(preset); err != nil {
 		return Preset{}, err

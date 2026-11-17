@@ -1,0 +1,849 @@
+{
+  "slug": "ig-trading",
+  "name": "IG Trading",
+  "description": "Trade CFDs, forex, indices, shares, and commodities on IG Markets. Open/close positions, manage orders, view history, and track watchlists.",
+  "logo": "https://www.google.com/s2/favicons?domain=ig.com&sz=128",
+  "categories": [
+    "trading",
+    "cfd",
+    "forex",
+    "stocks",
+    "indices",
+    "ig-markets"
+  ],
+  "base_url": "https://api.ig.com/gateway/deal",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "ig_create_session",
+      "description": "Authenticate with IG Markets and create a trading session. Returns access tokens for subsequent API calls.",
+      "method": "GET",
+      "path": "/ig-create-session",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Your IG username"
+          },
+          "password": {
+            "type": "string",
+            "description": "Your IG password"
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "Use demo environment",
+            "default": true
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "ig_get_accounts",
+      "description": "Get all trading accounts with balances and margins.",
+      "method": "GET",
+      "path": "/ig-get-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "Account ID"
+          },
+          "cst": {
+            "type": "string",
+            "description": "CST token"
+          },
+          "security_token": {
+            "type": "string",
+            "description": "X-SECURITY-TOKEN"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "ig_search_markets",
+      "description": "Search for tradeable markets by keyword (e.g., 'EURUSD', 'Gold', 'Apple').",
+      "method": "GET",
+      "path": "/ig-search-markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "search_term": {
+            "type": "string",
+            "description": "Search term"
+          }
+        },
+        "required": [
+          "search_term"
+        ]
+      }
+    },
+    {
+      "name": "ig_get_market",
+      "description": "Get detailed market information by EPIC code including dealing rules and prices.",
+      "method": "GET",
+      "path": "/ig-get-market",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "epic": {
+            "type": "string",
+            "description": "Market EPIC code"
+          }
+        },
+        "required": [
+          "epic"
+        ]
+      }
+    },
+    {
+      "name": "ig_get_prices",
+      "description": "Get historical OHLC price data for charting and analysis.",
+      "method": "GET",
+      "path": "/ig-get-prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "epic": {
+            "type": "string",
+            "description": "Market EPIC code"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "MINUTE",
+              "MINUTE_5",
+              "MINUTE_15",
+              "MINUTE_30",
+              "HOUR",
+              "HOUR_4",
+              "DAY",
+              "WEEK",
+              "MONTH"
+            ],
+            "default": "HOUR"
+          },
+          "num_points": {
+            "type": "integer",
+            "default": 100
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date ISO format"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date ISO format"
+          }
+        },
+        "required": [
+          "epic"
+        ]
+      }
+    },
+    {
+      "name": "ig_get_positions",
+      "description": "Get all open trading positions with P&L and entry levels.",
+      "method": "GET",
+      "path": "/ig-get-positions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "ig_open_position",
+      "description": "Open a new trading position (BUY or SELL) with optional stop loss and take profit.",
+      "method": "GET",
+      "path": "/ig-open-position",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "epic": {
+            "type": "string",
+            "description": "Market EPIC code"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "size": {
+            "type": "number",
+            "description": "Position size"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "MARKET",
+              "LIMIT"
+            ],
+            "default": "MARKET"
+          },
+          "level": {
+            "type": "number",
+            "description": "Entry level for LIMIT orders"
+          },
+          "stop_distance": {
+            "type": "number",
+            "description": "Stop loss in points"
+          },
+          "stop_level": {
+            "type": "number",
+            "description": "Stop loss price"
+          },
+          "limit_distance": {
+            "type": "number",
+            "description": "Take profit in points"
+          },
+          "limit_level": {
+            "type": "number",
+            "description": "Take profit price"
+          },
+          "guaranteed_stop": {
+            "type": "boolean",
+            "default": false
+          },
+          "trailing_stop": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "epic",
+          "direction",
+          "size"
+        ]
+      }
+    },
+    {
+      "name": "ig_close_position",
+      "description": "Close an existing trading position by deal ID.",
+      "method": "GET",
+      "path": "/ig-close-position",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "deal_id": {
+            "type": "string",
+            "description": "Deal ID to close"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "description": "Auto-detected if not provided"
+          },
+          "size": {
+            "type": "number",
+            "description": "Size to close (auto for full)"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "MARKET",
+              "LIMIT"
+            ],
+            "default": "MARKET"
+          },
+          "level": {
+            "type": "number",
+            "description": "Close level for LIMIT"
+          }
+        },
+        "required": [
+          "deal_id"
+        ]
+      }
+    },
+    {
+      "name": "ig_update_position",
+      "description": "Update stop loss and take profit levels on an existing position.",
+      "method": "GET",
+      "path": "/ig-update-position",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "deal_id": {
+            "type": "string",
+            "description": "Position deal ID"
+          },
+          "stop_level": {
+            "type": "number",
+            "description": "New stop loss level"
+          },
+          "limit_level": {
+            "type": "number",
+            "description": "New take profit level"
+          },
+          "trailing_stop": {
+            "type": "boolean"
+          },
+          "trailing_stop_distance": {
+            "type": "number"
+          },
+          "trailing_stop_increment": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "deal_id"
+        ]
+      }
+    },
+    {
+      "name": "ig_get_working_orders",
+      "description": "Get all pending limit and stop entry orders.",
+      "method": "GET",
+      "path": "/ig-get-working-orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "ig_create_working_order",
+      "description": "Create a pending limit or stop entry order that triggers at a specified price.",
+      "method": "GET",
+      "path": "/ig-create-working-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "epic": {
+            "type": "string",
+            "description": "Market EPIC code"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "size": {
+            "type": "number"
+          },
+          "level": {
+            "type": "number",
+            "description": "Entry price level"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "LIMIT",
+              "STOP"
+            ],
+            "default": "LIMIT"
+          },
+          "time_in_force": {
+            "type": "string",
+            "default": "GOOD_TILL_CANCELLED"
+          },
+          "good_till_date": {
+            "type": "string",
+            "description": "Expiry date ISO format"
+          },
+          "stop_distance": {
+            "type": "number"
+          },
+          "stop_level": {
+            "type": "number"
+          },
+          "limit_distance": {
+            "type": "number"
+          },
+          "limit_level": {
+            "type": "number"
+          },
+          "guaranteed_stop": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "epic",
+          "direction",
+          "size",
+          "level"
+        ]
+      }
+    },
+    {
+      "name": "ig_update_working_order",
+      "description": "Modify a pending working order's price level or parameters.",
+      "method": "GET",
+      "path": "/ig-update-working-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "deal_id": {
+            "type": "string",
+            "description": "Working order deal ID"
+          },
+          "level": {
+            "type": "number",
+            "description": "New entry level"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "LIMIT",
+              "STOP"
+            ]
+          },
+          "time_in_force": {
+            "type": "string"
+          },
+          "good_till_date": {
+            "type": "string"
+          },
+          "stop_distance": {
+            "type": "number"
+          },
+          "stop_level": {
+            "type": "number"
+          },
+          "limit_distance": {
+            "type": "number"
+          },
+          "limit_level": {
+            "type": "number"
+          },
+          "guaranteed_stop": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deal_id"
+        ]
+      }
+    },
+    {
+      "name": "ig_delete_working_order",
+      "description": "Cancel a pending working order.",
+      "method": "GET",
+      "path": "/ig-delete-working-order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "deal_id": {
+            "type": "string",
+            "description": "Working order deal ID to cancel"
+          }
+        },
+        "required": [
+          "deal_id"
+        ]
+      }
+    },
+    {
+      "name": "ig_get_transactions",
+      "description": "Get transaction history including past trades, deposits, and withdrawals with P&L.",
+      "method": "GET",
+      "path": "/ig-get-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ALL",
+              "ALL_DEAL",
+              "DEPOSIT",
+              "WITHDRAWAL"
+            ],
+            "description": "Transaction type filter"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date"
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 50
+          },
+          "page_number": {
+            "type": "integer",
+            "default": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "ig_get_activity",
+      "description": "Get account activity history including all orders, trades, and amendments.",
+      "method": "GET",
+      "path": "/ig-get-activity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date"
+          },
+          "detailed": {
+            "type": "boolean",
+            "default": true
+          },
+          "deal_id": {
+            "type": "string",
+            "description": "Filter by deal ID"
+          },
+          "filter": {
+            "type": "string",
+            "enum": [
+              "EDIT_STOP_AND_LIMIT",
+              "SYSTEM"
+            ]
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 50
+          }
+        }
+      }
+    },
+    {
+      "name": "ig_get_watchlists",
+      "description": "Get all watchlists or markets in a specific watchlist.",
+      "method": "GET",
+      "path": "/ig-get-watchlists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "watchlist_id": {
+            "type": "string",
+            "description": "Watchlist ID (if provided, returns markets in that watchlist)"
+          }
+        }
+      }
+    },
+    {
+      "name": "ig_create_watchlist",
+      "description": "Create a new watchlist with optional initial markets.",
+      "method": "GET",
+      "path": "/ig-create-watchlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "name": {
+            "type": "string",
+            "description": "Watchlist name"
+          },
+          "epics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional EPICs to add"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "ig_add_to_watchlist",
+      "description": "Add a market to an existing watchlist.",
+      "method": "GET",
+      "path": "/ig-add-to-watchlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "watchlist_id": {
+            "type": "string",
+            "description": "Target watchlist ID"
+          },
+          "epic": {
+            "type": "string",
+            "description": "Market EPIC to add"
+          }
+        },
+        "required": [
+          "watchlist_id",
+          "epic"
+        ]
+      }
+    },
+    {
+      "name": "ig_delete_watchlist",
+      "description": "Delete a watchlist or remove a market from a watchlist.",
+      "method": "GET",
+      "path": "/ig-delete-watchlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cst": {
+            "type": "string"
+          },
+          "security_token": {
+            "type": "string"
+          },
+          "demo": {
+            "type": "boolean",
+            "default": true
+          },
+          "watchlist_id": {
+            "type": "string",
+            "description": "Watchlist ID"
+          },
+          "epic": {
+            "type": "string",
+            "description": "If provided, removes this epic instead of deleting watchlist"
+          }
+        },
+        "required": [
+          "watchlist_id"
+        ]
+      }
+    }
+  ]
+}

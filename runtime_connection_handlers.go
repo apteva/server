@@ -29,7 +29,7 @@ import (
 // would fall back to lowest-id and could pick up the wrong credential.
 func (s *Store) SetConnectionPrimary(userID, connID int64) error {
 	var projectID, appSlug string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT COALESCE(project_id,''), app_slug FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
 	).Scan(&projectID, &appSlug)
@@ -37,7 +37,7 @@ func (s *Store) SetConnectionPrimary(userID, connID int64) error {
 		return err
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -139,11 +139,42 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
 		}
+		if value, sent := patch["service_tier"]; sent && value != nil {
+			tier, err := validateServiceTier(app.Runtime.ProviderKey, app.Runtime.ServiceTiers, value)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			patch["service_tier"] = tier
+		}
 		if app.Runtime.ModelPolicy != nil {
 			if err := s.validateRuntimeModelPatch(conn, encrypted, app, current, patch); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+		}
+		if value, exists := patch["builtins"]; exists {
+			entries := map[string]*ProviderBuiltin{}
+			for name, cfg := range runtimeBuiltins(current) {
+				copy := cfg
+				entries[name] = &copy
+			}
+			if value == nil {
+				entries = map[string]*ProviderBuiltin{}
+			} else if err := mergeBuiltinPatch(entries, value); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			next := ProviderBuiltins{}
+			for name, cfg := range entries {
+				next[name] = *cfg
+			}
+			validated, err := s.validateProviderBuiltins(r.Context(), app.Runtime.ProviderKey, next)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			patch["builtins"] = validated
 		}
 		for key, value := range patch {
 			// A null clears the key, which is how the dashboard says
@@ -163,6 +194,15 @@ func (s *Server) handleConnectionRuntimeConfig(w http.ResponseWriter, r *http.Re
 		if err := s.store.UpdateConnectionRuntimeConfig(connID, string(encoded)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if _, changed := patch["builtins"]; changed {
+			failures := s.reconcileBuiltinDefaults(r.Context(), userID, conn.ProjectID, app.Runtime.ProviderKey)
+			current["builtin_sync"] = map[string]any{"pending": len(failures) > 0, "errors": failures}
+			encoded, _ := json.Marshal(current)
+			if err := s.store.UpdateConnectionRuntimeConfig(connID, string(encoded)); err != nil {
+				http.Error(w, "Defaults saved; could not save application status", http.StatusInternalServerError)
+				return
+			}
 		}
 		writeJSON(w, current)
 	default:
@@ -222,6 +262,21 @@ func (s *Server) handleConnectionModels(w http.ResponseWriter, r *http.Request) 
 		accountID, _ := lookupRuntimeRef("credentials.account_id", src)
 		models, fetchErr := fetchCodexModelCatalog(r.Context(), accessToken, accountID,
 			r.URL.Query().Get("refresh") == "1")
+		if fetchErr != nil {
+			http.Error(w, "failed to fetch models: "+fetchErr.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, models)
+		return
+	}
+	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
+		models, fetchErr := fetchGrokBuildModelCatalog(r.Context(), map[string]string{
+			"access_token":  stringValue(src.credentials["access_token"]),
+			"account_id":    stringValue(src.credentials["account_id"]),
+			"account_email": stringValue(src.credentials["account_email"]),
+			"user_id":       stringValue(src.credentials["user_id"]),
+			"principal_id":  stringValue(src.credentials["principal_id"]),
+		}, r.URL.Query().Get("refresh") == "1")
 		if fetchErr != nil {
 			http.Error(w, "failed to fetch models: "+fetchErr.Error(), http.StatusBadGateway)
 			return
@@ -299,11 +354,7 @@ func (s *Server) handleConnectionUsage(w http.ResponseWriter, r *http.Request) {
 	// credentials flat. Reshaping here keeps one fetcher and one cache
 	// for both paths rather than forking the upstream call.
 	state := map[string]any{
-		"credentials": map[string]any{
-			"access_token": credentials["access_token"],
-			"account_id":   credentials["account_id"],
-			"expires_at":   credentials["token_expires_at"],
-		},
+		"credentials": providerUsageCredentialState(credentials),
 	}
 	snapshot, err := s.fetchConnectionUsage(r, conn, state, fetcher, credentials)
 	if err != nil {
@@ -351,8 +402,8 @@ func (s *Server) fetchConnectionUsage(
 	}
 
 	staleEntry, hasStale := globalProviderUsageCache.entry(key)
-	if connectionOpenAICodexNeedsRefresh(credentials, 10*time.Minute) {
-		if err := refreshIntegrationOpenAICodexCredentials(credentials); err != nil {
+	if driver := connectionSessionAuthDriverFor(conn.AppSlug); driver != nil && driver.NeedsRefresh(credentials, 10*time.Minute) {
+		if err := driver.Refresh(r.Context(), credentials); err != nil {
 			return providerUsageStaleOrError(conn.ID, staleEntry, hasStale, err)
 		}
 		if encoded, err := json.Marshal(credentials); err == nil {
@@ -360,11 +411,7 @@ func (s *Server) fetchConnectionUsage(
 				_ = s.store.UpdateConnectionCredentials(conn.ID, reEncrypted)
 			}
 		}
-		state["credentials"] = map[string]any{
-			"access_token": credentials["access_token"],
-			"account_id":   credentials["account_id"],
-			"expires_at":   credentials["token_expires_at"],
-		}
+		state["credentials"] = providerUsageCredentialState(credentials)
 	}
 
 	snapshot, err := fetcher.FetchUsage(r.Context(), state)
@@ -379,11 +426,22 @@ func (s *Server) fetchConnectionUsage(
 	return snapshot, nil
 }
 
+func providerUsageCredentialState(credentials map[string]string) map[string]any {
+	state := make(map[string]any, len(credentials))
+	for key, value := range credentials {
+		state[key] = value
+	}
+	if strings.TrimSpace(stringValue(state["expires_at"])) == "" {
+		state["expires_at"] = credentials["token_expires_at"]
+	}
+	return state
+}
+
 // GetConnectionRuntimeConfig returns the decoded runtime_config, or an
 // empty map when unset or unparseable.
 func (s *Store) GetConnectionRuntimeConfig(userID, connID int64) (map[string]any, error) {
 	var raw string
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id = ? AND user_id = ?`,
 		connID, userID,
 	).Scan(&raw)
@@ -413,19 +471,23 @@ func connectionIDFromPath(path, suffix string) (int64, bool) {
 // the Models settings tab: enough to render the row, choose a primary,
 // and pick models — without ever shipping a credential.
 type runtimeConnectionSummary struct {
-	ID           int64          `json:"id"`
-	Name         string         `json:"name"`
-	AppSlug      string         `json:"app_slug"`
-	AppName      string         `json:"app_name"`
-	AuthType     string         `json:"auth_type"`
-	ProviderKey  string         `json:"provider_key"`
-	Role         string         `json:"role"`
-	ProjectID    string         `json:"project_id"`
-	Scope        string         `json:"scope"`
-	IsPrimary    bool           `json:"is_primary"`
-	Capabilities []string       `json:"capabilities,omitempty"`
-	RuntimeConf  map[string]any `json:"runtime_config"`
-	EnvVars      []string       `json:"env_vars,omitempty"`
+	BuiltinCapabilities []BuiltinDescriptor     `json:"builtin_capabilities,omitempty"`
+	BuiltinUnavailable  string                  `json:"builtin_unavailable,omitempty"`
+	ServiceTiers        []string                `json:"service_tiers,omitempty"`
+	ID                  int64                   `json:"id"`
+	Name                string                  `json:"name"`
+	AppSlug             string                  `json:"app_slug"`
+	AppName             string                  `json:"app_name"`
+	AuthType            string                  `json:"auth_type"`
+	ProviderKey         string                  `json:"provider_key"`
+	Role                string                  `json:"role"`
+	ProjectID           string                  `json:"project_id"`
+	Scope               string                  `json:"scope"`
+	IsPrimary           bool                    `json:"is_primary"`
+	Capabilities        []string                `json:"capabilities,omitempty"`
+	RuntimeConf         map[string]any          `json:"runtime_config"`
+	Realtime            *RuntimeRealtimeCatalog `json:"realtime,omitempty"`
+	EnvVars             []string                `json:"env_vars,omitempty"`
 }
 
 // handleListRuntimeConnections — GET /api/connections/runtime[?project_id=]
@@ -485,14 +547,18 @@ func (s *Server) handleListRuntimeConnections(w http.ResponseWriter, r *http.Req
 		if conn.ProjectID != "" {
 			scope = "project"
 		}
+		descriptors, unavailable := s.builtinDescriptors(app.Runtime.ProviderKey)
 		out = append(out, runtimeConnectionSummary{
+			BuiltinCapabilities: descriptors, BuiltinUnavailable: unavailable,
 			ID: conn.ID, Name: conn.Name,
 			AppSlug: conn.AppSlug, AppName: app.Name, AuthType: conn.AuthType,
 			ProviderKey: app.Runtime.ProviderKey, Role: app.Runtime.Role,
 			ProjectID: conn.ProjectID, Scope: scope,
 			IsPrimary:    conn.IsPrimary,
 			Capabilities: app.Runtime.Capabilities,
+			ServiceTiers: app.Runtime.ServiceTiers,
 			RuntimeConf:  config,
+			Realtime:     app.Runtime.Realtime,
 			EnvVars:      sortedEnvNames(app.Runtime.Env),
 		})
 	}

@@ -1,0 +1,169 @@
+{
+  "slug": "supabase",
+  "name": "Supabase",
+  "description": "Supabase backend platform - query, insert, update, and manage database rows and tables via the REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=supabase.com&sz=128",
+  "categories": [
+    "database",
+    "backend",
+    "supabase",
+    "postgres",
+    "rest-api"
+  ],
+  "base_url": "{{project_url}}/rest/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Supabase anon/service role key (find in Project Settings > API)"
+      },
+      {
+        "name": "projectUrl",
+        "label": "Project Url",
+        "description": "Supabase project URL (e.g. your-project.supabase.co)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "find_rows",
+      "description": "Query rows from a Supabase table using filters, sorting, and pagination via the PostgREST API. Supports eq, neq, gt, lt, gte, lte, like, ilike, is, in, and other PostgREST operators in the select and filter parameters.",
+      "method": "GET",
+      "path": "/find-rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectUrl": {
+            "type": "string",
+            "description": "The Supabase project URL (e.g. 'myproject.supabase.co')"
+          },
+          "table": {
+            "type": "string",
+            "description": "The name of the table to query"
+          },
+          "select": {
+            "type": "string",
+            "description": "Columns to return, comma-separated (e.g. 'id,name,email'). Use '*' for all columns. Supports embedded resources like 'id,name,posts(id,title)'.",
+            "default": "*"
+          },
+          "filter": {
+            "type": "string",
+            "description": "PostgREST filter string appended as query params (e.g. 'status=eq.active&age=gte.18'). Supports operators: eq, neq, gt, gte, lt, lte, like, ilike, is, in, cs, cd, ov, sl, sr, nxl, nxr, adj, not, or, and."
+          },
+          "order": {
+            "type": "string",
+            "description": "Column to order by with direction (e.g. 'created_at.desc' or 'name.asc')"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of rows to return",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of rows to skip (for pagination)",
+            "default": 0,
+            "minimum": 0
+          }
+        },
+        "required": [
+          "projectUrl",
+          "table"
+        ]
+      }
+    },
+    {
+      "name": "find_table",
+      "description": "Get the schema definition and column details for a specific table in the Supabase database. Returns column names, data types, nullability, defaults, and constraints by querying the information_schema.",
+      "method": "POST",
+      "path": "/find-table",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectUrl": {
+            "type": "string",
+            "description": "The Supabase project URL (e.g. 'myproject.supabase.co')"
+          },
+          "table_name": {
+            "type": "string",
+            "description": "The name of the table to look up (e.g. 'users', 'orders')"
+          }
+        },
+        "required": [
+          "projectUrl",
+          "table_name"
+        ]
+      }
+    },
+    {
+      "name": "update_row",
+      "description": "Update one or more rows in a Supabase table that match the given filter criteria. Uses the PATCH method with PostgREST filters to target specific rows. Returns the updated row(s).",
+      "method": "PATCH",
+      "path": "/update-row",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectUrl": {
+            "type": "string",
+            "description": "The Supabase project URL (e.g. 'myproject.supabase.co')"
+          },
+          "table": {
+            "type": "string",
+            "description": "The name of the table to update"
+          },
+          "filter": {
+            "type": "string",
+            "description": "PostgREST filter to identify which row(s) to update (e.g. 'id=eq.123' or 'email=eq.user@example.com'). REQUIRED to prevent accidental full-table updates."
+          },
+          "data": {
+            "type": "object",
+            "description": "An object containing the column values to update (e.g. { \"name\": \"New Name\", \"status\": \"active\" })"
+          }
+        },
+        "required": [
+          "projectUrl",
+          "table",
+          "filter",
+          "data"
+        ]
+      }
+    },
+    {
+      "name": "add_row",
+      "description": "Insert a new row into a Supabase table. Provide the column values as a JSON object in the data field. Returns the newly created row.",
+      "method": "POST",
+      "path": "/add-row",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectUrl": {
+            "type": "string",
+            "description": "The Supabase project URL (e.g. 'myproject.supabase.co')"
+          },
+          "table": {
+            "type": "string",
+            "description": "The name of the table to insert into"
+          },
+          "data": {
+            "type": "object",
+            "description": "An object containing the column values for the new row (e.g. { \"name\": \"John\", \"email\": \"john@example.com\" })"
+          }
+        },
+        "required": [
+          "projectUrl",
+          "table",
+          "data"
+        ]
+      }
+    }
+  ]
+}

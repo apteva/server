@@ -1,0 +1,621 @@
+{
+  "slug": "gumroad",
+  "name": "Gumroad",
+  "description": "Gumroad creator-commerce API for products, files, variants, offer codes, emails, customers, sales, subscribers, licenses, payouts, tax forms, earnings, and resource subscriptions.",
+  "logo": "https://www.google.com/s2/favicons?domain=gumroad.com&sz=128",
+  "categories": ["commerce", "creator-economy", "digital-products", "payments", "gumroad"],
+  "base_url": "https://api.gumroad.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "description": "Gumroad API access token generated from your Gumroad OAuth application page."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_user"
+  },
+  "tools": [
+    {
+      "name": "get_user",
+      "description": "Retrieve the authenticated Gumroad user.",
+      "method": "GET",
+      "path": "/user",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_products",
+      "description": "List products for the authenticated seller. Requires view_profile, edit_products, or account scope depending on fields requested by Gumroad.",
+      "method": "GET",
+      "path": "/products",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_product",
+      "description": "Get one product by Gumroad product ID or permalink. Includes detailed fields such as files, variants, rich content, and custom HTML when authorized.",
+      "method": "GET",
+      "path": "/products/{productId}",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "create_product",
+      "description": "Create a digital product. For downloadable product files, use presign_file_upload and complete_file_upload, then include the returned private file_url in files[].url. That private file_url cannot be used as a cover; use create_direct_upload and upload_direct_upload followed by add_cover with signed_blob_id instead.",
+      "method": "POST",
+      "path": "/products",
+      "query_param_aliases": {"tags": "tags[]"},
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "price": {"type": "number", "description": "Price in cents."}, "description": {"type": "string"}, "custom_permalink": {"type": "string"}, "custom_summary": {"type": "string"}, "price_currency_type": {"type": "string", "description": "Currency code accepted by Gumroad, such as usd or eur."}, "currency": {"type": "string", "description": "Legacy alias; prefer price_currency_type when possible."}, "require_shipping": {"type": "boolean"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Product files uploaded through presign_file_upload and complete_file_upload. Each new file must include url from complete_file_upload.", "items": {"type": "object", "properties": {"url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}}, "required": ["name", "price"], "not": {"required": ["category", "taxonomy_id"]}}
+    },
+    {
+      "name": "update_product",
+      "description": "Update a product. Include any Gumroad product fields accepted by PUT /products/:id, such as name, price, description, custom_html, custom_summary, custom_permalink, published, tags, files, or max_purchase_count. files is a full replacement: include existing file ids to keep them, and include url from complete_file_upload for each new uploaded file.",
+      "method": "PUT",
+      "path": "/products/{productId}",
+      "path_params": ["productId"],
+      "query_param_aliases": {"tags": "tags[]", "cover_ids": "cover_ids[]"},
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "price": {"type": "number"}, "description": {"type": "string"}, "custom_html": {"type": "string"}, "custom_summary": {"type": "string"}, "custom_permalink": {"type": "string"}, "price_currency_type": {"type": "string"}, "customizable_price": {"type": "boolean"}, "suggested_price_cents": {"type": "number"}, "published": {"type": "boolean"}, "max_purchase_count": {"type": "number"}, "quantity_enabled": {"type": "boolean"}, "is_adult": {"type": "boolean"}, "display_product_reviews": {"type": "boolean"}, "should_show_sales_count": {"type": "boolean"}, "taxonomy_id": {"type": "string"}, "category": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}, "cover_ids": {"type": "array", "items": {"type": "string"}}, "files": {"type": "array", "description": "Full replacement list. Existing files can be kept with id. New files need url returned by complete_file_upload.", "items": {"type": "object", "properties": {"id": {"type": "string"}, "url": {"type": "string"}, "display_name": {"type": "string"}, "extension": {"type": "string"}, "position": {"type": "number"}, "stream_only": {"type": "boolean"}, "description": {"type": "string"}}}}, "rich_content": {"type": "array", "description": "Optional Gumroad rich content page objects.", "items": {"type": "object"}}, "has_same_rich_content_for_all_variants": {"type": "boolean"}}, "required": ["productId"], "not": {"required": ["category", "taxonomy_id"]}}
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete a product.",
+      "method": "DELETE",
+      "path": "/products/{productId}",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "enable_product",
+      "description": "Enable a product.",
+      "method": "PUT",
+      "path": "/products/{productId}/enable",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "disable_product",
+      "description": "Disable a product.",
+      "method": "PUT",
+      "path": "/products/{productId}/disable",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "get_public_product_page",
+      "description": "Retrieve public product page JSON by permalink.",
+      "method": "GET",
+      "path": "/l/{permalink}.json",
+      "path_params": ["permalink"],
+      "input_schema": {"type": "object", "properties": {"permalink": {"type": "string"}}, "required": ["permalink"]}
+    },
+    {
+      "name": "get_public_profile",
+      "description": "Retrieve public profile JSON by Gumroad username.",
+      "method": "GET",
+      "path": "/{username}.json",
+      "path_params": ["username"],
+      "input_schema": {"type": "object", "properties": {"username": {"type": "string"}}, "required": ["username"]}
+    },
+    {
+      "name": "list_categories",
+      "description": "List Gumroad product categories.",
+      "method": "GET",
+      "path": "/categories",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "get_refund_policy",
+      "description": "Get the authenticated seller's refund policy.",
+      "method": "GET",
+      "path": "/refund_policy",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "update_refund_policy",
+      "description": "Update the authenticated seller's refund policy.",
+      "method": "PUT",
+      "path": "/refund_policy",
+      "input_schema": {"type": "object", "properties": {"title": {"type": "string"}, "fine_print": {"type": "string"}, "max_refund_period_in_days": {"type": "number"}}}
+    },
+    {
+      "name": "presign_file_upload",
+      "description": "Create Gumroad multipart upload targets for a product file such as an MP3/WAV/ZIP. Send filename and file_size in bytes. Upload each file part directly to the returned parts[].presigned_url with HTTP PUT, then call complete_file_upload with upload_id, key, and each returned S3 ETag. This only prepares storage; attach the completed file to a product by passing the returned file_url in files[].url on create_product or update_product.",
+      "method": "POST",
+      "path": "/files/presign",
+      "input_schema": {"type": "object", "properties": {"filename": {"type": "string", "description": "Original file name, e.g. audio.mp3."}, "file_size": {"type": "number", "description": "File size in bytes."}, "content_type": {"type": "string", "description": "Optional MIME type, e.g. audio/mpeg."}}, "required": ["filename", "file_size"]}
+    },
+    {
+      "name": "complete_file_upload",
+      "description": "Complete a Gumroad multipart file upload after all file parts have been uploaded to the presigned S3 URLs. The response returns file_url. To make the file purchasable on a product, pass that file_url as files[].url to create_product or update_product.",
+      "method": "POST",
+      "path": "/files/complete",
+      "input_schema": {"type": "object", "properties": {"upload_id": {"type": "string"}, "key": {"type": "string"}, "parts": {"type": "array", "items": {"type": "object", "properties": {"part_number": {"type": "number"}, "etag": {"type": "string"}}, "required": ["part_number", "etag"]}}}, "required": ["upload_id", "key", "parts"]}
+    },
+    {
+      "name": "abort_file_upload",
+      "description": "Abort a pending Gumroad multipart file upload.",
+      "method": "POST",
+      "path": "/files/abort",
+      "input_schema": {"type": "object", "properties": {"upload_id": {"type": "string"}, "key": {"type": "string"}}, "required": ["upload_id", "key"]}
+    },
+    {
+      "name": "create_direct_upload",
+      "description": "Reserve an Active Storage direct upload for a product cover/thumbnail or public media image. Compute checksum as base64-encoded MD5 of the exact file bytes. Omit purpose for a cover or thumbnail; use purpose=media before create_media.",
+      "method": "POST",
+      "path": "/direct_uploads",
+      "input_schema": {"type": "object", "properties": {"purpose": {"type": "string", "enum": ["media"], "description": "Set to media only when the uploaded image will be finalized with create_media."}, "blob": {"type": "object", "properties": {"filename": {"type": "string"}, "byte_size": {"type": "integer", "minimum": 1}, "checksum": {"type": "string", "description": "Base64-encoded MD5 checksum of the exact file bytes."}, "content_type": {"type": "string", "description": "JPEG, PNG, GIF, or supported video MIME type; purpose=media is image-only and capped at 10 MB."}}, "required": ["filename", "byte_size", "checksum", "content_type"]}}, "required": ["blob"]}
+    },
+    {
+      "name": "upload_direct_upload",
+      "description": "Upload raw bytes to the short-lived direct_upload.url returned by create_direct_upload. Pass the exact Content-Type and Content-MD5 values returned in direct_upload.headers. This storage call deliberately omits the Gumroad bearer token.",
+      "method": "PUT",
+      "path": "{uploadUrl}",
+      "path_params": ["uploadUrl"],
+      "omit_auth_headers": ["Authorization"],
+      "body_binary_param": "file",
+      "header_params": {"content_type": "Content-Type", "content_md5": "Content-MD5"},
+      "input_schema": {"type": "object", "properties": {"uploadUrl": {"type": "string", "format": "uri"}, "file": {"description": "Image/video bytes as a blob reference or binary value."}, "content_type": {"type": "string"}, "content_md5": {"type": "string"}}, "required": ["uploadUrl", "file", "content_type", "content_md5"]}
+    },
+    {
+      "name": "list_media",
+      "description": "List images in the authenticated seller's public Gumroad media library. Requires view_profile scope.",
+      "method": "GET",
+      "path": "/media",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "create_media",
+      "description": "Create a public Gumroad media-library image from a completed purpose=media direct upload or from a genuinely public image URL. Requires edit_profile scope.",
+      "method": "POST",
+      "path": "/media",
+      "input_schema": {"type": "object", "properties": {"signed_blob_id": {"type": "string"}, "url": {"type": "string", "format": "uri"}, "name": {"type": "string"}}, "anyOf": [{"required": ["signed_blob_id"]}, {"required": ["url"]}]}
+    },
+    {
+      "name": "delete_media",
+      "description": "Delete an image from the authenticated seller's public media library. Pages embedding its URL will break.",
+      "method": "DELETE",
+      "path": "/media/{mediaId}",
+      "path_params": ["mediaId"],
+      "input_schema": {"type": "object", "properties": {"mediaId": {"type": "string"}}, "required": ["mediaId"]}
+    },
+    {
+      "name": "add_cover",
+      "description": "Add a cover to a product from either signed_blob_id returned by a completed create_direct_upload/upload_direct_upload flow, or a genuinely public image, video, YouTube, or Vimeo URL. Private file_url values returned by complete_file_upload are not valid cover URLs.",
+      "method": "POST",
+      "path": "/products/{productId}/covers",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "signed_blob_id": {"type": "string"}, "url": {"type": "string", "format": "uri"}}, "required": ["productId"], "anyOf": [{"required": ["signed_blob_id"]}, {"required": ["url"]}]}
+    },
+    {
+      "name": "delete_cover",
+      "description": "Delete a cover from a product.",
+      "method": "DELETE",
+      "path": "/products/{productId}/covers/{coverId}",
+      "path_params": ["productId", "coverId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "coverId": {"type": "string"}}, "required": ["productId", "coverId"]}
+    },
+    {
+      "name": "set_thumbnail",
+      "description": "Set a product thumbnail from a signed upload or publicly accessible image URL.",
+      "method": "POST",
+      "path": "/products/{productId}/thumbnail",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "signed_blob_id": {"type": "string"}, "url": {"type": "string", "format": "uri"}}, "required": ["productId"], "anyOf": [{"required": ["signed_blob_id"]}, {"required": ["url"]}]}
+    },
+    {
+      "name": "delete_thumbnail",
+      "description": "Delete a product thumbnail.",
+      "method": "DELETE",
+      "path": "/products/{productId}/thumbnail",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "list_variant_categories",
+      "description": "List variant categories for a product.",
+      "method": "GET",
+      "path": "/products/{productId}/variant_categories",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "get_variant_category",
+      "description": "Get one variant category for a product.",
+      "method": "GET",
+      "path": "/products/{productId}/variant_categories/{categoryId}",
+      "path_params": ["productId", "categoryId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}}, "required": ["productId", "categoryId"]}
+    },
+    {
+      "name": "create_variant_category",
+      "description": "Create a variant category on a product. Gumroad expects variant_category/title style fields.",
+      "method": "POST",
+      "path": "/products/{productId}/variant_categories",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "title": {"type": "string"}, "variant_category": {"type": "object"}}, "required": ["productId", "title"]}
+    },
+    {
+      "name": "update_variant_category",
+      "description": "Update a variant category.",
+      "method": "PUT",
+      "path": "/products/{productId}/variant_categories/{categoryId}",
+      "path_params": ["productId", "categoryId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}, "title": {"type": "string"}, "variant_category": {"type": "object"}}, "required": ["productId", "categoryId"]}
+    },
+    {
+      "name": "delete_variant_category",
+      "description": "Delete a variant category.",
+      "method": "DELETE",
+      "path": "/products/{productId}/variant_categories/{categoryId}",
+      "path_params": ["productId", "categoryId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}}, "required": ["productId", "categoryId"]}
+    },
+    {
+      "name": "list_variants",
+      "description": "List variants in a variant category.",
+      "method": "GET",
+      "path": "/products/{productId}/variant_categories/{categoryId}/variants",
+      "path_params": ["productId", "categoryId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}}, "required": ["productId", "categoryId"]}
+    },
+    {
+      "name": "get_variant",
+      "description": "Get one variant.",
+      "method": "GET",
+      "path": "/products/{productId}/variant_categories/{categoryId}/variants/{variantId}",
+      "path_params": ["productId", "categoryId", "variantId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}, "variantId": {"type": "string"}}, "required": ["productId", "categoryId", "variantId"]}
+    },
+    {
+      "name": "create_variant",
+      "description": "Create a variant. Common fields include name, price_difference_cents, max_purchase_count, and variant.",
+      "method": "POST",
+      "path": "/products/{productId}/variant_categories/{categoryId}/variants",
+      "path_params": ["productId", "categoryId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}, "name": {"type": "string"}, "price_difference_cents": {"type": "number"}, "max_purchase_count": {"type": "number"}, "variant": {"type": "object"}}, "required": ["productId", "categoryId", "name"]}
+    },
+    {
+      "name": "update_variant",
+      "description": "Update a variant.",
+      "method": "PUT",
+      "path": "/products/{productId}/variant_categories/{categoryId}/variants/{variantId}",
+      "path_params": ["productId", "categoryId", "variantId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}, "variantId": {"type": "string"}, "name": {"type": "string"}, "price_difference_cents": {"type": "number"}, "max_purchase_count": {"type": "number"}, "variant": {"type": "object"}}, "required": ["productId", "categoryId", "variantId"]}
+    },
+    {
+      "name": "delete_variant",
+      "description": "Delete a variant.",
+      "method": "DELETE",
+      "path": "/products/{productId}/variant_categories/{categoryId}/variants/{variantId}",
+      "path_params": ["productId", "categoryId", "variantId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "categoryId": {"type": "string"}, "variantId": {"type": "string"}}, "required": ["productId", "categoryId", "variantId"]}
+    },
+    {
+      "name": "list_offer_codes",
+      "description": "List offer codes for a product.",
+      "method": "GET",
+      "path": "/products/{productId}/offer_codes",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "get_offer_code",
+      "description": "Get one offer code.",
+      "method": "GET",
+      "path": "/products/{productId}/offer_codes/{offerCodeId}",
+      "path_params": ["productId", "offerCodeId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "offerCodeId": {"type": "string"}}, "required": ["productId", "offerCodeId"]}
+    },
+    {
+      "name": "create_offer_code",
+      "description": "Create an offer code. Common fields include name/code, amount_off, amount_percentage, max_purchase_count, universal, and offer_code.",
+      "method": "POST",
+      "path": "/products/{productId}/offer_codes",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "code": {"type": "string"}, "amount_off": {"type": "number"}, "amount_percentage": {"type": "number"}, "max_purchase_count": {"type": "number"}, "universal": {"type": "boolean"}, "offer_code": {"type": "object"}}, "required": ["productId"]}
+    },
+    {
+      "name": "update_offer_code",
+      "description": "Update an offer code.",
+      "method": "PUT",
+      "path": "/products/{productId}/offer_codes/{offerCodeId}",
+      "path_params": ["productId", "offerCodeId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "offerCodeId": {"type": "string"}, "name": {"type": "string"}, "code": {"type": "string"}, "amount_off": {"type": "number"}, "amount_percentage": {"type": "number"}, "max_purchase_count": {"type": "number"}, "universal": {"type": "boolean"}, "offer_code": {"type": "object"}}, "required": ["productId", "offerCodeId"]}
+    },
+    {
+      "name": "delete_offer_code",
+      "description": "Delete an offer code.",
+      "method": "DELETE",
+      "path": "/products/{productId}/offer_codes/{offerCodeId}",
+      "path_params": ["productId", "offerCodeId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "offerCodeId": {"type": "string"}}, "required": ["productId", "offerCodeId"]}
+    },
+    {
+      "name": "list_custom_fields",
+      "description": "List custom checkout fields for a product.",
+      "method": "GET",
+      "path": "/products/{productId}/custom_fields",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}}, "required": ["productId"]}
+    },
+    {
+      "name": "create_custom_field",
+      "description": "Create a product custom field. Common fields include name, required, type, and custom_field.",
+      "method": "POST",
+      "path": "/products/{productId}/custom_fields",
+      "path_params": ["productId"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "required": {"type": "boolean"}, "type": {"type": "string"}, "custom_field": {"type": "object"}}, "required": ["productId", "name"]}
+    },
+    {
+      "name": "update_custom_field",
+      "description": "Update a product custom field by name.",
+      "method": "PUT",
+      "path": "/products/{productId}/custom_fields/{name}",
+      "path_params": ["productId", "name"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}, "required": {"type": "boolean"}, "type": {"type": "string"}, "custom_field": {"type": "object"}}, "required": ["productId", "name"]}
+    },
+    {
+      "name": "delete_custom_field",
+      "description": "Delete a product custom field by name.",
+      "method": "DELETE",
+      "path": "/products/{productId}/custom_fields/{name}",
+      "path_params": ["productId", "name"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "name": {"type": "string"}}, "required": ["productId", "name"]}
+    },
+    {
+      "name": "list_emails",
+      "description": "List audience emails/newsletters by publication state. Gumroad returns up to 10 items per page; pass the response page_key to fetch the next page.",
+      "method": "GET",
+      "path": "/emails",
+      "query_params": ["type", "page_key"],
+      "input_schema": {"type": "object", "properties": {"type": {"type": "string", "enum": ["published", "scheduled", "draft"]}, "page_key": {"type": "string", "description": "Opaque page key returned by the previous response."}}}
+    },
+    {
+      "name": "get_email",
+      "description": "Get one audience email/newsletter.",
+      "method": "GET",
+      "path": "/emails/{emailId}",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
+    },
+    {
+      "name": "create_email",
+      "description": "Create an audience email/newsletter draft, or publish it immediately when publish is true. For a product audience, provide product_id (or Gumroad's legacy link_id).",
+      "method": "POST",
+      "path": "/emails",
+      "input_schema": {"type": "object", "properties": {"subject": {"type": "string"}, "body": {"type": "string"}, "audience": {"type": "string", "enum": ["all", "audience", "customers", "seller", "followers", "follower", "product"]}, "product_id": {"type": "string", "description": "Product ID required when audience is product."}, "link_id": {"type": "string", "description": "Legacy alias for product_id accepted by Gumroad."}, "publish": {"type": "boolean", "description": "Publish and send immediately instead of saving a draft."}, "draft": {"type": "boolean", "description": "Explicitly save as a draft."}}, "required": ["subject", "body"]}
+    },
+    {
+      "name": "preview_email",
+      "description": "Send a preview copy of an audience email/newsletter to the authenticated seller and return its preview URL.",
+      "method": "POST",
+      "path": "/emails/{emailId}/preview",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
+    },
+    {
+      "name": "send_email",
+      "description": "Immediately publish and send an audience email/newsletter to its configured audience. This is irreversible and subject to Gumroad account eligibility rules.",
+      "method": "POST",
+      "path": "/emails/{emailId}/send",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
+    },
+    {
+      "name": "schedule_email",
+      "description": "Schedule a draft audience email/newsletter for future publication and delivery.",
+      "method": "POST",
+      "path": "/emails/{emailId}/schedule",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}, "to_be_published_at": {"type": "string", "description": "Future publication time accepted by Gumroad, preferably an ISO 8601 timestamp with timezone."}}, "required": ["emailId", "to_be_published_at"]}
+    },
+    {
+      "name": "unschedule_email",
+      "description": "Return a scheduled audience email/newsletter to draft state.",
+      "method": "POST",
+      "path": "/emails/{emailId}/unschedule",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
+    },
+    {
+      "name": "delete_email",
+      "description": "Delete an audience email/newsletter.",
+      "method": "DELETE",
+      "path": "/emails/{emailId}",
+      "path_params": ["emailId"],
+      "input_schema": {"type": "object", "properties": {"emailId": {"type": "string"}}, "required": ["emailId"]}
+    },
+    {
+      "name": "list_resource_subscriptions",
+      "description": "List resource subscriptions/webhooks for one Gumroad event type.",
+      "method": "GET",
+      "path": "/resource_subscriptions",
+      "query_params": ["resource_name"],
+      "input_schema": {"type": "object", "properties": {"resource_name": {"type": "string", "enum": ["sale", "refund", "cancellation", "subscription_ended", "subscription_restarted", "subscription_updated", "dispute", "dispute_won"]}}, "required": ["resource_name"]}
+    },
+    {
+      "name": "create_resource_subscription",
+      "description": "Create a Gumroad resource subscription/webhook for an account event. The callback must be a public HTTP or HTTPS URL.",
+      "method": "PUT",
+      "path": "/resource_subscriptions",
+      "input_schema": {"type": "object", "properties": {"resource_name": {"type": "string", "enum": ["sale", "refund", "cancellation", "subscription_ended", "subscription_restarted", "subscription_updated", "dispute", "dispute_won"]}, "post_url": {"type": "string", "format": "uri", "description": "Public HTTP or HTTPS callback URL; localhost addresses are rejected by Gumroad."}}, "required": ["resource_name", "post_url"]}
+    },
+    {
+      "name": "delete_resource_subscription",
+      "description": "Delete a resource subscription/webhook.",
+      "method": "DELETE",
+      "path": "/resource_subscriptions/{resourceSubscriptionId}",
+      "path_params": ["resourceSubscriptionId"],
+      "input_schema": {"type": "object", "properties": {"resourceSubscriptionId": {"type": "string"}}, "required": ["resourceSubscriptionId"]}
+    },
+    {
+      "name": "list_sales",
+      "description": "List sales. Supports date, product, email, page, and pagination filters.",
+      "method": "GET",
+      "path": "/sales",
+      "query_params": ["before", "after", "product_id", "email", "order_id", "page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"before": {"type": "string"}, "after": {"type": "string"}, "product_id": {"type": "string"}, "email": {"type": "string"}, "order_id": {"type": "string"}, "page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "get_sale",
+      "description": "Get one sale by ID.",
+      "method": "GET",
+      "path": "/sales/{saleId}",
+      "path_params": ["saleId"],
+      "input_schema": {"type": "object", "properties": {"saleId": {"type": "string"}}, "required": ["saleId"]}
+    },
+    {
+      "name": "mark_sale_as_shipped",
+      "description": "Mark a physical-product sale as shipped. Include tracking URL/number as accepted by Gumroad.",
+      "method": "PUT",
+      "path": "/sales/{saleId}/mark_as_shipped",
+      "path_params": ["saleId"],
+      "input_schema": {"type": "object", "properties": {"saleId": {"type": "string"}, "tracking_url": {"type": "string"}, "tracking_number": {"type": "string"}}, "required": ["saleId"]}
+    },
+    {
+      "name": "refund_sale",
+      "description": "Refund a sale. Include amount_cents for partial refund when supported/needed.",
+      "method": "PUT",
+      "path": "/sales/{saleId}/refund",
+      "path_params": ["saleId"],
+      "input_schema": {"type": "object", "properties": {"saleId": {"type": "string"}, "amount_cents": {"type": "number"}}, "required": ["saleId"]}
+    },
+    {
+      "name": "resend_sale_receipt",
+      "description": "Resend the purchase receipt for a sale.",
+      "method": "POST",
+      "path": "/sales/{saleId}/resend_receipt",
+      "path_params": ["saleId"],
+      "input_schema": {"type": "object", "properties": {"saleId": {"type": "string"}}, "required": ["saleId"]}
+    },
+    {
+      "name": "list_product_subscribers",
+      "description": "List subscribers for a product.",
+      "method": "GET",
+      "path": "/products/{productId}/subscribers",
+      "path_params": ["productId"],
+      "query_params": ["email", "page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"productId": {"type": "string"}, "email": {"type": "string"}, "page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}, "required": ["productId"]}
+    },
+    {
+      "name": "get_subscriber",
+      "description": "Get one subscriber by ID.",
+      "method": "GET",
+      "path": "/subscribers/{subscriberId}",
+      "path_params": ["subscriberId"],
+      "input_schema": {"type": "object", "properties": {"subscriberId": {"type": "string"}}, "required": ["subscriberId"]}
+    },
+    {
+      "name": "verify_license",
+      "description": "Verify a Gumroad license key. This endpoint can be used for license activation/checks.",
+      "method": "POST",
+      "path": "/licenses/verify",
+      "input_schema": {"type": "object", "properties": {"product_permalink": {"type": "string"}, "license_key": {"type": "string"}, "increment_uses_count": {"type": "boolean", "default": true}}, "required": ["product_permalink", "license_key"]}
+    },
+    {
+      "name": "enable_license",
+      "description": "Enable a license key.",
+      "method": "POST",
+      "path": "/licenses/enable",
+      "input_schema": {"type": "object", "properties": {"license_key": {"type": "string"}}, "required": ["license_key"]}
+    },
+    {
+      "name": "disable_license",
+      "description": "Disable a license key.",
+      "method": "POST",
+      "path": "/licenses/disable",
+      "input_schema": {"type": "object", "properties": {"license_key": {"type": "string"}}, "required": ["license_key"]}
+    },
+    {
+      "name": "decrement_license_uses_count",
+      "description": "Decrement a license key's uses count.",
+      "method": "POST",
+      "path": "/licenses/decrement_uses_count",
+      "input_schema": {"type": "object", "properties": {"license_key": {"type": "string"}}, "required": ["license_key"]}
+    },
+    {
+      "name": "rotate_license",
+      "description": "Rotate a license key.",
+      "method": "POST",
+      "path": "/licenses/rotate",
+      "input_schema": {"type": "object", "properties": {"license_key": {"type": "string"}}, "required": ["license_key"]}
+    },
+    {
+      "name": "list_payouts",
+      "description": "List payouts for the authenticated seller.",
+      "method": "GET",
+      "path": "/payouts",
+      "query_params": ["page", "per_page"],
+      "input_schema": {"type": "object", "properties": {"page": {"type": "number"}, "per_page": {"type": "number", "default": 100}}}
+    },
+    {
+      "name": "get_payout",
+      "description": "Get one payout by ID.",
+      "method": "GET",
+      "path": "/payouts/{payoutId}",
+      "path_params": ["payoutId"],
+      "input_schema": {"type": "object", "properties": {"payoutId": {"type": "string"}}, "required": ["payoutId"]}
+    },
+    {
+      "name": "get_upcoming_payout",
+      "description": "Get upcoming payout information.",
+      "method": "GET",
+      "path": "/payouts/upcoming",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_tax_forms",
+      "description": "List available tax forms. Optionally filter by tax year.",
+      "method": "GET",
+      "path": "/tax_forms",
+      "query_params": ["year"],
+      "input_schema": {"type": "object", "properties": {"year": {"type": "number"}}}
+    },
+    {
+      "name": "download_tax_form",
+      "description": "Download a tax form. Returns the Gumroad API response for the requested year and tax form type.",
+      "method": "GET",
+      "path": "/tax_forms/{year}/{taxFormType}/download",
+      "path_params": ["year", "taxFormType"],
+      "input_schema": {"type": "object", "properties": {"year": {"type": "number"}, "taxFormType": {"type": "string", "description": "For example us_1099_k or us_1099_misc."}}, "required": ["year", "taxFormType"]}
+    },
+    {
+      "name": "get_earnings",
+      "description": "Get annual earnings summary.",
+      "method": "GET",
+      "path": "/earnings",
+      "query_params": ["year"],
+      "input_schema": {"type": "object", "properties": {"year": {"type": "number"}}}
+    }
+  ],
+  "webhooks": {
+    "signature_header": "",
+    "registration": {
+      "method": "POST",
+      "path": "/resource_subscriptions",
+      "url_field": "post_url",
+      "manual_setup": "Gumroad resource subscriptions are created one resource at a time. Use gumroad_create_resource_subscription with resource_name set to sale, refund, or dispute and post_url set to the Apteva webhook URL. Use gumroad_delete_resource_subscription to remove it."
+    },
+    "events": [
+      {
+        "name": "sale",
+        "description": "Triggered when a sale is created."
+      },
+      {
+        "name": "refund",
+        "description": "Triggered when a sale is refunded."
+      },
+      {
+        "name": "dispute",
+        "description": "Triggered when a dispute event is created."
+      }
+    ]
+  }
+}

@@ -1,0 +1,496 @@
+{
+  "slug": "squarespace",
+  "name": "Squarespace",
+  "description": "Squarespace Commerce API for websites, products, variants, inventory, orders, fulfillment, contacts, transactions, discounts, profiles, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=squarespace.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "website",
+    "products",
+    "orders",
+    "inventory"
+  ],
+  "base_url": "https://api.squarespace.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Squarespace API Key or OAuth Token",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_website"
+  },
+  "tools": [
+    {
+      "name": "get_website",
+      "description": "Get the website represented by the credential.",
+      "method": "GET",
+      "path": "/1.0/website",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_store_pages",
+      "description": "List commerce-enabled store pages.",
+      "method": "GET",
+      "path": "/1.0/website/store-pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_products",
+      "description": "List products using the current v2 API.",
+      "method": "GET",
+      "path": "/v2/commerce/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "modifiedAfter": {
+            "type": "string"
+          },
+          "modifiedBefore": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Get a product.",
+      "method": "GET",
+      "path": "/v2/commerce/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a physical, service, or gift-card product using Squarespace v2 fields.",
+      "method": "POST",
+      "path": "/v2/commerce/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "PHYSICAL, SERVICE, or GIFT_CARD."
+          },
+          "storePageId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "urlSlug": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seoOptions": {
+            "type": "object"
+          },
+          "isVisible": {
+            "type": "boolean"
+          },
+          "variants": {
+            "type": "array",
+            "description": "Variant objects with sku, pricing, attributes, shipping, and stock fields.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "images": {
+            "type": "array",
+            "description": "Product image objects.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "storePageId",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Partially update a product. Each changed field uses Squarespace's {present:true,value:...} wrapper.",
+      "method": "POST",
+      "path": "/v2/commerce/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "object",
+            "description": "ChangeString object: {present:true,value:'New name'}."
+          },
+          "description": {
+            "type": "object",
+            "description": "ChangeString object."
+          },
+          "urlSlug": {
+            "type": "object",
+            "description": "ChangeString object."
+          },
+          "tags": {
+            "type": "object",
+            "description": "ChangeListString object whose value is an array of tags."
+          },
+          "seoData": {
+            "type": "object",
+            "description": "ChangeSeoOptions object."
+          },
+          "isVisible": {
+            "type": "object",
+            "description": "ChangeBoolean object."
+          },
+          "pricing": {
+            "type": "object",
+            "description": "ChangeUpdateProductPricing object."
+          },
+          "productAttributeNames": {
+            "type": "object",
+            "description": "ChangeListString object."
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete a supported product type.",
+      "method": "DELETE",
+      "path": "/v2/commerce/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders with date and customer filters.",
+      "method": "GET",
+      "path": "/1.0/commerce/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string"
+          },
+          "modifiedAfter": {
+            "type": "string"
+          },
+          "modifiedBefore": {
+            "type": "string"
+          },
+          "fulfillmentStatus": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get an order.",
+      "method": "GET",
+      "path": "/1.0/commerce/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "fulfill_order",
+      "description": "Create a fulfillment and optionally notify the customer.",
+      "method": "POST",
+      "path": "/1.0/commerce/orders/{order_id}/fulfillments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string"
+          },
+          "shouldSendNotification": {
+            "type": "boolean"
+          },
+          "shipments": {
+            "type": "array",
+            "description": "Shipment objects with carrierName, service, trackingNumber, trackingUrl, and lineItems.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "order_id",
+          "shipments"
+        ]
+      }
+    },
+    {
+      "name": "list_inventory",
+      "description": "List current inventory levels.",
+      "method": "GET",
+      "path": "/1.0/commerce/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_inventory",
+      "description": "Get inventory for up to 50 comma-separated variant IDs.",
+      "method": "GET",
+      "path": "/1.0/commerce/inventory/{variant_ids}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variant_ids": {
+            "type": "string",
+            "description": "Comma-separated variant IDs."
+          }
+        },
+        "required": [
+          "variant_ids"
+        ]
+      }
+    },
+    {
+      "name": "adjust_inventory",
+      "description": "Adjust, set, or mark variant stock as unlimited.",
+      "method": "POST",
+      "path": "/1.0/commerce/inventory/adjustments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "incrementOperations": {
+            "type": "array",
+            "description": "Variant quantity increments.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "setFiniteOperations": {
+            "type": "array",
+            "description": "Absolute finite quantities.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "setUnlimitedOperations": {
+            "type": "array",
+            "description": "Variant IDs to make unlimited.",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List commerce transactions and donations.",
+      "method": "GET",
+      "path": "/1.0/commerce/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "modifiedAfter": {
+            "type": "string"
+          },
+          "modifiedBefore": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List contacts, customers, subscribers, and donors.",
+      "method": "GET",
+      "path": "/1.0/commerce/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "modifiedAfter": {
+            "type": "string"
+          },
+          "modifiedBefore": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Get a contact.",
+      "method": "GET",
+      "path": "/1.0/commerce/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "list_discounts",
+      "description": "List discount codes and automatic discounts.",
+      "method": "GET",
+      "path": "/1.0/commerce/discounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_webhook_subscriptions",
+      "description": "List webhook subscriptions.",
+      "method": "GET",
+      "path": "/1.0/webhook-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_webhook_subscription",
+      "description": "Create a webhook subscription.",
+      "method": "POST",
+      "path": "/1.0/webhook-subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpointUrl": {
+            "type": "string"
+          },
+          "topics": {
+            "type": "array",
+            "description": "Squarespace webhook topics.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "endpointUrl",
+          "topics"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook_subscription",
+      "description": "Delete a webhook subscription.",
+      "method": "DELETE",
+      "path": "/1.0/webhook-subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    }
+  ]
+}

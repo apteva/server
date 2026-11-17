@@ -1,0 +1,387 @@
+{
+  "slug": "meetup-events",
+  "name": "Meetup",
+  "description": "Meetup GraphQL API - search events and groups, manage events, RSVPs, and community groups",
+  "logo": "https://www.google.com/s2/favicons?domain=meetup.com&sz=128",
+  "categories": [
+    "meetup",
+    "events",
+    "groups",
+    "community",
+    "rsvp",
+    "graphql"
+  ],
+  "base_url": "https://api.meetup.com",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "apiKey"
+      },
+      {
+        "name": "tokenType",
+        "label": "tokenType"
+      },
+      {
+        "name": "scope",
+        "label": "scope"
+      },
+      {
+        "name": "refreshToken",
+        "label": "refreshToken"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://secure.meetup.com/oauth2/authorize",
+      "token_url": "https://secure.meetup.com/oauth2/access",
+      "scopes": [
+        "basic",
+        "rsvp",
+        "event_management",
+        "group_edit",
+        "messaging"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "self",
+      "description": "Get the authenticated user's Meetup profile including name, email, location, bio, and member photo.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_events",
+      "description": "Search for Meetup events by keyword and optional location. Pass a filter object with query (required string), and optionally lat (number), lon (number), radius (integer miles), startDateRange (ISO8601), endDateRange (ISO8601). Example: {\"query\": \"tech meetups\", \"lat\": 40.71, \"lon\": -74.01, \"radius\": 25}. Returns up to 20 events.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "description": "Search filter. Required: query (string). Optional: lat (number), lon (number), radius (integer miles), startDateRange (ISO8601), endDateRange (ISO8601)",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search keywords"
+              },
+              "lat": {
+                "type": "number",
+                "description": "Latitude"
+              },
+              "lon": {
+                "type": "number",
+                "description": "Longitude"
+              },
+              "radius": {
+                "type": "integer",
+                "description": "Radius in miles"
+              },
+              "startDateRange": {
+                "type": "string",
+                "description": "Events after this date"
+              },
+              "endDateRange": {
+                "type": "string",
+                "description": "Events before this date"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        "required": [
+          "filter"
+        ]
+      }
+    },
+    {
+      "name": "search_groups",
+      "description": "Search for Meetup groups by keyword and optional location. Pass a filter object with query (required string), and optionally lat (number), lon (number), radius (integer miles). Example: {\"query\": \"python developers\", \"lat\": 51.51, \"lon\": -0.13}. Returns up to 20 groups.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "description": "Search filter. Required: query (string). Optional: lat (number), lon (number), radius (integer miles)",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search keywords"
+              },
+              "lat": {
+                "type": "number",
+                "description": "Latitude"
+              },
+              "lon": {
+                "type": "number",
+                "description": "Longitude"
+              },
+              "radius": {
+                "type": "integer",
+                "description": "Radius in miles"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        "required": [
+          "filter"
+        ]
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "Get detailed information about a specific Meetup event by its ID. Returns title, full description, date/time, venue, group, host, RSVP settings, fees, and images.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "description": "Meetup event ID"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "get_group",
+      "description": "Get detailed information about a Meetup group by its URL name (e.g., 'ReactNYC'). Returns name, description, location, member count, topics, organizer, and photos.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urlname": {
+            "type": "string",
+            "description": "Group URL name (e.g., 'ReactNYC', 'Docker-Berlin')"
+          }
+        },
+        "required": [
+          "urlname"
+        ]
+      }
+    },
+    {
+      "name": "group_upcoming_events",
+      "description": "List upcoming events for a Meetup group. Returns up to 20 upcoming events with title, date, venue, and RSVP count.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urlname": {
+            "type": "string",
+            "description": "Group URL name"
+          }
+        },
+        "required": [
+          "urlname"
+        ]
+      }
+    },
+    {
+      "name": "group_past_events",
+      "description": "List past events for a Meetup group. Returns up to 20 past events with title, date, venue, and attendance count.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urlname": {
+            "type": "string",
+            "description": "Group URL name"
+          }
+        },
+        "required": [
+          "urlname"
+        ]
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create a new Meetup event. Pass an input object with required fields: groupUrlname (string), title (string), description (string, HTML allowed), startDateTime (ISO8601), duration (ISO8601 duration like 'PT2H'). Optional: endDateTime, venueId, eventType ('PHYSICAL'/'ONLINE'), publishStatus ('DRAFT'/'PUBLISHED'), rsvpSettings ({rsvpLimit, guestsAllowed}), question (RSVP question).",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "CreateEventInput. Required: groupUrlname, title, description, startDateTime, duration (e.g., PT2H). Optional: endDateTime, venueId, eventType, publishStatus, rsvpSettings, question",
+            "properties": {
+              "groupUrlname": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "startDateTime": {
+                "type": "string"
+              },
+              "duration": {
+                "type": "string"
+              },
+              "endDateTime": {
+                "type": "string"
+              },
+              "venueId": {
+                "type": "string"
+              },
+              "eventType": {
+                "type": "string",
+                "enum": [
+                  "PHYSICAL",
+                  "ONLINE"
+                ]
+              },
+              "publishStatus": {
+                "type": "string",
+                "enum": [
+                  "DRAFT",
+                  "PUBLISHED"
+                ]
+              }
+            },
+            "required": [
+              "groupUrlname",
+              "title",
+              "description",
+              "startDateTime",
+              "duration"
+            ]
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "edit_event",
+      "description": "Edit an existing Meetup event. Pass an input object with eventId (required) and fields to update: title, description, startDateTime, duration, endDateTime, venueId, eventType ('PHYSICAL'/'ONLINE'), publishStatus ('DRAFT'/'PUBLISHED'/'CANCELLED'), rsvpSettings.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "EditEventInput. Required: eventId. Optional: title, description, startDateTime, duration, endDateTime, venueId, eventType, publishStatus, rsvpSettings",
+            "properties": {
+              "eventId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "startDateTime": {
+                "type": "string"
+              },
+              "duration": {
+                "type": "string"
+              },
+              "publishStatus": {
+                "type": "string",
+                "enum": [
+                  "DRAFT",
+                  "PUBLISHED",
+                  "CANCELLED"
+                ]
+              }
+            },
+            "required": [
+              "eventId"
+            ]
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "cancel_event",
+      "description": "Cancel a Meetup event. This sets the event status to CANCELLED, notifies attendees, and cannot be undone.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "description": "Event ID to cancel"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "event_attendees",
+      "description": "Get the list of RSVPs/attendees for a Meetup event. Returns attendee names, RSVP status, guest count, and timestamps.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "description": "Meetup event ID"
+          }
+        },
+        "required": [
+          "eventId"
+        ]
+      }
+    },
+    {
+      "name": "find_location",
+      "description": "Search for location suggestions by name or address. Returns city, state, country, latitude, and longitude. Useful for finding coordinates to use in event search filters.",
+      "method": "POST",
+      "path": "/gql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Location search (city name, address, etc.)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ]
+}

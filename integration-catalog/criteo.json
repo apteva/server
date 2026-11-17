@@ -1,0 +1,222 @@
+{
+  "slug": "criteo",
+  "name": "Criteo",
+  "description": "Criteo Marketing Solutions API 2024-10 — manage advertisers, campaigns, ad sets, audiences, and pull retargeting + commerce-media performance reports. OAuth2 client_credentials grant (no user interaction).",
+  "logo": "https://www.google.com/s2/favicons?domain=criteo.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "retargeting",
+    "commerce-media",
+    "criteo",
+    "display-ads"
+  ],
+  "base_url": "https://api.criteo.com/2024-10",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password",
+        "description": "Bearer token from POST /oauth2/token (grant_type=client_credentials). Lifetime 15 minutes."
+      },
+      {
+        "name": "client_id",
+        "label": "Client ID",
+        "description": "Criteo API client ID — from Developer Portal > API Apps"
+      },
+      {
+        "name": "client_secret",
+        "label": "Client Secret",
+        "type": "password"
+      },
+      {
+        "name": "advertiser_id",
+        "label": "Default Advertiser ID"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.criteo.com/oauth2/authorize",
+      "token_url": "https://api.criteo.com/oauth2/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "grant_type": "client_credentials"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_advertisers",
+      "description": "List advertisers the API client has access to.",
+      "method": "GET",
+      "path": "/advertisers/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns. Filter by advertiser-ids or campaign-ids; paginate with limit/offset.",
+      "method": "GET",
+      "path": "/marketing-solutions/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser-ids": { "type": "string", "description": "Comma-separated advertiser IDs" },
+          "campaign-ids": { "type": "string", "description": "Comma-separated campaign IDs" },
+          "limit": { "type": "integer", "default": 100, "description": "Max 1000" },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Body data wraps {type: 'Campaign', attributes: {advertiserId, name, spendLimit, objective (Acquisition|Retention|ConsiderationVideo|...), goal, ...}}.",
+      "method": "POST",
+      "path": "/marketing-solutions/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "object", "description": "JSON:API resource object {type: 'Campaign', attributes: {...}}" }
+        },
+        "required": ["data"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "PATCH a campaign by id. Body wraps {data: {type: 'Campaign', id, attributes: {fields to update}}}.",
+      "method": "PATCH",
+      "path": "/marketing-solutions/campaigns/{campaignId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": { "type": "string" },
+          "data": { "type": "object" }
+        },
+        "required": ["campaignId", "data"]
+      }
+    },
+    {
+      "name": "list_ad_sets",
+      "description": "List ad sets. Filter by advertiser-ids, campaign-ids, ad-set-ids.",
+      "method": "POST",
+      "path": "/marketing-solutions/ad-sets/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "description": "{\"advertiserIds\": [\"123\"], \"campaignIds\": [\"456\"], \"adSetIds\": [\"789\"]}"
+          },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "create_ad_set",
+      "description": "Create one or more ad sets. data is an array of resource objects: each {type: 'AdSet', attributes: {campaignId, name, destinationEnvironment (Web|App|Undefined), schedule {startDate, endDate?, deliveryType (Standard|Accelerated)}, bidding {biddingStrategy, costController, bidAmount?}, targeting, mediaType}}.",
+      "method": "POST",
+      "path": "/marketing-solutions/ad-sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["data"]
+      }
+    },
+    {
+      "name": "patch_ad_sets",
+      "description": "Bulk-update ad sets. data: array of {type:'AdSet', id, attributes:{...}}.",
+      "method": "PATCH",
+      "path": "/marketing-solutions/ad-sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["data"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List audiences for an advertiser. Filter by advertiser-id.",
+      "method": "GET",
+      "path": "/marketing-solutions/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiser-id": { "type": "string" },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["advertiser-id"]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Create an audience (segmentation). Common types via subResource: ContactList (CRM upload), Behavioral (in-product behavior), Lookalike, Targeting. Body: {data: {type: 'Audience', attributes: {advertiserId, name, description, subResource, ...}}}.",
+      "method": "POST",
+      "path": "/marketing-solutions/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "data": { "type": "object" }
+        },
+        "required": ["data"]
+      }
+    },
+    {
+      "name": "statistics_report",
+      "description": "Pull statistics. body: {dimensions (e.g. ['CampaignId','AdSetId','Day']), metrics (Clicks,Displays,SalesPc,SalesPv,SalesAllPostView,RevenuePc,Spend,...), startDate, endDate, format (Json|Csv|Xml|Excel), currency, advertiserIds, timezone}.",
+      "method": "POST",
+      "path": "/statistics/report",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "metrics": { "type": "array", "items": { "type": "string" } },
+          "startDate": { "type": "string", "description": "ISO 8601 date" },
+          "endDate": { "type": "string" },
+          "format": { "type": "string", "enum": ["Json", "Csv", "Xml", "Excel"], "default": "Json" },
+          "currency": { "type": "string", "default": "USD" },
+          "timezone": { "type": "string", "default": "UTC" },
+          "advertiserIds": { "type": "string", "description": "Comma-separated advertiser IDs" }
+        },
+        "required": ["dimensions", "metrics", "startDate", "endDate"]
+      }
+    },
+    {
+      "name": "transactions_report",
+      "description": "Pull transactional report (per-conversion granularity). Same body shape as statistics_report but with eventType and orderId-level breakdowns.",
+      "method": "POST",
+      "path": "/statistics/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertiserIds": { "type": "string" },
+          "startDate": { "type": "string" },
+          "endDate": { "type": "string" },
+          "format": { "type": "string", "enum": ["Json", "Csv"], "default": "Json" },
+          "timezone": { "type": "string", "default": "UTC" },
+          "currency": { "type": "string", "default": "USD" },
+          "eventType": { "type": "string" }
+        },
+        "required": ["advertiserIds", "startDate", "endDate"]
+      }
+    }
+  ]
+}

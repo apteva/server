@@ -1,0 +1,54 @@
+{
+  "slug": "hire-a-human",
+  "name": "Hire a Human",
+  "description": "Create human freelance tasks through Hire a Human. This connector exposes task creation only. Hiring uses funded escrow, not a native percentage-of-sale commission workflow; task lookup, messaging, and payment API routes are not publicly documented.",
+  "logo": "https://www.google.com/s2/favicons?domain=hire-a-human.ai&sz=128",
+  "categories": [
+    "marketplace",
+    "human-services",
+    "agents",
+    "tasks"
+  ],
+  "base_url": "https://cwktwvmcxstpscjcmqzi.supabase.co/functions/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Hire a Human API Key",
+        "type": "password",
+        "required": true,
+        "description": "Create a key in https://hire-a-human.ai/dashboard/ai-agent after identity verification. Task creation requires the write scope. Use a provider API key, not a Supabase project key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_task",
+      "description": "Create a task using the provider-native JSON payload for POST /api-tasks. The provider describes a title, description, offered rate, deadline, and target type (ai, human, or both), but does not publish a full field schema. Supply the exact request object from your provider API documentation; it is forwarded unchanged. No idempotency or cancellation contract is documented.",
+      "method": "POST",
+      "path": "/api-tasks",
+      "body_root_param": "task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Exact Hire a Human task-creation JSON body. Obtain the current required field names and constraints from the provider; nested fields are preserved."
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    }
+  ]
+}

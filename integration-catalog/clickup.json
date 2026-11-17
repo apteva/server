@@ -1,0 +1,266 @@
+{
+  "slug": "clickup",
+  "name": "ClickUp",
+  "description": "MCP server for ClickUp project management - workspaces, spaces, lists, and tasks",
+  "logo": "https://www.google.com/s2/favicons?domain=clickup.com&sz=128",
+  "categories": [
+    "project-management",
+    "clickup",
+    "tasks",
+    "productivity",
+    "team"
+  ],
+  "base_url": "https://api.clickup.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_workspaces",
+      "description": "List all workspaces (teams)",
+      "method": "GET",
+      "path": "/list-workspaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_spaces",
+      "description": "List all spaces in a workspace",
+      "method": "GET",
+      "path": "/list-spaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "description": "ID of the workspace"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Include archived spaces",
+            "default": false
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List all folders in a space",
+      "method": "GET",
+      "path": "/list-folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "string",
+            "description": "ID of the space"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Include archived folders",
+            "default": false
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      }
+    },
+    {
+      "name": "list_lists",
+      "description": "List all lists in a folder or space",
+      "method": "GET",
+      "path": "/list-lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string",
+            "description": "ID of the folder"
+          },
+          "space_id": {
+            "type": "string",
+            "description": "ID of the space (for folderless lists)"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Include archived lists",
+            "default": false
+          }
+        }
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List tasks in a list",
+      "method": "GET",
+      "path": "/list-tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "ID of the list"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Include archived tasks",
+            "default": false
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 0
+          },
+          "order_by": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "statuses": {
+            "type": "array",
+            "description": "Filter by statuses"
+          },
+          "assignees": {
+            "type": "array",
+            "description": "Filter by assignees"
+          },
+          "include_closed": {
+            "type": "boolean",
+            "description": "Include closed tasks"
+          }
+        },
+        "required": [
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Get details of a specific task",
+      "method": "GET",
+      "path": "/get-task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "ID of the task"
+          },
+          "include_subtasks": {
+            "type": "boolean",
+            "description": "Include subtasks",
+            "default": false
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "create_task",
+      "description": "Create a new task",
+      "method": "POST",
+      "path": "/create-task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "ID of the list"
+          },
+          "name": {
+            "type": "string",
+            "description": "Task name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Task description"
+          },
+          "assignees": {
+            "type": "array",
+            "description": "Assignee IDs"
+          },
+          "status": {
+            "type": "string",
+            "description": "Task status"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority (1-4)"
+          },
+          "due_date": {
+            "type": "number",
+            "description": "Due date timestamp"
+          },
+          "start_date": {
+            "type": "number",
+            "description": "Start date timestamp"
+          }
+        },
+        "required": [
+          "list_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_task",
+      "description": "Update an existing task",
+      "method": "PUT",
+      "path": "/update-task",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "ID of the task"
+          },
+          "name": {
+            "type": "string",
+            "description": "Task name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Task description"
+          },
+          "status": {
+            "type": "string",
+            "description": "Task status"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority (1-4)"
+          },
+          "due_date": {
+            "type": "number",
+            "description": "Due date timestamp"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive status"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      }
+    }
+  ]
+}

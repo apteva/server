@@ -1,0 +1,282 @@
+{
+  "slug": "omnikit-redirects",
+  "name": "OmniKit Redirects",
+  "description": "URL shortening and redirect management with analytics tracking",
+  "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+  "categories": [
+    "redirects",
+    "url-shortener",
+    "links",
+    "analytics"
+  ],
+  "base_url": "https://api.omnikit.co",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key (starts with 'okt_'). The project is determined automatically from the key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create",
+      "description": "Create a new URL redirect with optional title, description, and expiration",
+      "method": "POST",
+      "path": "/redirects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The short URL slug (alphanumeric, hyphens, underscores only)"
+          },
+          "target": {
+            "type": "string",
+            "description": "The target URL to redirect to (must be http or https)"
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional title for the redirect (max 500 chars)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description for the redirect"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Optional expiration date (ISO 8601 format)"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Whether the redirect is active",
+            "default": true
+          }
+        },
+        "required": [
+          "slug",
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "list",
+      "description": "List all redirects with filtering, sorting, and pagination support",
+      "method": "GET",
+      "path": "/redirects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active/inactive status"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in slug, title, and description"
+          },
+          "sort_field": {
+            "type": "string",
+            "description": "Field to sort by",
+            "enum": [
+              "id",
+              "slug",
+              "title",
+              "click_count",
+              "created_at",
+              "updated_at",
+              "last_clicked_at"
+            ],
+            "default": "created_at"
+          },
+          "sort_direction": {
+            "type": "string",
+            "description": "Sort direction",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "default": "desc"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results (1-1000)",
+            "default": 20
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Number of results to skip",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "update",
+      "description": "Update an existing redirect. Slug cannot be changed.",
+      "method": "PUT",
+      "path": "/redirects/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The redirect ID to update"
+          },
+          "target": {
+            "type": "string",
+            "description": "New target URL"
+          },
+          "title": {
+            "type": "string",
+            "description": "New title"
+          },
+          "description": {
+            "type": "string",
+            "description": "New description"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Set active/inactive status"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "New expiration date (ISO 8601) or null to remove"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "resolve",
+      "description": "Resolve a slug to its target URL and track the click",
+      "method": "POST",
+      "path": "/redirects/resolve",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The redirect slug to resolve"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "analytics",
+      "description": "Get analytics and statistics for redirects including total clicks, top performers, and per-redirect stats",
+      "method": "GET",
+      "path": "/redirects/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "redirect_ids": {
+            "type": "array",
+            "description": "Optional list of specific redirect IDs to analyze",
+            "items": {
+              "type": "string"
+            }
+          },
+          "time_range": {
+            "type": "object",
+            "description": "Optional time range filter",
+            "properties": {
+              "start": {
+                "type": "string",
+                "description": "Start date (ISO 8601)"
+              },
+              "end": {
+                "type": "string",
+                "description": "End date (ISO 8601)"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "credential_group": {
+    "id": "omnikit",
+    "name": "OmniKit",
+    "logo": "https://cdn.omnikit.co/cdn/project-10/public/10_1770556267491_eecb0n/603050903_10162713420734412_6016628635295692734_n.jpg",
+    "description": "One key unlocks the whole OmniKit suite. Account keys can manage many projects; project keys are scoped to one.",
+    "discovery": {
+      "list_projects": {
+        "method": "GET",
+        "path": "/projects",
+        "response_path": "data",
+        "id_field": "id",
+        "label_field": "name"
+      },
+      "api_lookup": {
+        "method": "GET",
+        "path": "/apis",
+        "response_path": "data",
+        "match_field": "base_path",
+        "match_value": "omnikit",
+        "id_field": "id"
+      },
+      "provision_project_key": {
+        "method": "POST",
+        "path": "/api-keys",
+        "body": {
+          "name": "Apteva \u00b7 {{label}}",
+          "api_id": "{{api_lookup_id}}",
+          "target_project_id": "{{external_project_id}}",
+          "scopes": [
+            "read",
+            "write"
+          ]
+        },
+        "response_key_path": "data.key",
+        "id_response_path": "data.id",
+        "credential_field": "api_key"
+      }
+    }
+  },
+  "scopes": {
+    "account": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Account API Key",
+          "description": "Starts with okt_acc_ \u2014 operates across every project in the account.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      },
+      "project_binding": {
+        "type": "header",
+        "name": "X-Project-Id",
+        "value": "{{project_id}}"
+      }
+    },
+    "project": {
+      "credential_fields": [
+        {
+          "name": "api_key",
+          "label": "Project API Key",
+          "description": "Starts with okt_ \u2014 already scoped to a single project.",
+          "type": "password"
+        }
+      ],
+      "auth_headers": {
+        "X-API-Key": "{{api_key}}"
+      }
+    }
+  }
+}

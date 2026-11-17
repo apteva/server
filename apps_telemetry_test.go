@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	sdk "github.com/apteva/app-sdk"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,8 @@ func telemetryTestServer(t *testing.T, installProject string, permissions ...str
 		(99, 2, 'Foreign', '', 'learn', '{}', 'proj-1')`)
 
 	permsJSON, _ := json.Marshal(permissions)
+	mustExec(`INSERT OR IGNORE INTO projects(id,user_id,name) VALUES('proj-1',1,'One'),('proj-2',1,'Two')`)
+	mustExec(`INSERT OR IGNORE INTO project_members(project_id,user_id,role) VALUES('proj-1',1,'owner'),('proj-2',1,'owner')`)
 	mustExec(`INSERT INTO apps (id, name, source, repo, ref, manifest_json) VALUES (700, 'streamer', 'registry', '', '', '{}')`)
 	mustExec(`INSERT INTO app_installs (id, app_id, project_id, status, permissions_json, installed_by)
 		VALUES (7001, 700, ?, 'running', ?, 1)`, installProject, string(permsJSON))
@@ -144,40 +147,169 @@ func TestCallbackTelemetryFiltersStream(t *testing.T) {
 func TestCallbackTelemetryScopesToInstallProject(t *testing.T) {
 	s, installID := telemetryTestServer(t, "proj-1", "platform.telemetry.read")
 
-	owned, err := s.ownedAgentIDsForInstall(1, installID)
+	owned, err := s.telemetryAgents(telemetryPrincipal{userID: 1, installID: installID, project: "proj-1", legacy: true}, sdk.TelemetryQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !owned[41] || owned[42] || owned[99] {
+	if owned[41].agent == nil || owned[42].agent != nil || owned[99].agent != nil {
 		t.Fatalf("owned = %v, want only agent 41 (proj-1, user 1)", owned)
 	}
 }
 
 func TestTelemetryFilterUnitCases(t *testing.T) {
-	filter := &telemetryFilter{
-		events:       map[string]bool{"llm.tool_chunk": true},
-		threadPrefix: "chat-",
-		ownedAgents:  map[int64]bool{41: true},
-	}
-	cases := []struct {
-		name string
+	q := sdk.TelemetryQuery{Events: []string{"llm.tool_chunk"}, ThreadPrefix: "chat-", AgentID: 41}
+	for _, tc := range []struct {
 		ev   TelemetryEvent
 		want bool
 	}{
-		{"allowed", TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "chat-x"}, true},
-		{"wrong type", TelemetryEvent{Type: "thought", AgentID: 41, ThreadID: "chat-x"}, false},
-		{"unowned agent", TelemetryEvent{Type: "llm.tool_chunk", AgentID: 99, ThreadID: "chat-x"}, false},
-		{"wrong thread", TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "main"}, false},
-	}
-	for _, tc := range cases {
-		if got := filter.allows(tc.ev); got != tc.want {
-			t.Errorf("%s: allows = %v, want %v", tc.name, got, tc.want)
+		{TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "chat-x"}, true},
+		{TelemetryEvent{Type: "thought", AgentID: 41, ThreadID: "chat-x"}, false},
+		{TelemetryEvent{Type: "llm.tool_chunk", AgentID: 99, ThreadID: "chat-x"}, false},
+		{TelemetryEvent{Type: "llm.tool_chunk", AgentID: 41, ThreadID: "main"}, false},
+	} {
+		if got := matchesTelemetry(q, tc.ev); got != tc.want {
+			t.Errorf("filter %+v: got %v", tc.ev, got)
 		}
 	}
-	// agent_id narrows further even among owned agents.
-	filter.agentID = 41
-	filter.ownedAgents[42] = true
-	if filter.allows(TelemetryEvent{Type: "llm.tool_chunk", AgentID: 42, ThreadID: "chat-x"}) {
-		t.Error("agent_id filter must exclude other owned agents")
+}
+
+type telemetryFlushRecorder struct {
+	*httptest.ResponseRecorder
+	onFlush func()
+}
+
+func (r *telemetryFlushRecorder) Flush() { r.onFlush() }
+
+// Flush announces that a subscription is ready. Events published from that
+// point must reach it, even before the handler enters its receive loop.
+func TestCallbackTelemetryReadyBeforeFirstEvent(t *testing.T) {
+	s, installID := telemetryTestServer(t, "proj-1", "platform.telemetry.read")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	flushes := 0
+	rec := &telemetryFlushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	rec.onFlush = func() {
+		flushes++
+		if flushes == 1 {
+			s.broadcaster.Broadcast([]TelemetryEvent{{ID: "first", AgentID: 41, ThreadID: "chat-new", Type: "llm.tool_chunk"}})
+		} else {
+			cancel()
+		}
+	}
+	s.handleCallbackTelemetry(rec, telemetryRequest(ctx, "?events=llm.tool_chunk"), installID)
+	events := collectSSEEvents(t, rec.Body.String())
+	if len(events) != 1 || events[0].ID != "first" {
+		t.Fatalf("first event after subscription ready was lost: %+v", events)
+	}
+}
+
+func TestCallbackTelemetryNewAgentImmediatelyEligible(t *testing.T) {
+	for _, idempotent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("idempotent=%t", idempotent), func(t *testing.T) {
+			s, installID := telemetryTestServer(t, "proj-1", "platform.telemetry.read")
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			flushes := 0
+			var agentID int64
+			rec := &telemetryFlushRecorder{ResponseRecorder: httptest.NewRecorder()}
+			rec.onFlush = func() {
+				flushes++
+				if flushes == 1 {
+					// An existing agent marks the first live event; create only
+					// after it is delivered so this tests an established stream.
+					s.broadcaster.Broadcast([]TelemetryEvent{{ID: "ready", AgentID: 41, Type: "llm.start", ThreadID: "chat-new"}})
+					return
+				}
+				if flushes == 2 {
+					create := func(userID int64, project, key string) *Agent {
+						t.Helper()
+						var ag *Agent
+						var err error
+						if idempotent {
+							ag, _, err = s.store.CreateAgentIdempotent(userID, "new", "", "autonomous", "{}", project, key)
+						} else {
+							ag, err = s.store.CreateAgent(userID, "new", "", "autonomous", "{}", project)
+						}
+						if err != nil {
+							t.Fatal(err)
+						}
+						return ag
+					}
+					agentID = create(1, "proj-1", "allowed").ID
+					foreign := create(2, "proj-1", "foreign")
+					otherProject := create(1, "proj-2", "other-project")
+					s.broadcaster.Broadcast([]TelemetryEvent{
+						{ID: "foreign", AgentID: foreign.ID, Type: "llm.start", ThreadID: "chat-new"},
+						{ID: "other-project", AgentID: otherProject.ID, Type: "llm.start", ThreadID: "chat-new"},
+						{ID: "wrong-thread", AgentID: agentID, Type: "llm.start", ThreadID: "worker-1"},
+						{ID: "wrong-type", AgentID: agentID, Type: "thought", ThreadID: "chat-new"},
+						{ID: "thinking", AgentID: agentID, Type: "llm.start", ThreadID: "chat-new"},
+						{ID: "tool", AgentID: agentID, Type: "tool.call", ThreadID: "chat-new"},
+						{ID: "completed", AgentID: agentID, Type: "tool.result", ThreadID: "chat-new"},
+					})
+				}
+				if flushes == 5 {
+					cancel()
+				}
+			}
+			s.handleCallbackTelemetry(rec, telemetryRequest(ctx, "?events=llm.start,tool.call,tool.result&thread_prefix=chat-"), installID)
+			events := collectSSEEvents(t, rec.Body.String())
+			if len(events) != 4 {
+				t.Fatalf("events = %+v, want ready plus all 3 new-agent events immediately", events)
+			}
+			for i, id := range []string{"thinking", "tool", "completed"} {
+				if events[i+1].ID != id || events[i+1].AgentID != agentID {
+					t.Fatalf("unexpected new-agent event: %+v", events[i+1])
+				}
+			}
+		})
+	}
+}
+
+func TestCallbackTelemetryRemovesIneligibleAgentImmediately(t *testing.T) {
+	for _, change := range []string{"delete", "move-project"} {
+		t.Run(change, func(t *testing.T) {
+			s, installID := telemetryTestServer(t, "proj-1", "platform.telemetry.read")
+			marker, err := s.store.CreateAgent(1, "marker", "", "autonomous", "{}", "proj-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			flushes := 0
+			rec := &telemetryFlushRecorder{ResponseRecorder: httptest.NewRecorder()}
+			rec.onFlush = func() {
+				flushes++
+				switch flushes {
+				case 1:
+					s.broadcaster.Broadcast([]TelemetryEvent{{ID: "before", AgentID: 41, Type: "llm.start"}})
+				case 2:
+					if change == "delete" {
+						err = s.store.DeleteAgent(1, 41)
+					} else {
+						var agent *Agent
+						agent, err = s.store.GetAgentByID(41)
+						if err == nil {
+							agent.ProjectID = "proj-2"
+							err = s.store.UpdateAgent(agent)
+						}
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					s.broadcaster.Broadcast([]TelemetryEvent{
+						{ID: "ineligible", AgentID: 41, Type: "llm.start"},
+						{ID: "marker", AgentID: marker.ID, Type: "llm.start"},
+					})
+				case 3:
+					cancel()
+				}
+			}
+			s.handleCallbackTelemetry(rec, telemetryRequest(ctx, "?events=llm.start"), installID)
+			events := collectSSEEvents(t, rec.Body.String())
+			if len(events) != 2 || events[0].ID != "before" || events[1].ID != "marker" {
+				t.Fatalf("stale eligibility after %s: %+v", change, events)
+			}
+		})
 	}
 }

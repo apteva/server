@@ -1,0 +1,102 @@
+{
+  "slug": "depot",
+  "name": "Depot",
+  "description": "Remote Docker / OCI image build service with persistent BuildKit cache. Provision a build via the BuildService.createBuild API to get a build_id + build_token, then drive the actual layer build with the depot CLI / buildx against the same id. Pricing is pay-per-build-minute (tracked per second).",
+  "logo": "https://www.google.com/s2/favicons?domain=depot.dev&sz=128",
+  "categories": ["build", "ci", "docker", "buildkit", "devops"],
+  "base_url": "https://api.depot.dev",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Organization-scoped Depot API token from depot.dev/settings/tokens", "required": true, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List all projects in the organization.",
+      "method": "POST",
+      "path": "/depot.core.v1.ProjectService/ListProjects",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a new project. Args: name, region_id (e.g. us-east-1), cache_policy?",
+      "method": "POST",
+      "path": "/depot.core.v1.ProjectService/CreateProject",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region_id": { "type": "string" },
+          "cache_policy": { "type": "object" }
+        },
+        "required": ["name", "region_id"]
+      }
+    },
+    {
+      "name": "create_build",
+      "description": "Provision a new build slot. Returns build_id + build_token used to drive the actual build via buildx / depot CLI. Args: project_id.",
+      "method": "POST",
+      "path": "/depot.build.v1.BuildService/CreateBuild",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "finish_build",
+      "description": "Mark a build complete with a status. Args: build_id, status (success | error | canceled), error_message?.",
+      "method": "POST",
+      "path": "/depot.build.v1.BuildService/FinishBuild",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["success", "error", "canceled"] },
+          "error_message": { "type": "string" }
+        },
+        "required": ["build_id", "status"]
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "List builds for a project. Args: project_id, page_size?, page_token?.",
+      "method": "POST",
+      "path": "/depot.build.v1.BuildService/ListBuilds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "page_size": { "type": "integer" },
+          "page_token": { "type": "string" }
+        },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get a single build's status, timings, and artifact metadata. Args: build_id.",
+      "method": "POST",
+      "path": "/depot.build.v1.BuildService/GetBuild",
+      "input_schema": {
+        "type": "object",
+        "properties": { "build_id": { "type": "string" } },
+        "required": ["build_id"]
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel an in-progress build. Args: build_id.",
+      "method": "POST",
+      "path": "/depot.build.v1.BuildService/CancelBuild",
+      "input_schema": {
+        "type": "object",
+        "properties": { "build_id": { "type": "string" } },
+        "required": ["build_id"]
+      }
+    }
+  ]
+}

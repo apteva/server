@@ -1,0 +1,589 @@
+# Managed app runtime backends
+
+This is a local Server implementation of `apteva.runtime-backend/v1`.
+No production instance, SDK release, or infrastructure app was changed.
+Instances, Containers, Compute, or another app can implement the HTTP contract
+using ordinary protected SDK routes. There are no backend app-name switches.
+Existing installations remain on the legacy local supervisor until explicitly
+placed under the deployment controller.
+
+## Responsibilities
+
+Server owns placement, installation identity, permissions/bindings, deployment
+records, encrypted credentials, operation ownership, port reservations, readiness,
+activation, rollback, routing, reconciliation, and scaling decisions. Backend apps
+own their provider API/SSH/container/process implementation and resource cleanup.
+Server does not sample or record host CPU usage. Autoscaling uses backend-reported
+application work load, such as queue depth or active work.
+
+Backend apps do not import Server internals. SDK helper interfaces and concrete
+backend implementations are separate work. SDK v0.100.0 supplies the activation
+strategy declaration; it does not automatically implement this runtime protocol.
+Real backend/app compatibility must be verified before opting an app into remote
+migration or replication.
+
+Automatic binary package preparation/cache/delivery is an optional Server
+extension. See [managed packages](app-runtime-packages.md) for target-platform
+builds, exact-release capability metadata, backend opt-in, streaming delivery and
+recovery. Backends without this extension retain delegated preparation.
+
+## Register and discover a backend
+
+An administrator registers a running app installation:
+
+```http
+POST /api/apps/execution-backends
+Content-Type: application/json
+
+{
+  "app_install_id": 52,
+  "id": "native",
+  "endpoint": "/_apteva/runtime/backends/native"
+}
+```
+
+Server calls the provider's authenticated `GET <endpoint>/describe` and persists
+its capabilities. The descriptor must declare `contract`, matching `id`,
+`runtime_kinds`, `formats`, and `confirmed_stop`. Optional capabilities include
+`platforms`, `protocols`, `snapshots`, `replicas`, `resource_controls`, `fencing`,
+`target_schema`, and `options_schema`. Fencing in v1 is deployment-scoped;
+host-wide power-off is not an implicit cleanup operation.
+
+`GET /api/apps/execution-backends` returns the catalog and local adapter.
+`POST /api/apps/execution-backends/discover` scans installed manifests for
+explicit HTTP routes under `/_apteva/runtime/backends/<id>` and negotiates their
+descriptors. This works with existing SDK route declarations. Future manifest
+`provides.runtime_backends` declarations can advertise the same endpoint.
+Discovery is bounded to 64 candidates and a 30-second request budget.
+
+Public app proxies and static app mounts reject `/_apteva/runtime/` paths, even
+if an app accidentally declares a broad public route. Direct backend ingress
+must keep these endpoints private and authenticated too. Server app tokens
+cannot access backend/pool management endpoints.
+
+## Placement and targets
+
+```json
+{
+  "type": "backend",
+  "backend": {"app_install_id": 52, "backend_id": "native"},
+  "target": {
+    "app_install_id": 40,
+    "resource_type": "instances.instance",
+    "resource_id": "6"
+  },
+  "gateway_url": "https://apteva.example.com",
+  "options": {}
+}
+```
+
+The backend reference selects an execution implementation. The namespaced target
+selects a resource; Server does not interpret resource-type strings. Backend and
+target owners must be accessible in the installation's project. A backend cannot
+manage itself or introduce a deployment dependency cycle. `type: local` uses the
+existing supervisor through an adapter.
+
+Remote execution requires an authenticated reachable gateway, not the management
+machine's loopback gateway. Control URLs require HTTPS or loopback tunnels.
+Backend `validate-target` checks target/options schemas, actual capacity, platform,
+networking and connectivity. Its stable `host_key` is the reservation domain; the
+prepared execution must return the same key. Backends targeting the same physical
+listener namespace must return the same key, including through resource aliases.
+
+## Operator API
+
+The existing install API accepts optional `placement` alongside its manifest,
+configuration and bindings. Existing installation placement uses:
+
+- `GET /api/apps/installs/:id/placement`
+- `POST /api/apps/installs/:id/deployment/prepare`
+- `POST /api/apps/installs/:id/deployment/activate`
+- `GET /api/apps/installs/:id/deployment/operations/:operation_id`
+- `POST /api/apps/installs/:id/deployment/operations/:operation_id/cancel`
+- `POST /api/apps/installs/:id/deployment/operations/:operation_id/retry`
+- `POST /api/apps/installs/:id/deployment/discard`
+- `POST /api/apps/installs/:id/deployment/restart`
+- `POST /api/apps/installs/:id/deployment/stop`
+- `POST /api/apps/installs/:id/deployment/delete`
+- `GET /api/apps/installs/:id/deployment/logs?cursor=...`
+- `GET /api/apps/installs/:id/deployment/endpoints`
+
+Mutating lifecycle calls require an administrator and an `Idempotency-Key`
+(identifier up to 128 characters). Same-key/same-request retries return the same
+operation; changing the payload returns a conflict. One queued/running operation
+per installation is enforced in SQLite. Prepare stores a pending candidate but
+keeps the current route serving. Activate commits only after readiness. Failed
+or cancelled preparation retains discoverable candidate ownership until discard
+cleans its resources; it never silently deletes an unknown provider resource.
+
+Operations are persisted with phases, timestamps, an owner and an expiring
+heartbeat lease. Progress uses `runtime.operation.updated` on the existing app
+event bus. Cancellation is cooperative between bounded steps. After commit,
+retirement and rollback must finish rather than be abandoned by cancellation.
+Retries preserve operation/deployment IDs for backend idempotency.
+
+## Backend wire protocol
+
+Execution control requests carry:
+
+- `contract`, `operation_id`, and `idempotency_key`;
+- `install_id`, `deployment_id`, `generation`, and `project_id`;
+- namespaced `target`, backend `options`, and the exact manifest;
+- previous `execution` and reusable `state_ref` where applicable.
+
+Only `start` receives the process environment and credentials. Other operations
+must not log or echo them. Server persists these fields encrypted and excludes
+them from operator deployment responses. Backend logs are bounded and known
+process/control tokens are redacted.
+
+Server invokes `POST <endpoint>/<action>` for `validate-target`, `prepare`,
+`start`, `inspect`, `stop`, optional `fence`, `delete`, and `logs`. Responses are
+bounded JSON. HTTP 200/202 are accepted. Preparation can return `state: preparing`
+and is then polled through `inspect` for up to 30 minutes. Provider-side operation
+progress must survive provider restarts.
+
+The execution descriptor includes `handle`, `state`, `host_key`, `release_digest`,
+`platform`, `control_endpoint`, optional `browser_endpoint`/`endpoints`,
+`state_ref`, allocated `ports`, `ready`, and `stopped_confirmed`. A prepared
+package needs an exact SHA-256 digest. Matching checksummed artifacts are verified
+against the manifest. An implementation must preserve the stable execution
+handle, reservation domain and release digest across start/inspection. State
+reference reuse means reuse of the existing persistent state, not an empty volume.
+
+Backend readiness must include all required listeners. Server independently
+checks authenticated app HTTP readiness within the app's startup budget. TCP/UDP
+port/range reservations are keyed by host reservation domain and prevent overlap
+between installations. Native local fixed ports also use existing supervisor
+reservations, so managed and legacy local apps cannot claim the same listener.
+
+`stop` must report confirmed termination/listener release. Failed or uncertain
+stops block replacement unless the backend can provide deployment-scoped fencing
+and confirmed loss of the previous execution's ownership. A timeout is never
+interpreted as successful termination. `delete` removes only resources belonging
+to the addressed deployment and must preserve state shared with retained versions.
+
+## Read-only preflight
+
+`POST /api/apps/deployment-preflight` returns named `checks` with
+`status`, optional stable `code`, and a safe operator message. It neither adopts
+legacy processes nor creates placeholder deployment/operation records, builds
+packages, drains, stops or activates apps. Backend inference uses registered
+capabilities; explicit discovery/registration remains separate.
+
+Artifact-independent `inspect-target` has its own identity-free request. See
+[package inspection](app-runtime-packages.md) for fields and diagnostics. An old
+backend rejecting missing execution identity returns a protocol-incompatibility
+check, not a claim of broken SSH/gateway connectivity. Successful metadata alone
+does not assert that unreported SSH/systemd/gateway/capacity diagnostics passed.
+Preflight verifies declared platform, ABI, system libraries, delivery format and
+resource-control requirements; post-build ELF verification and backend capacity
+validation still run before execution.
+
+Before moving an existing installation, Server checks both managed executions
+and legacy local processes/data. It reports source and destination snapshot
+support separately, including `destination_snapshots_required`. It also checks
+unmapped mounts, lifecycle capabilities, local rollback-binary availability and
+state limits. Destination lifecycle declarations must describe the exact release;
+a changed release cannot inherit the previous release's capabilities.
+For a snapshot-capable remote source, authenticated execution `inspect` must
+return `state_bytes` (uncompressed persistent bytes), `state_entries` (files and
+subdirectories), and `state_available_bytes` (free bytes on its state/staging
+filesystem). Artifact-independent `inspect-target` returns
+`state_available_bytes` for the destination, without creating a deployment.
+Unknown/negative/oversized values block a move rather than assume empty state.
+Preflight also budgets Server's disk-backed archive cache, destination archive
+and staged extraction, and source restoration space for rollback, with a 64 MiB
+free-space reserve. It never treats generic host connectivity/capacity as proof
+that persistent state will fit. Available space and state sizes are rechecked
+at transfer/restoration; preflight does not reserve disk space.
+Backends without snapshots need not implement this field; their missing snapshot
+capability is reported directly. Local metadata inspection and snapshot export
+share file/path/type/size/count limits. Live estimates are rechecked after stop.
+The same migration guard runs before actual preparation and again before drain.
+
+A deliberate legacy-local move adopts the existing installation ID and original
+startup environment, retaining project, bindings and data. A stopped installation
+with data remains a real source, and failed activation leaves it stopped. The
+existing controller alone prepares, drains, confirms stop, snapshots/transfers,
+verifies restore, starts passively, verifies readiness and switches routes. State
+transfer explicitly rejects an unconfirmed source stop. Candidate starts with
+unknown outcomes must be stopped/confirmed before rollback can restart a writer.
+No migration orchestration belongs in a backend app.
+
+## App lifecycle and state
+
+Apps can expose protected endpoints:
+
+- `GET /_apteva/runtime/app/describe`: `passive_start`, `drain`, `replica_safe`,
+  `worker_coordination`, and `routing` (`stateless` or `key`).
+- `POST /_apteva/runtime/app/drain`: stop new admission; return `drained: true`
+  only after active work/writers have drained.
+- `POST /_apteva/runtime/app/activate`: resume admission for the verified owner.
+
+The prepared package descriptor carries the app capabilities for that exact
+release. The app must actually honor `APTEVA_RUNTIME_MODE=standby`. A passive
+process must not admit work or produce external effects before its ownership
+becomes active. Existing app permission checks and call-specific media leases
+remain necessary.
+
+Process environment includes installation/project identity, configuration,
+gateway/public URLs, deployment ID/generation, endpoint metadata, and a unique
+deployment credential. Incoming proxy authentication follows the selected
+replica's credential. Outgoing credentials are valid only for eligible deployment
+states. Pending executions have initialization read access; after activation they
+receive their normal approved permissions. Retiring executions can finish work
+while draining, then lose callback access on confirmed stop.
+
+`GET /api/apps/callback/runtime/ownership` returns the calling execution's active
+ownership and a short renewal horizon. App lifecycle implementations must enforce
+that ownership where required; a generation field alone does not fence a process.
+
+SQLite or declared filesystem state moving between different state locations
+requires passive startup and snapshot capabilities on both sides. Writers stop
+before transfer. Archives and digests are journaled for restart recovery, and
+restoration requires checksum acknowledgement. Server never restores underneath
+a started candidate without a recorded verified restore outcome.
+
+Native snapshots cover the installation's SDK data directory. Unmapped extra
+local storage mounts are rejected rather than silently omitted. Snapshots are
+bounded by one negotiated `state_transfer` policy in the existing backend
+contract. Backends optionally advertise it in `describe`:
+
+```json
+{
+  "state_transfer": {
+    "format": "tar.gz",
+    "max_archive_bytes": 8589934592,
+    "max_expanded_bytes": 8589934592,
+    "max_entries": 1000000,
+    "timeout_seconds": 7200
+  }
+}
+```
+
+Server takes the minimum of its own limits and both backend policies. Absent
+backend policies retain the legacy 512 MiB / 100,000 entries / 20 minute limits;
+missing size/count/free-space metadata blocks a state migration, while fresh
+stateless deployments remain available. Server defaults to 8 GiB archive and
+expanded state, 1,000,000 entries and two hours. Operators can set
+`APTEVA_RUNTIME_STATE_MAX_ARCHIVE_BYTES`,
+`APTEVA_RUNTIME_STATE_MAX_EXPANDED_BYTES`, `APTEVA_RUNTIME_STATE_MAX_ENTRIES`,
+and `APTEVA_RUNTIME_STATE_TIMEOUT_SECONDS`. Positive bounded values are required
+(maximum 1 TiB, 10 million entries and 24 hours). Application-package and static
+package limits are separate and unchanged.
+
+The effective policy is persisted with the operation before preparation/drain,
+forwarded as `state_transfer` on lifecycle requests and as JSON in
+`X-Apteva-State-Transfer-Policy` on snapshot/restore HTTP requests. Snapshot-capable
+backends that advertise the policy must enforce the requested lower limits in
+both directions; they must reject unsupported policies before mutating state.
+Retries/recovery keep the same policy and fail if current capabilities no longer
+support it. Older operation journals without a policy retain legacy limits.
+
+Both local and remote archives are disk-backed and streamed with cancellation,
+negotiated deadlines, archive/expanded/count bounds, SHA-256 and gzip integrity
+checks. Failed temporary downloads/extractions are cleaned up. Archives reject
+traversal, links, special files, duplicate paths and non-zero trailing payloads.
+Restoration checks target quiescence independently of the forward controller;
+a verified identical restore can be reused without rewriting live state.
+
+If a candidate may have started writing, rollback confirms its stop, snapshots
+its latest state and durably replaces the operation's snapshot digest/provenance
+before restoring the previous owner. Failure to capture/restore newer state
+leaves the data retained and refuses to start a competing writer. Recovery does
+not silently fall back to the stale pre-migration snapshot. Both migration and
+rollback use the same policy and transfer implementation. Rollback uses the previous startup deadline and verifies
+readiness. `database_upgrade: requires_restore` stays blocked; binary rollback
+cannot undo arbitrary committed schema changes.
+
+## Monitoring and reconciliation
+
+The operation-recovery loop still runs every 15 seconds. Stable remote
+executions use authenticated HTTP readiness and optional app admission status
+over the existing private control endpoint roughly every 15 seconds. There is
+**no periodic host inspection by default**. Cold controller recovery, completed
+lifecycle operations and changed execution identity/control endpoints require a
+fresh inspection. A single failed health poll and its healthy recovery do not
+inspect the host. Three consecutive failures trigger one investigation; if
+ownership verifies, an ongoing app outage does not repeatedly inspect the host.
+Failed verification retries at two-minute intervals, or earlier when health
+recovers. Local process checks remain cheap and use the health-check cadence.
+
+For an optional infrequent safety audit, set Server's environment variable
+`APTEVA_RUNTIME_INSPECTION_AUDIT_INTERVAL=20m` before starting it. Durations from
+15m through 30m are accepted; unset, zero or invalid values leave audits disabled.
+Lifecycle and migration verification remain mandatory regardless of this option.
+
+Checks start at different per-deployment offsets, with four monitoring jobs at
+most. Each deployment has one background job in flight. Full inspection is also
+serialized against lifecycle and migration callers, with a bounded 30-second
+deadline and existing advertised retry rules. Lifecycle requests always use
+fresh inspection, never cached monitoring authority.
+
+The existing authenticated `GET /_apteva/runtime/app/status` may include fresh
+per-replica work load using the same units as the scaling policy's `target_load`:
+
+```json
+{
+  "state": "active",
+  "admitting": true,
+  "deployment_id": "<APTEVA_DEPLOYMENT_ID>",
+  "generation": 8,
+  "load": 2.5
+}
+```
+
+Generation comes from `APTEVA_DEPLOYMENT_GENERATION`. Status identity must match
+the current deployment and generation. Load must be finite and nonnegative;
+autoscaling additionally requires admitting work and recent successful health
+(within 90 seconds). Work load is optional: missing/invalid/stale data suppresses
+automatic scaling rather than falling back to host inspection or an old backend
+load sample. Existing apps without these optional fields keep health monitoring;
+only load-based autoscaling needs this lightweight report. No new route, table
+or mandatory app/SDK change is introduced.
+
+UI summaries read the existing observation table; autoscaling reads the same
+collector's fresh identity-bound app load without network requests. Old host
+verification need not be refreshed just to keep load sampling alive. Monitoring
+cache is discarded on Server restart. Current-generation replicas share the
+collector with the primary; stopped, retired and changing installations are
+removed from its cache. Slow observations cannot publish against an older
+generation or during a lifecycle operation. Probe failures never authorize a
+replacement, ownership change or local fallback. Automatic local restart still
+requires fresh confirmed stop; lifecycle start/stop/transfer checks are unchanged.
+
+## Browser endpoints and credentials
+
+Endpoint discovery retains the existing installation proxy base and optionally
+returns direct browser/signaling/media addresses. Existing HTTP/MCP callers keep
+using the same installation ID.
+
+`POST .../deployment/browser-credentials` issues a five-minute credential scoped
+to installation, project, user identity, operations, deployment generation,
+issuer and browser origin. It never returns a process token. Source apps authorize
+it through authenticated `POST /api/apps/callback/runtime/browser-authorize` and
+must retain business-level authorization. Renewal rechecks access; explicit
+revocation uses `POST .../deployment/browser-credentials/revoke`. Generation
+changes invalidate old credentials. Long connections must revalidate ownership,
+expiry and revocation and close when no longer authorized; CORS is not sufficient.
+
+## Pools and scaling
+
+`POST /api/apps/execution-pools` stores a project-scoped backend and namespaced
+target list. Placement can select `pool_id`; Server spreads allocations using
+persisted deployment counts. The backend validates actual target capacity.
+
+`POST .../deployment/scale` accepts `replicas` (1–32). It requires an explicit
+replica-safe app, worker coordination, supported routing, and a replica-capable
+backend. Local supervisor replication, writable SQLite copies, exclusive apps and
+restore-required apps are rejected. Each replica has its own credential and
+execution handle. Normal HTTP requests distribute across ready replicas; keyed
+apps use `X-Apteva-Routing-Key` or `runtime_routing_key`. Existing upgraded
+connections stay with their chosen replica.
+
+`POST .../deployment/autoscaling` configures minimum/maximum replicas,
+`target_load`, `cooldown_seconds` (at least 30), and `enabled`. Backend `inspect`
+reports finite nonnegative application work load. Scaling has hysteresis and a
+cooldown; absent/unreachable observations do not trigger scale-out or failover.
+CPU sampling is not part of this controller.
+
+## Recovery and operational boundaries
+
+Managed installations are excluded from legacy local resume/reconstruction.
+Remote unreachability retains ownership and never creates a local fallback.
+Interrupted operations are reclaimed only after their owner lease expires.
+Execution inspection recovers start responses lost during a restart. Native
+processes journal their PID before exec and validate process identity before
+stopping a surviving orphan. Unknown start/stop outcomes require attention rather
+than overlapping another process.
+
+Managed upgrade/restart/configuration changes use the controller. Disable and
+cleanup confirm all replicas stopped. Providers and target-owner apps cannot be
+disabled/uninstalled while retained deployments depend on them. Cleanup preserves
+ownership if a backend is unavailable. Server-node high availability, live-call
+migration and implementing concrete infrastructure providers are not included.
+
+Tests use protocol providers and real temporary native subprocesses. They cover
+idempotency, authorization, private endpoints, generation credentials, browser
+scope/revocation, exclusive activation, lost responses, verified/failed rollback,
+state snapshots, interrupted starts, port ranges, replica routing/stop, and native
+orphan recovery. Production infrastructure/media paths have not been exercised.
+
+
+## Dashboard placement and target discovery
+
+The Apps install flow offers **This Server** or a discovered execution backend.
+Execution placement is independent of app integration bindings. The installed
+app's Deployment tab uses the persisted controller operations; navigating away
+or restarting Server does not discard progress. App list badges identify backend
+and target, with local/remote, backend and target filters at every project scope.
+
+New backends advertise `target_listing: true` in `describe` and implement
+`GET <backend endpoint>/targets?project_id=...&q=...&cursor=...` using the same
+private installation authentication as their lifecycle routes. Return:
+
+```json
+{
+  "targets": [{
+    "ref": {"app_install_id": 42, "resource_type": "compute.machine", "resource_id": "host-1"},
+    "name": "Trial worker", "status": "ready", "available": true,
+    "platform": "linux-amd64", "region": "example-region"
+  }],
+  "next_cursor": ""
+}
+```
+
+Target references must belong to the selected backend installation. A backend
+must apply its own resource authorization; Server also checks installation and
+project access. Return `available: false` with a safe `reason` for unavailable
+resources. Responses are bounded, cached for display labels, and may use opaque
+pagination cursors. Never include credentials or private control URLs in labels.
+
+For older backends, an administrator can register `target_discovery` through
+`POST /apps/execution-backends`, or the backend can advertise the same field in
+its descriptor. This maps a private inventory **GET** route without executing
+inventory tools or creating resources:
+
+Target listing is optional. Server calls `/targets` only when the backend
+advertises `target_listing`, or uses an explicitly configured inventory mapping.
+Without discovery, the console accepts a target ID using the backend's declared
+resource type. Manual selection is also available when discovery fails; the
+backend still validates and authorizes that target before deployment.
+
+```json
+{"path":"/api/resources","items":"resources","id_field":"id","name_field":"name","status_field":"status","ready_value":"ready","resource_type":"compute.machine"}
+```
+
+The mapping survives backend rediscovery. It is backend configuration, shared
+by all deployed apps; Server contains no provider-name or app-name switches.
+Native target listing is preferable for large inventories and project-specific
+resource authorization. Legacy mapped inventories are capped at 5,000 records
+and paginated by Server. Returned fields other than safe target metadata are
+not forwarded to the browser.
+
+The console API adds `GET /apps/deployment-targets` and
+`POST /apps/deployment-preflight`. Preflight checks access, runtime/listener
+compatibility, ingress capabilities, state transfer and optional read-only
+`inspect-target`. Builds, uploads, listener ownership checks and activation
+remain authoritative in the deployment controller. Preflight does not start
+an app or change host networking. Backend `options_schema` drives advanced
+fields; backend validation remains authoritative for backend-specific options.
+
+`POST /apps/installs/:id/deployment/deploy` prepares and activates in one
+persisted operation, with the existing `Idempotency-Key` contract. Remote
+installation requests may also supply this header; receipts atomically link
+that key to the installation, and retries resume the stored release instead
+of creating another installation. A different payload with the same key is
+rejected. Stop/remove-runtime retains persistent installation data and never
+removes the backend host or unrelated services.
+
+Deployment summaries distinguish current process readiness from app admission.
+A stored active record alone is not a health check; observations expire after
+90 seconds. A legacy app without managed activation may optionally expose authenticated
+`/_apteva/runtime/app/status` returning `{"state":"active","admitting":true}`.
+Without that optional status, the console reports process readiness and unknown
+admission, rather than asserting that the app is accepting work. No host CPU
+sampling is added. Domain setup uses the existing managed ingress capabilities;
+only apps with declared public routes and capable backends can select HTTPS.
+
+Apps declaring passive start or drain must report authenticated admission with
+the exact `deployment_id`, numeric `generation`, `state` and `admitting` fields.
+Server verifies the running lifecycle descriptor before activation and requires
+`admitting:true` for that identity before committing routing, replica activation
+or rollback success. HTTP 200 from `activate` alone is insufficient. Capability
+probe failures remain unknown; they never erase persisted release capabilities
+or imply that activation is unsupported. Journal records retain a presence bit
+for an explicitly verified empty capability set; older nonempty records remain
+usable. Reuse is limited to the exact approved manifest/release.
+
+### Execution ownership before public routing
+
+Execution ownership is journaled separately from the active routing pointer.
+For a managed cutover, Server verifies the passive candidate, commits its exact
+execution grant, sends activation, confirms identity-bound admission, then
+publishes ingress and atomically updates installation routing/version and MCP
+registration. A pending candidate alone never receives an ownership lease.
+
+The ownership transaction checks the current lifecycle operation lease, expected
+predecessor, pending candidate and generation. Exclusive or non-replica-safe
+lifecycle apps require confirmed predecessor shutdown before ownership transfer;
+active work must drain first. Replica-safe rolling cutovers can retain the old
+execution's grant while it drains, and replicas receive their own exact grants.
+The existing authenticated `/apps/callback/runtime/ownership` response retains
+its shape and grants a renewable 15-second lease for the calling execution's
+own deployment ID and generation, independently of public routing.
+
+Ownership and confirmed admission are separate durable facts. Both are required
+for publication. Resuming a pre-publication operation rechecks readiness and
+admission; it does not re-prepare an already started execution. Rollback intent
+survives intermediate phases and controller restarts. Before restoring another
+exclusive owner, Server revokes the candidate's grant and confirms its shutdown.
+A previously disabled installation remains disabled if activation fails.
+Revocation tombstones prevent migration/restart from restoring a stale grant.
+Existing active installations are imported once without granting pending candidates.
+
+Local ownership tests use an app fixture whose activation only arms admission;
+its status becomes active only after calling the real authenticated ownership
+callback and obtaining its matching lease. Coverage includes fresh/stopped
+installs, drain, CAS loss, invalid status, rollback, controller crashes,
+readmission, replica isolation and lease renewal. These tests require neither
+provider credentials nor a remote server.
+
+### Dashboard traffic and managed direct origins
+
+Ordinary dashboard HTTP actions, reads, MCP and SSE use the installation-scoped
+Apteva proxy for local and remote executions. Discovering a remote browser URL
+must not automatically redirect these requests or forward platform credentials
+there. The web SDK exposes explicit `client.apps.endpoints(installId)` discovery
+for protocols which intentionally need a direct connection, such as live media.
+
+The dashboard's HTTPS connection policy now derives browser, media and signaling
+origins from the committed active generation and its active replicas. Pending,
+stopped, retired and local executions do not contribute. Private control and
+callback endpoints are excluded; each browser origin must validate as exact
+HTTPS without credentials, query parameters or fragments. Domain changes take
+effect on the next full dashboard load. Existing app-managed origin registration
+remains available for non-deployment destinations, with its existing permission.
+Managed apps no longer need that permission just for their own deployment.
+
+This policy allows a browser connection; it grants neither CORS nor access to an
+app. Direct protocols must still enforce scoped user/call credentials and
+revocation. External frontend hosts continue to own their own browser policy.
+
+### Automatic recovery after fencing
+
+Apps can expose protected `GET /_apteva/runtime/app/status` even when ordinary
+requests are fenced. Return `deployment_id`, `generation`, `state`, `admitting`
+and optional `load`. A fenced process that has reverified its current ownership
+can request replacement with `recovery: {"action":"restart"}`. It must remain
+fenced; the request never authorizes self-reactivation. Public health probes
+should report admission failures honestly (503); passive startup can return 200
+with an explicit `standby` state and `admitting:false`.
+
+Server reads status even after a 503 health response. Two consecutive explicit,
+authenticated, matching-generation recovery requests trigger a fresh backend
+inspection and another status check. Recovery is supported for a single active
+execution. Ordinary outages, draining, missing status, failed authentication,
+wrong ownership and unverified execution identities never authorize recovery.
+Recovery forces exclusive replacement: the existing deployment controller
+handles draining, confirmed shutdown, replacement and ownership commit for both
+local and remote placement. A process already fenced is not reactivated when
+shutdown confirmation fails.
+
+A currently owned execution reporting `standby` and `admitting:false` for the
+exact deployment/generation is a different recovery case. After two consecutive
+standby observations, Server freshly verifies backend execution ownership,
+executable digest and live lifecycle capabilities. A durable `readmit` operation
+then activates that same process and verifies admission. It does not prepare,
+start, stop, replace or change its generation. Intentional draining, unknown
+status, mismatched identity, conflicting ownership and disabled installations do
+not authorize readmission. The same operation lease, single-execution guard and
+persisted cooldown apply to standby recovery, including after controller restart.
+
+The current owner, absence of a pending lifecycle operation, and recovery budget
+are checked transactionally when queuing replacement. Backoff persists across
+Server restarts and app generations: 30, 60, 120, 240, then 300 seconds between
+attempts, resetting after 15 minutes without an attempt. Lifecycle operations
+retain their normal diagnostics; failed preparation or an unconfirmed shutdown
+cannot bypass safety checks. No app-specific backend logic or SDK upgrade is
+required to implement this status contract.

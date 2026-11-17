@@ -1,0 +1,139 @@
+{
+  "slug": "bannerbear",
+  "name": "Bannerbear",
+  "description": "Templated image and video generation API. NOT a screenshot service — you build a template once in their visual editor, then call the API with `modifications` (text replacements, image swaps) to produce on-brand variants. Great for social media cards, OG images, certificates, ad creative at scale.",
+  "logo": "https://www.google.com/s2/favicons?domain=bannerbear.com&sz=128",
+  "categories": ["images", "templates", "social-media", "automation"],
+  "base_url": "https://api.bannerbear.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      { "name": "token", "label": "Bannerbear project API key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_image",
+      "description": "Render a single image from a template with the given modifications. Returns a job — the response contains an `image_url` field once status is 'completed'. Use `synchronous=true` to wait inline (slower but simpler) or poll get_image with the returned uid.",
+      "method": "POST",
+      "path": "/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template": { "type": "string", "description": "Template uid (from your Bannerbear dashboard)" },
+          "modifications": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Array of layer modifications. Each is { name: 'layer_name', text: '...' } for text layers, { name: 'layer_name', image_url: '...' } for image layers, or { name: 'layer_name', color: '#FF0000' } for color layers."
+          },
+          "webhook_url": { "type": "string", "description": "URL to POST to when the image is ready" },
+          "transparent": { "type": "boolean", "default": false, "description": "Render with transparent background (PNG only)" },
+          "render_pdf": { "type": "boolean", "default": false, "description": "Also render a PDF version" },
+          "metadata": { "type": "string", "description": "Free-text field returned in the response — useful for correlating async jobs" },
+          "synchronous": { "type": "boolean", "default": false, "description": "Wait for the image to render before responding (slower but no polling needed)" }
+        },
+        "required": ["template", "modifications"]
+      }
+    },
+    {
+      "name": "get_image",
+      "description": "Get an image by uid. Use this to poll a previously created image until status='completed'.",
+      "method": "GET",
+      "path": "/images/{uid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "uid": { "type": "string" }
+        },
+        "required": ["uid"]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List recent images created in the project.",
+      "method": "GET",
+      "path": "/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 25 }
+        }
+      }
+    },
+    {
+      "name": "create_collection",
+      "description": "Render a collection of images from one template — same template, multiple variants. Useful for batch generation (e.g. one social card per blog post).",
+      "method": "POST",
+      "path": "/collections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_set": { "type": "string", "description": "Template set uid" },
+          "modifications": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "webhook_url": { "type": "string" },
+          "metadata": { "type": "string" }
+        },
+        "required": ["template_set", "modifications"]
+      }
+    },
+    {
+      "name": "create_video",
+      "description": "Render a video from a Bannerbear video template. Same modifications shape as images. Async — poll get_video.",
+      "method": "POST",
+      "path": "/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_template": { "type": "string" },
+          "modifications": { "type": "array", "items": { "type": "object" } },
+          "input_media_url": { "type": "string", "description": "Source video URL if the template includes a video layer" },
+          "webhook_url": { "type": "string" },
+          "metadata": { "type": "string" }
+        },
+        "required": ["video_template"]
+      }
+    },
+    {
+      "name": "get_video",
+      "method": "GET",
+      "path": "/videos/{uid}",
+      "description": "Poll a video job by uid.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "uid": { "type": "string" } },
+        "required": ["uid"]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List the templates available in the project.",
+      "method": "GET",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "default": 1 },
+          "limit": { "type": "integer", "default": 25 }
+        }
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Get a template by uid, including its layer structure (so the agent knows which `name` values to pass in `modifications`).",
+      "method": "GET",
+      "path": "/templates/{uid}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "uid": { "type": "string" } },
+        "required": ["uid"]
+      }
+    }
+  ]
+}

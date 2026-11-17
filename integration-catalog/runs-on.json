@@ -1,0 +1,70 @@
+{
+  "slug": "runs-on",
+  "name": "RunsOn",
+  "description": "Self-hosted GitHub Actions runners that live in your own AWS account on EC2 (spot or on-demand). No per-minute markup — you pay raw EC2 cost. Claims ~90% cheaper than GH-hosted. The RunsOn control plane is a CloudFormation stack you deploy; this integration wraps its admin REST API for inspecting runners, jobs, and spend.",
+  "logo": "https://www.google.com/s2/favicons?domain=runs-on.com&sz=128",
+  "categories": ["build", "ci", "github-actions", "runners", "aws", "devops"],
+  "base_url": "https://{stack_url}/api/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{api_key}}" },
+    "credential_fields": [
+      { "name": "stack_url", "label": "Stack URL", "description": "The hostname your RunsOn CloudFormation stack exposes (e.g. runs-on.acme.com)", "required": true, "type": "text" },
+      { "name": "api_key", "label": "Admin API Key", "description": "Admin API key set via the ADMIN_API_KEY parameter when deploying the RunsOn stack", "required": true, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_runners",
+      "description": "List active EC2 runner instances managed by this RunsOn stack.",
+      "method": "GET",
+      "path": "/runners",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List recent GitHub Actions jobs the stack picked up. Args: status? (queued|running|completed), limit?.",
+      "method": "GET",
+      "path": "/jobs?status={status}&limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "limit": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Get details + logs URL for a single job. Args: job_id.",
+      "method": "GET",
+      "path": "/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "job_id": { "type": "string" } },
+        "required": ["job_id"]
+      }
+    },
+    {
+      "name": "terminate_runner",
+      "description": "Force-terminate a runner instance (the EC2 instance will be stopped). Args: instance_id.",
+      "method": "DELETE",
+      "path": "/runners/{instance_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "instance_id": { "type": "string" } },
+        "required": ["instance_id"]
+      }
+    },
+    {
+      "name": "get_spend",
+      "description": "Get raw EC2 spend attributed to RunsOn (read from Cost Explorer). Args: period? (today|7d|30d|month).",
+      "method": "GET",
+      "path": "/spend?period={period}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "period": { "type": "string" } }
+      }
+    }
+  ]
+}

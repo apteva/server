@@ -29,7 +29,7 @@ func getSlackGateway(projectID string) *SlackGateway {
 // initSlack starts Slack gateways for all projects that have a
 // slack_app channel config. Called once on server boot.
 func (s *Server) initSlack() {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		"SELECT id, user_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'slack_app' AND status = 'active'",
 	)
 	if err != nil {
@@ -37,10 +37,25 @@ func (s *Server) initSlack() {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var id, userID int64
-		var projectID, enc string
-		rows.Scan(&id, &userID, &projectID, &enc)
+	type databaseRecord struct {
+		id        int64
+		userID    int64
+		projectID string
+		enc       string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.userID, &record.projectID, &record.enc); err != nil {
+			return record, err
+		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		projectID := record.projectID
+		enc := record.enc
 
 		plain, err := Decrypt(s.secret, enc)
 		if err != nil {
@@ -72,7 +87,7 @@ func (s *Server) initSlack() {
 // restoreAllSlackMappings wires up persisted slack channel mappings
 // for all running instances across all projects.
 func (s *Server) restoreAllSlackMappings() {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		"SELECT id, user_id, agent_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE type = 'slack' AND status = 'active' AND agent_id > 0",
 	)
 	if err != nil {
@@ -80,10 +95,27 @@ func (s *Server) restoreAllSlackMappings() {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var id, userID, instanceID int64
-		var projectID, enc string
-		rows.Scan(&id, &userID, &instanceID, &projectID, &enc)
+	type databaseRecord struct {
+		id         int64
+		userID     int64
+		instanceID int64
+		projectID  string
+		enc        string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.userID, &record.instanceID, &record.projectID, &record.enc); err != nil {
+			return record, err
+		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		instanceID := record.instanceID
+		projectID := record.projectID
+		enc := record.enc
 
 		gw := getSlackGateway(projectID)
 		if gw == nil {
@@ -119,6 +151,7 @@ func (s *Server) restoreAllSlackMappings() {
 		sendEvent := makeSendEvent(port, coreKey)
 		gw.MapChannel(instanceID, cfg["slack_channel_id"], cfg["channel_name"], instName, ic.registry, sendEvent)
 	}
+
 }
 
 // restoreSlackForInstance re-maps slack channels for a single instance
@@ -570,7 +603,7 @@ func (s *Server) handleChannelDisconnect(w http.ResponseWriter, r *http.Request)
 	var chType, enc string
 	var instanceID int64
 	var projectID string
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(r.Context(),
 		"SELECT type, agent_id, COALESCE(project_id,''), encrypted_config FROM channels WHERE id = ? AND user_id = ?",
 		channelID, userID,
 	).Scan(&chType, &instanceID, &projectID, &enc)

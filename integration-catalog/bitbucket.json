@@ -1,0 +1,163 @@
+{
+  "slug": "bitbucket",
+  "name": "Bitbucket",
+  "description": "MCP server for Bitbucket Cloud - repositories, pull requests, pipelines, issues",
+  "logo": "https://www.google.com/s2/favicons?domain=bitbucket.org&sz=128",
+  "categories": ["vcs", "git", "devops", "code"],
+  "base_url": "https://api.bitbucket.org/2.0",
+  "auth": {
+    "types": ["basic"],
+    "headers": { "Authorization": "Basic {{basic}}" },
+    "credential_fields": [
+      { "name": "username", "label": "Username" },
+      { "name": "appPassword", "label": "App Password", "description": "Bitbucket app password with scopes" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_workspaces",
+      "description": "List workspaces the user has access to",
+      "method": "GET",
+      "path": "/workspaces",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_repositories",
+      "description": "List repositories in a workspace",
+      "method": "GET",
+      "path": "/repositories/{workspace}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "role": { "type": "string" },
+          "q": { "type": "string" }
+        },
+        "required": ["workspace"]
+      }
+    },
+    {
+      "name": "get_repository",
+      "description": "Get a repository",
+      "method": "GET",
+      "path": "/repositories/{workspace}/{repo_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" }
+        },
+        "required": ["workspace", "repo_slug"]
+      }
+    },
+    {
+      "name": "list_pull_requests",
+      "description": "List pull requests",
+      "method": "GET",
+      "path": "/repositories/{workspace}/{repo_slug}/pullrequests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" },
+          "state": { "type": "string", "enum": ["OPEN", "MERGED", "DECLINED", "SUPERSEDED"] }
+        },
+        "required": ["workspace", "repo_slug"]
+      }
+    },
+    {
+      "name": "create_pull_request",
+      "description": "Create a pull request",
+      "method": "POST",
+      "path": "/repositories/{workspace}/{repo_slug}/pullrequests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" },
+          "title": { "type": "string" },
+          "source": { "type": "object" },
+          "destination": { "type": "object" },
+          "description": { "type": "string" },
+          "close_source_branch": { "type": "boolean" }
+        },
+        "required": ["workspace", "repo_slug", "title", "source"]
+      }
+    },
+    {
+      "name": "merge_pull_request",
+      "description": "Merge a pull request",
+      "method": "POST",
+      "path": "/repositories/{workspace}/{repo_slug}/pullrequests/{pull_request_id}/merge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" },
+          "pull_request_id": { "type": "string" },
+          "merge_strategy": { "type": "string" },
+          "close_source_branch": { "type": "boolean" }
+        },
+        "required": ["workspace", "repo_slug", "pull_request_id"]
+      }
+    },
+    {
+      "name": "list_commits",
+      "description": "List commits on a branch",
+      "method": "GET",
+      "path": "/repositories/{workspace}/{repo_slug}/commits/{branch}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" },
+          "branch": { "type": "string" }
+        },
+        "required": ["workspace", "repo_slug", "branch"]
+      }
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List pipeline runs",
+      "method": "GET",
+      "path": "/repositories/{workspace}/{repo_slug}/pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" }
+        },
+        "required": ["workspace", "repo_slug"]
+      }
+    },
+    {
+      "name": "trigger_pipeline",
+      "description": "Trigger a pipeline",
+      "method": "POST",
+      "path": "/repositories/{workspace}/{repo_slug}/pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" },
+          "target": { "type": "object" }
+        },
+        "required": ["workspace", "repo_slug", "target"]
+      }
+    },
+    {
+      "name": "list_issues",
+      "description": "List issues in a repository",
+      "method": "GET",
+      "path": "/repositories/{workspace}/{repo_slug}/issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace": { "type": "string" },
+          "repo_slug": { "type": "string" }
+        },
+        "required": ["workspace", "repo_slug"]
+      }
+    }
+  ]
+}

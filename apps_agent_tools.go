@@ -23,6 +23,10 @@ const (
 	agentToolsMCPSurfaceMissing = "mcp_surface_missing"
 	agentToolsScopeMismatch     = "scope_mismatch"
 	agentToolsInvalidRequest    = "invalid_request"
+	// Builder used to self-attach to Apteva Helper. It is discontinued as a
+	// default Helper dependency; keeping this guard prevents older installed
+	// Builder binaries from re-attaching themselves.
+	discontinuedHelperAppName = "builder"
 )
 
 type agentToolsProblem struct {
@@ -104,6 +108,18 @@ func (s *Server) handleCallbackAgentTools(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	if body.AgentKind == sdk.AgentKindPlatformHelper {
+		var callerAppName string
+		_ = s.store.dbQueryRowContext(r.Context(), `SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).Scan(&callerAppName)
+		if callerAppName == discontinuedHelperAppName {
+			writeAgentToolsProblem(w, &agentToolsProblem{
+				status: http.StatusGone, code: "app_discontinued",
+				message:   "Builder is discontinued and is no longer attached to Apteva Helper",
+				agentKind: body.AgentKind,
+			})
+			return
+		}
+	}
 
 	installIDs, mcpServerIDs, problem := s.resolveAgentToolsInstallMCPs(
 		installID, body.IncludeRequiredApps, target.ProjectID, body.AgentKind,
@@ -171,7 +187,7 @@ func (s *Server) resolveAgentToolsInstallMCPs(callerInstallID int64, requested [
 		seenInstalls[id] = true
 		var status, installProject string
 		var serverID int64
-		err := s.store.db.QueryRow(`
+		err := s.store.dbQueryRow(`
 			SELECT i.status, COALESCE(i.project_id,''), COALESCE(m.id,0)
 			FROM app_installs i
 			LEFT JOIN mcp_servers m ON m.upstream_id=?
@@ -329,9 +345,9 @@ type appToolsDetachPlan struct {
 // server left their app_agent_bindings metadata out of sync.
 func (s *Server) captureAppToolsDetachPlan(installID int64) appToolsDetachPlan {
 	plan := appToolsDetachPlan{installID: installID}
-	_ = s.store.db.QueryRow(`SELECT id FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)).Scan(&plan.serverID)
+	_ = s.store.dbQueryRow(`SELECT id FROM mcp_servers WHERE upstream_id=?`, appMCPUpstreamID(installID)).Scan(&plan.serverID)
 	seen := map[int64]bool{}
-	if rows, err := s.store.db.Query(`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1`, installID); err == nil {
+	if rows, err := s.store.dbQuery(`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1`, installID); err == nil {
 		for rows.Next() {
 			var agentID int64
 			if rows.Scan(&agentID) == nil && agentID > 0 && !seen[agentID] {
@@ -342,7 +358,7 @@ func (s *Server) captureAppToolsDetachPlan(installID int64) appToolsDetachPlan {
 		_ = rows.Close()
 	}
 	if plan.serverID > 0 {
-		if rows, err := s.store.db.Query(`SELECT id, COALESCE(config,'{}') FROM agents WHERE kind='platform_helper'`); err == nil {
+		if rows, err := s.store.dbQuery(`SELECT id, COALESCE(config,'{}') FROM agents WHERE kind='platform_helper'`); err == nil {
 			for rows.Next() {
 				var agentID int64
 				var rawConfig string

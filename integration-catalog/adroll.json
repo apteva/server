@@ -1,0 +1,254 @@
+{
+  "slug": "adroll",
+  "name": "AdRoll",
+  "description": "AdRoll Ads API v2 — manage advertisables (ad accounts), campaigns, ad groups, ads, audiences, and pull retargeting/prospecting performance reports.",
+  "logo": "https://www.google.com/s2/favicons?domain=adroll.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "retargeting",
+    "prospecting",
+    "adroll",
+    "display-ads"
+  ],
+  "base_url": "https://services.adroll.com/api/v2",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "X-Apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "api_key",
+        "label": "API Key (apikey)",
+        "type": "password",
+        "description": "X-Apikey header value — required by AdRoll on every Ads API call alongside the bearer token"
+      },
+      {
+        "name": "advertisable_eid",
+        "label": "Default Advertisable EID",
+        "description": "Default advertisable (ad-account) external id"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://services.adroll.com/auth/authorize",
+      "token_url": "https://services.adroll.com/auth/token",
+      "scopes": [],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_advertisables",
+      "description": "List advertisables (ad accounts) for the authenticated user.",
+      "method": "GET",
+      "path": "/advertisable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page_size": { "type": "integer", "default": 50 },
+          "page": { "type": "integer", "default": 1 }
+        }
+      }
+    },
+    {
+      "name": "get_advertisable",
+      "description": "Get a single advertisable by EID.",
+      "method": "GET",
+      "path": "/advertisable/{advertisable_eid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable_eid": { "type": "string" }
+        },
+        "required": ["advertisable_eid"]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an advertisable. Filter by status (live|paused|deleted) or type (web|prospecting|retargeting|email).",
+      "method": "GET",
+      "path": "/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable_eid": { "type": "string" },
+          "status": { "type": "string", "enum": ["live", "paused", "deleted"] },
+          "type": { "type": "string", "enum": ["web", "prospecting", "retargeting", "email", "social"] },
+          "page_size": { "type": "integer", "default": 50 },
+          "page": { "type": "integer", "default": 1 }
+        },
+        "required": ["advertisable_eid"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Required: advertisable, name, type (web|prospecting|retargeting|email), budget (daily, in advertisable currency), bid_type (cpc|cpm), start_date (yyyy-MM-dd). Optional end_date, max_cpm, max_cpc, status (live|paused), source_audiences[], suppression_audiences[].",
+      "method": "POST",
+      "path": "/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable": { "type": "string", "description": "Advertisable EID" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["web", "prospecting", "retargeting", "email", "social"] },
+          "budget": { "type": "number", "description": "Daily budget" },
+          "bid_type": { "type": "string", "enum": ["cpc", "cpm"], "default": "cpm" },
+          "max_cpm": { "type": "number" },
+          "max_cpc": { "type": "number" },
+          "start_date": { "type": "string", "description": "yyyy-MM-dd" },
+          "end_date": { "type": "string" },
+          "status": { "type": "string", "enum": ["live", "paused"], "default": "paused" },
+          "source_audiences": { "type": "array", "items": { "type": "string" } },
+          "suppression_audiences": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["advertisable", "name", "type", "budget", "start_date"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a campaign by EID. Pass only the fields you want to change.",
+      "method": "PUT",
+      "path": "/campaign/{campaign_eid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_eid": { "type": "string" },
+          "name": { "type": "string" },
+          "budget": { "type": "number" },
+          "max_cpm": { "type": "number" },
+          "max_cpc": { "type": "number" },
+          "end_date": { "type": "string" },
+          "status": { "type": "string", "enum": ["live", "paused", "deleted"] }
+        },
+        "required": ["campaign_eid"]
+      }
+    },
+    {
+      "name": "list_ad_groups",
+      "description": "List ad groups under an advertisable, optionally filtered by campaign.",
+      "method": "GET",
+      "path": "/adgroup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable_eid": { "type": "string" },
+          "campaign": { "type": "string", "description": "Campaign EID" },
+          "page_size": { "type": "integer", "default": 50 },
+          "page": { "type": "integer", "default": 1 }
+        },
+        "required": ["advertisable_eid"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under an advertisable, optionally filtered by adgroup or campaign.",
+      "method": "GET",
+      "path": "/ad",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable_eid": { "type": "string" },
+          "campaign": { "type": "string" },
+          "adgroup": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "approved", "rejected", "paused"] },
+          "page_size": { "type": "integer", "default": 50 },
+          "page": { "type": "integer", "default": 1 }
+        },
+        "required": ["advertisable_eid"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create an ad (creative) under an advertisable. Required: advertisable, type (image|html|video|native), headline (for native), body (for native/dynamic), click_url, image_url (for image), height, width, status.",
+      "method": "POST",
+      "path": "/ad",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable": { "type": "string" },
+          "type": { "type": "string", "enum": ["image", "html", "video", "native", "dynamic"] },
+          "headline": { "type": "string" },
+          "body": { "type": "string" },
+          "click_url": { "type": "string" },
+          "image_url": { "type": "string" },
+          "logo_url": { "type": "string" },
+          "height": { "type": "integer" },
+          "width": { "type": "integer" },
+          "status": { "type": "string", "enum": ["paused", "approved"], "default": "paused" }
+        },
+        "required": ["advertisable", "type", "click_url"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List audiences (segments) for an advertisable. type values: web (pixel-based), email (CRM), lookalike, behavioral.",
+      "method": "GET",
+      "path": "/audience",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable_eid": { "type": "string" },
+          "type": { "type": "string", "enum": ["web", "email", "lookalike", "behavioral"] },
+          "page_size": { "type": "integer", "default": 50 },
+          "page": { "type": "integer", "default": 1 }
+        },
+        "required": ["advertisable_eid"]
+      }
+    },
+    {
+      "name": "create_segment",
+      "description": "Create a website-visitor segment (audience). Required: advertisable, name, rules[] (array of rule objects describing URL match logic and lookback window).",
+      "method": "POST",
+      "path": "/segment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable": { "type": "string" },
+          "name": { "type": "string" },
+          "rules": { "type": "array", "items": { "type": "object" } },
+          "duration": { "type": "integer", "description": "Membership duration in days" }
+        },
+        "required": ["advertisable", "name", "rules"]
+      }
+    },
+    {
+      "name": "report",
+      "description": "Pull a performance report. dimensions: advertisable|campaign|adgroup|ad|country|device|day|week|month. metrics: impressions, clicks, ctr, spend, cpm, cpc, view_through_conversions, click_through_conversions, total_conversions, revenue, roas. start_date / end_date as yyyy-MM-dd.",
+      "method": "POST",
+      "path": "/report",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "advertisable": { "type": "string" },
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "metrics": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "filters": { "type": "object", "description": "Optional {campaign: [eid], adgroup: [eid], ...}" }
+        },
+        "required": ["advertisable", "dimensions", "metrics", "start_date", "end_date"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "slug": "archive",
+  "name": "Archive (Native)",
+  "description": "Native archive service using our storage backend. Compress and extract files with support for ZIP, 7z, TAR.GZ, and RAR formats with password protection.",
+  "logo": "https://www.google.com/s2/favicons?domain=7-zip.org&sz=128",
+  "categories": [
+    "archive",
+    "compression",
+    "zip",
+    "7z",
+    "tar",
+    "rar",
+    "files",
+    "storage"
+  ],
+  "base_url": "https://archive.org",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "compress",
+      "description": "Compress files into an archive. Supports ZIP, 7z, TAR.GZ formats with optional password protection. Input files via URLs or base64. Returns public URL to the created archive.",
+      "method": "GET",
+      "path": "/compress",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "description": "Array of files to compress. Each item can be a URL string or an object with {name, data} where data is base64.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "URL to a file"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Filename"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "Base64-encoded file content"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "data"
+                  ]
+                }
+              ]
+            }
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "zip",
+              "7z",
+              "tar",
+              "tar.gz",
+              "tgz",
+              "tar.bz2",
+              "tbz2"
+            ],
+            "description": "Archive format (default: zip)"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password for encryption (ZIP and 7z only)"
+          },
+          "compressionLevel": {
+            "type": "number",
+            "description": "Compression level 1-9 (default: 6)",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "archiveName": {
+            "type": "string",
+            "description": "Output archive filename"
+          }
+        },
+        "required": [
+          "files"
+        ]
+      }
+    },
+    {
+      "name": "extract",
+      "description": "Extract files from an archive. Supports ZIP, 7z, TAR.GZ, and RAR formats with password support. Returns public URLs to extracted files.",
+      "method": "GET",
+      "path": "/extract",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "URL to the archive, or an object with {name, data} where data is base64"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password if archive is encrypted"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Glob pattern to filter extracted files (e.g., '*.pdf')"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "list",
+      "description": "List contents of an archive without extracting. Shows file names, sizes, and metadata.",
+      "method": "GET",
+      "path": "/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "URL to the archive, or an object with {name, data} where data is base64"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password if archive is encrypted"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      }
+    }
+  ]
+}

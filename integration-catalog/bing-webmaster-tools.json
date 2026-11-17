@@ -1,0 +1,158 @@
+{
+  "slug": "bing-webmaster-tools",
+  "name": "Bing Webmaster Tools",
+  "description": "Bing's official Webmaster Tools API — site management, query/page traffic stats, URL submission, crawl stats, link counts. Free with a Bing Webmaster account.",
+  "logo": "https://www.google.com/s2/favicons?domain=bing.com&sz=128",
+  "categories": ["seo", "bing", "microsoft", "search-analytics", "url-submission", "webmaster"],
+  "base_url": "https://ssl.bing.com/webmaster/api.svc/json",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      { "name": "apikey", "label": "API Key", "description": "Generated from Bing Webmaster Tools → Settings → API Access" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_user_sites",
+      "description": "List sites verified for the authenticated user",
+      "method": "GET",
+      "path": "/GetUserSites",
+      "input_schema": {
+        "type": "object",
+        "properties": { "apikey": { "type": "string" } },
+        "required": ["apikey"]
+      }
+    },
+    {
+      "name": "get_url_info",
+      "description": "Get index info, crawl status, and click/impression stats for a single URL",
+      "method": "GET",
+      "path": "/GetUrlInfo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl", "url"]
+      }
+    },
+    {
+      "name": "get_rank_and_traffic_stats",
+      "description": "Get rank/traffic time series for a site",
+      "method": "GET",
+      "path": "/GetRankAndTrafficStats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl"]
+      }
+    },
+    {
+      "name": "get_query_stats",
+      "description": "Top queries with clicks, impressions, average click position",
+      "method": "GET",
+      "path": "/GetQueryStats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl"]
+      }
+    },
+    {
+      "name": "get_page_stats",
+      "description": "Top pages with clicks, impressions, average click position",
+      "method": "GET",
+      "path": "/GetPageStats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl"]
+      }
+    },
+    {
+      "name": "submit_url",
+      "description": "Notify Bing about a new or updated URL (counts against daily IndexNow quota)",
+      "method": "POST",
+      "path": "/SubmitUrl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl", "url"]
+      }
+    },
+    {
+      "name": "submit_url_batch",
+      "description": "Submit up to N URLs in a single batch",
+      "method": "POST",
+      "path": "/SubmitUrlBatch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" },
+          "urlList": { "type": "array" }
+        },
+        "required": ["apikey", "siteUrl", "urlList"]
+      }
+    },
+    {
+      "name": "get_crawl_stats",
+      "description": "Crawl statistics time series",
+      "method": "GET",
+      "path": "/GetCrawlStats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl"]
+      }
+    },
+    {
+      "name": "get_link_counts",
+      "description": "Inbound link counts for a site",
+      "method": "GET",
+      "path": "/GetLinkCounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" },
+          "page": { "type": "number" }
+        },
+        "required": ["apikey", "siteUrl"]
+      }
+    },
+    {
+      "name": "add_site",
+      "description": "Add a new site for verification",
+      "method": "POST",
+      "path": "/AddSite",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "apikey": { "type": "string" },
+          "siteUrl": { "type": "string" }
+        },
+        "required": ["apikey", "siteUrl"]
+      }
+    }
+  ]
+}

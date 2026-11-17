@@ -1,0 +1,59 @@
+{
+  "slug": "docuseal",
+  "name": "DocuSeal",
+  "description": "DocuSeal hosted or self-hosted API for templates, PDF/DOCX/HTML ingestion, submissions, submitters, completed document downloads, cloning, merging, and lifecycle management. Webhook URLs and events are configured in the DocuSeal admin settings.",
+  "logo": "https://www.google.com/s2/favicons?domain=docuseal.com&sz=128",
+  "categories": ["e-signature", "documents", "contracts", "open-source"],
+  "base_url": "{{credential.base_url}}",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {"X-Auth-Token": "{{api_key}}", "Accept": "application/json", "Content-Type": "application/json"},
+    "credential_fields": [
+      {"name": "api_key", "label": "DocuSeal API Token", "type": "password", "required": true},
+      {"name": "base_url", "label": "API Base URL", "required": true, "description": "Use https://api.docuseal.com for DocuSeal Cloud, or the origin of your self-hosted API without a trailing slash."}
+    ]
+  },
+  "health_check": {"tool": "list_templates", "input": {"limit": 1}},
+  "tools": [
+    {"name": "list_submissions", "description": "List submissions with pagination, status, template, and date filters.", "method": "GET", "path": "/submissions", "input_schema": {"type": "object", "properties": {"limit": {"type": "integer"}, "after": {"type": "integer"}, "before": {"type": "integer"}, "status": {"type": "string"}, "template_id": {"type": "integer"}, "completed_after": {"type": "string"}, "completed_before": {"type": "string"}}}},
+    {"name": "get_submission", "description": "Get one submission, its submitters, fields, status, and audit metadata.", "method": "GET", "path": "/submissions/{submission_id}", "input_schema": {"type": "object", "properties": {"submission_id": {"type": "integer"}}, "required": ["submission_id"]}},
+    {"name": "list_submission_documents", "description": "Return temporary download URLs for completed documents in a submission.", "method": "GET", "path": "/submissions/{submission_id}/documents", "input_schema": {"type": "object", "properties": {"submission_id": {"type": "integer"}}, "required": ["submission_id"]}},
+    {
+      "name": "create_submission", "description": "Create a signing submission from an existing template. Each submitter maps a template role to an email or phone and can include prefilled fields, values, metadata, and redirect settings.", "method": "POST", "path": "/submissions",
+      "input_schema": {"type": "object", "properties": {"template_id": {"type": "integer"}, "submitters": {"type": "array", "items": {"type": "object"}}, "send_email": {"type": "boolean"}, "send_sms": {"type": "boolean"}, "order": {"type": "string", "enum": ["preserved", "random"]}, "completed_redirect_url": {"type": "string"}, "bcc_completed": {"type": "string"}, "reply_to": {"type": "string"}, "message": {"type": "object"}}, "required": ["template_id", "submitters"]}
+    },
+    {
+      "name": "create_submission_from_pdf", "description": "Create a template and submission in one call from PDF URL/base64 documents. Define submitters and fields for each document.", "method": "POST", "path": "/submissions/pdf",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}, "description": "Documents with name and file URL or base64 content."}, "submitters": {"type": "array", "items": {"type": "object"}}, "send_email": {"type": "boolean"}, "send_sms": {"type": "boolean"}, "fields": {"type": "array", "items": {"type": "object"}}, "completed_redirect_url": {"type": "string"}, "folder_name": {"type": "string"}}, "required": ["documents", "submitters"]}
+    },
+    {
+      "name": "create_submission_from_docx", "description": "Create a template and submission from DOCX URL/base64 documents. Text tags in the files can define fields and roles.", "method": "POST", "path": "/submissions/docx",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "submitters": {"type": "array", "items": {"type": "object"}}, "send_email": {"type": "boolean"}, "send_sms": {"type": "boolean"}, "completed_redirect_url": {"type": "string"}, "folder_name": {"type": "string"}}, "required": ["documents", "submitters"]}
+    },
+    {
+      "name": "create_submission_from_html", "description": "Create a template and submission from HTML document definitions.", "method": "POST", "path": "/submissions/html",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}, "description": "Documents containing name and html strings."}, "submitters": {"type": "array", "items": {"type": "object"}}, "send_email": {"type": "boolean"}, "send_sms": {"type": "boolean"}, "completed_redirect_url": {"type": "string"}, "folder_name": {"type": "string"}}, "required": ["documents", "submitters"]}
+    },
+    {"name": "update_submission", "description": "Update submission settings or submitter identity, values, metadata, and delivery controls.", "method": "PUT", "path": "/submissions/{submission_id}", "input_schema": {"type": "object", "properties": {"submission_id": {"type": "integer"}, "submitters": {"type": "array", "items": {"type": "object"}}, "send_email": {"type": "boolean"}, "send_sms": {"type": "boolean"}, "completed_redirect_url": {"type": "string"}, "bcc_completed": {"type": "string"}, "reply_to": {"type": "string"}}, "required": ["submission_id"]}},
+    {"name": "delete_submission", "description": "Permanently delete a submission and its signing links.", "method": "DELETE", "path": "/submissions/{submission_id}", "input_schema": {"type": "object", "properties": {"submission_id": {"type": "integer"}}, "required": ["submission_id"]}},
+    {"name": "list_templates", "description": "List templates with pagination, folder, archive, and search filters.", "method": "GET", "path": "/templates", "input_schema": {"type": "object", "properties": {"limit": {"type": "integer"}, "after": {"type": "integer"}, "before": {"type": "integer"}, "folder": {"type": "string"}, "archived": {"type": "boolean"}, "q": {"type": "string"}}}},
+    {"name": "get_template", "description": "Get template documents, submitter roles, fields, and settings.", "method": "GET", "path": "/templates/{template_id}", "input_schema": {"type": "object", "properties": {"template_id": {"type": "integer"}}, "required": ["template_id"]}},
+    {
+      "name": "create_template_from_pdf", "description": "Create a reusable template from PDF URLs or base64 documents and explicit field definitions.", "method": "POST", "path": "/templates/pdf",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "fields": {"type": "array", "items": {"type": "object"}}, "folder_name": {"type": "string"}, "external_id": {"type": "string"}}, "required": ["documents"]}
+    },
+    {
+      "name": "create_template_from_docx", "description": "Create a reusable template from DOCX URLs or base64 documents, including text-tag fields.", "method": "POST", "path": "/templates/docx",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "folder_name": {"type": "string"}, "external_id": {"type": "string"}}, "required": ["documents"]}
+    },
+    {
+      "name": "create_template_from_html", "description": "Create a reusable template from HTML documents.", "method": "POST", "path": "/templates/html",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "documents": {"type": "array", "items": {"type": "object"}}, "folder_name": {"type": "string"}, "external_id": {"type": "string"}}, "required": ["documents"]}
+    },
+    {"name": "clone_template", "description": "Clone a template, optionally into a new folder or name.", "method": "POST", "path": "/templates/{template_id}/clone", "input_schema": {"type": "object", "properties": {"template_id": {"type": "integer"}, "name": {"type": "string"}, "folder_name": {"type": "string"}, "external_id": {"type": "string"}}, "required": ["template_id"]}},
+    {"name": "merge_templates", "description": "Merge multiple templates into a new template while preserving roles and fields.", "method": "POST", "path": "/templates/merge", "input_schema": {"type": "object", "properties": {"template_ids": {"type": "array", "items": {"type": "integer"}}, "name": {"type": "string"}, "folder_name": {"type": "string"}, "external_id": {"type": "string"}}, "required": ["template_ids"]}},
+    {"name": "update_template", "description": "Update template name, folder, external ID, submitter roles, or fields.", "method": "PUT", "path": "/templates/{template_id}", "input_schema": {"type": "object", "properties": {"template_id": {"type": "integer"}, "name": {"type": "string"}, "folder_name": {"type": "string"}, "external_id": {"type": "string"}, "submitters": {"type": "array", "items": {"type": "object"}}, "fields": {"type": "array", "items": {"type": "object"}}, "archived": {"type": "boolean"}}, "required": ["template_id"]}},
+    {"name": "update_template_documents", "description": "Replace or reorder the source documents attached to a template.", "method": "PUT", "path": "/templates/{template_id}/documents", "input_schema": {"type": "object", "properties": {"template_id": {"type": "integer"}, "documents": {"type": "array", "items": {"type": "object"}}}, "required": ["template_id", "documents"]}},
+    {"name": "delete_template", "description": "Permanently delete a template.", "method": "DELETE", "path": "/templates/{template_id}", "input_schema": {"type": "object", "properties": {"template_id": {"type": "integer"}}, "required": ["template_id"]}}
+  ]
+}

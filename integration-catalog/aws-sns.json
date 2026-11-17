@@ -1,0 +1,255 @@
+{
+  "slug": "aws-sns",
+  "name": "AWS SNS",
+  "description": "Amazon Simple Notification Service — pub/sub topics, HTTP/Email/SQS subscriptions, message publishing. Authenticates via AWS Signature V4. Speaks the AWS Query API on https://sns.{region}.amazonaws.com/?Action=... — every tool here is a thin wrapper over one Query action.",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": [
+    "aws",
+    "messaging",
+    "notifications",
+    "pubsub",
+    "infrastructure"
+  ],
+  "base_url": "https://sns.{{region}}.amazonaws.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "sns"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key_id",
+        "label": "AWS Access Key ID",
+        "description": "IAM access key with sns:* permissions on the topics this app will create / manage. Bootstrap setup needs CreateTopic, Subscribe, ConfirmSubscription, SetTopicAttributes; runtime publish only needs sns:Publish.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "AWS Secret Access Key",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "region",
+        "label": "AWS Region",
+        "description": "Region the SNS topics live in. Must match the region where SES (or any other producer) publishes to them — cross-region SNS is not supported as an SES destination.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "session_token",
+        "label": "AWS Session Token",
+        "description": "Only required when using temporary credentials issued by STS (assume-role, federated identities). Leave blank for long-lived IAM user keys.",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_topic",
+      "description": "Create a new SNS topic (idempotent — calling with the same Name returns the existing topic's ARN unchanged). Response XML contains CreateTopicResponse.CreateTopicResult.TopicArn.",
+      "method": "GET",
+      "path": "/?Action=CreateTopic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Name": {
+            "type": "string",
+            "description": "Topic name (1–256 alphanumeric / hyphen / underscore chars). Must be unique within the AWS account + region."
+          },
+          "Attributes.entry.1.key": {
+            "type": "string",
+            "description": "Optional. First attribute key (e.g. 'Policy', 'DisplayName'). Use the .entry.N.key/.value pattern for additional attributes."
+          },
+          "Attributes.entry.1.value": {
+            "type": "string"
+          }
+        },
+        "required": ["Name"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "delete_topic",
+      "description": "Permanently delete a topic and all of its subscriptions. Idempotent — deleting a non-existent topic returns success. Use with care; subscribers receive no further messages.",
+      "method": "GET",
+      "path": "/?Action=DeleteTopic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          }
+        },
+        "required": ["TopicArn"]
+      }
+    },
+    {
+      "name": "list_topics",
+      "description": "List all topics in the account + region. Paginated via NextToken. Response XML root: ListTopicsResponse.ListTopicsResult.Topics.member[].",
+      "method": "GET",
+      "path": "/?Action=ListTopics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "NextToken": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_topic_attributes",
+      "description": "Fetch a topic's attributes (Owner, Policy, DisplayName, SubscriptionsConfirmed, SubscriptionsPending, etc.). Useful for idempotent bootstrap — read the current Policy before deciding whether to overwrite via set_topic_attributes.",
+      "method": "GET",
+      "path": "/?Action=GetTopicAttributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          }
+        },
+        "required": ["TopicArn"]
+      }
+    },
+    {
+      "name": "set_topic_attributes",
+      "description": "Set a single topic attribute. The most common use is `AttributeName=Policy` with `AttributeValue` as the access-policy JSON string — e.g. allowing ses.amazonaws.com to publish to the topic so SES inbound notifications can land there. Other supported attributes: DisplayName, DeliveryPolicy, KmsMasterKeyId, ContentBasedDeduplication.",
+      "method": "GET",
+      "path": "/?Action=SetTopicAttributes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "AttributeName": {
+            "type": "string",
+            "description": "One of: Policy, DisplayName, DeliveryPolicy, KmsMasterKeyId, ContentBasedDeduplication."
+          },
+          "AttributeValue": {
+            "type": "string",
+            "description": "Stringified attribute value. For Policy, this is the JSON access-policy doc."
+          }
+        },
+        "required": ["TopicArn", "AttributeName", "AttributeValue"]
+      }
+    },
+    {
+      "name": "subscribe",
+      "description": "Create a subscription on a topic. For HTTPS subscribers (Apteva webhooks) AWS sends a SubscriptionConfirmation message to the endpoint first; the endpoint must POST a confirm_subscription. Pass ReturnSubscriptionArn=true so the response includes a real ARN immediately even when confirmation is still pending.",
+      "method": "GET",
+      "path": "/?Action=Subscribe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "Protocol": {
+            "type": "string",
+            "description": "One of: http, https, email, email-json, sms, sqs, application, lambda, firehose."
+          },
+          "Endpoint": {
+            "type": "string",
+            "description": "URL / phone / email / ARN appropriate to Protocol."
+          },
+          "ReturnSubscriptionArn": {
+            "type": "string",
+            "description": "Pass 'true' to get the SubscriptionArn back immediately (otherwise PendingConfirmation until the endpoint confirms).",
+            "default": "true"
+          }
+        },
+        "required": ["TopicArn", "Protocol", "Endpoint"]
+      }
+    },
+    {
+      "name": "confirm_subscription",
+      "description": "Confirm a pending subscription. Used when the platform is acting on the subscriber's behalf (rare — normally the subscriber endpoint does this itself when AWS POSTs the SubscriptionConfirmation message to it). Token comes from the SubscriptionConfirmation payload.",
+      "method": "GET",
+      "path": "/?Action=ConfirmSubscription",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "Token": {
+            "type": "string"
+          },
+          "AuthenticateOnUnsubscribe": {
+            "type": "string",
+            "description": "Pass 'true' to require AWS auth for unsubscription. Defaults to false."
+          }
+        },
+        "required": ["TopicArn", "Token"]
+      }
+    },
+    {
+      "name": "list_subscriptions_by_topic",
+      "description": "List subscriptions on a topic. Paginated via NextToken. Response XML root: ListSubscriptionsByTopicResponse.ListSubscriptionsByTopicResult.Subscriptions.member[].",
+      "method": "GET",
+      "path": "/?Action=ListSubscriptionsByTopic",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "NextToken": {
+            "type": "string"
+          }
+        },
+        "required": ["TopicArn"]
+      }
+    },
+    {
+      "name": "unsubscribe",
+      "description": "Cancel a subscription. Idempotent. Pass the SubscriptionArn returned from subscribe / list_subscriptions_by_topic.",
+      "method": "GET",
+      "path": "/?Action=Unsubscribe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "SubscriptionArn": {
+            "type": "string"
+          }
+        },
+        "required": ["SubscriptionArn"]
+      }
+    },
+    {
+      "name": "publish",
+      "description": "Publish a message to a topic (or directly to a phone number / endpoint). Useful for fanout patterns and for one-off test notifications.",
+      "method": "GET",
+      "path": "/?Action=Publish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "TopicArn": {
+            "type": "string"
+          },
+          "Message": {
+            "type": "string"
+          },
+          "Subject": {
+            "type": "string"
+          },
+          "MessageStructure": {
+            "type": "string",
+            "description": "Pass 'json' when Message is itself a JSON object keyed by protocol (default, http, email, sms, sqs)."
+          }
+        },
+        "required": ["Message"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_topics"
+  }
+}

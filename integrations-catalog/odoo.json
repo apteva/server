@@ -1,0 +1,15 @@
+{
+  "slug": "odoo",
+  "name": "Odoo Accounting",
+  "description": "Odoo accounting JSON-RPC integration for partners, invoices, bills, expenses and journal entries.",
+  "logo": "https://www.google.com/s2/favicons?domain=odoo.com&sz=128",
+  "categories": ["accounting", "erp", "invoicing", "finance"],
+  "base_url": "https://{{host}}",
+  "auth": {"types":["custom"],"headers":{"Content-Type":"application/json","Accept":"application/json"},"credential_fields":[{"name":"host","label":"Odoo host","required":true},{"name":"database","label":"Database","required":true},{"name":"uid","label":"User ID","required":true},{"name":"api_key","label":"API key","required":true}]},
+  "tools": [
+    {"name":"search_read_partners","description":"Search and read Odoo contacts.","method":"POST","path":"/jsonrpc","input_schema":{"type":"object","properties":{"domain":{"type":"array"},"fields":{"type":"array"},"limit":{"type":"integer"},"offset":{"type":"integer"}},"required":[]}},
+    {"name":"search_read_invoices","description":"Search and read customer invoices and vendor bills.","method":"POST","path":"/jsonrpc","input_schema":{"type":"object","properties":{"domain":{"type":"array"},"fields":{"type":"array"},"limit":{"type":"integer"},"offset":{"type":"integer"}},"required":[]}},
+    {"name":"create_invoice","description":"Create an Odoo account.move invoice or bill. Supply provider-specific line values in vals.","method":"POST","path":"/jsonrpc","input_schema":{"type":"object","properties":{"move_type":{"type":"string","enum":["out_invoice","in_invoice","out_refund","in_refund"]},"vals":{"type":"object"}},"required":["move_type","vals"]}},
+    {"name":"search_read_expenses","description":"Search and read Odoo expense records.","method":"POST","path":"/jsonrpc","input_schema":{"type":"object","properties":{"domain":{"type":"array"},"fields":{"type":"array"},"limit":{"type":"integer"},"offset":{"type":"integer"}},"required":[]}}
+  ]
+}

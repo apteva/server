@@ -1,0 +1,207 @@
+{
+  "slug": "razorpay",
+  "name": "Razorpay",
+  "description": "Razorpay payment gateway API for orders, payments, captures, refunds, customers, payment links, invoices, plans, and subscriptions.",
+  "logo": "https://www.google.com/s2/favicons?domain=razorpay.com&sz=128",
+  "categories": ["payments", "checkout", "billing", "subscriptions", "india"],
+  "base_url": "https://api.razorpay.com/v1",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "basic_auth",
+        "label": "Basic Auth",
+        "description": "Base64-encoded Razorpay key_id:key_secret value. Do not include the 'Basic ' prefix."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_order",
+      "description": "Create a Razorpay order.",
+      "method": "POST",
+      "path": "/orders",
+      "input_schema": { "type": "object", "properties": { "amount": { "type": "integer", "description": "Amount in the smallest currency unit." }, "currency": { "type": "string" }, "receipt": { "type": "string" }, "notes": { "type": "object" }, "partial_payment": { "type": "boolean" }, "first_payment_min_amount": { "type": "integer" } }, "required": ["amount", "currency"] }
+    },
+    {
+      "name": "list_orders",
+      "description": "List Razorpay orders.",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" }, "from": { "type": "integer" }, "to": { "type": "integer" } } }
+    },
+    {
+      "name": "get_order",
+      "description": "Retrieve one Razorpay order.",
+      "method": "GET",
+      "path": "/orders/{order_id}",
+      "input_schema": { "type": "object", "properties": { "order_id": { "type": "string" } }, "required": ["order_id"] }
+    },
+    {
+      "name": "list_payments",
+      "description": "List Razorpay payments.",
+      "method": "GET",
+      "path": "/payments",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" }, "from": { "type": "integer" }, "to": { "type": "integer" } } }
+    },
+    {
+      "name": "get_payment",
+      "description": "Retrieve one Razorpay payment.",
+      "method": "GET",
+      "path": "/payments/{payment_id}",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" } }, "required": ["payment_id"] }
+    },
+    {
+      "name": "capture_payment",
+      "description": "Capture an authorized Razorpay payment.",
+      "method": "POST",
+      "path": "/payments/{payment_id}/capture",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "amount": { "type": "integer" }, "currency": { "type": "string" } }, "required": ["payment_id", "amount", "currency"] }
+    },
+    {
+      "name": "create_refund",
+      "description": "Create a normal refund for a captured Razorpay payment.",
+      "method": "POST",
+      "path": "/payments/{payment_id}/refund",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "amount": { "type": "integer" }, "speed": { "type": "string" }, "notes": { "type": "object" }, "receipt": { "type": "string" } }, "required": ["payment_id"] }
+    },
+    {
+      "name": "list_refunds",
+      "description": "List Razorpay refunds.",
+      "method": "GET",
+      "path": "/refunds",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" }, "from": { "type": "integer" }, "to": { "type": "integer" }, "payment_id": { "type": "string" } } }
+    },
+    {
+      "name": "get_refund",
+      "description": "Retrieve one Razorpay refund.",
+      "method": "GET",
+      "path": "/refunds/{refund_id}",
+      "input_schema": { "type": "object", "properties": { "refund_id": { "type": "string" } }, "required": ["refund_id"] }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a Razorpay customer.",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "contact": { "type": "string" }, "fail_existing": { "type": "string" }, "notes": { "type": "object" } } }
+    },
+    {
+      "name": "list_customers",
+      "description": "List Razorpay customers.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" } } }
+    },
+    {
+      "name": "get_customer",
+      "description": "Retrieve one Razorpay customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update a Razorpay customer.",
+      "method": "PATCH",
+      "path": "/customers/{customer_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "name": { "type": "string" }, "email": { "type": "string" }, "contact": { "type": "string" }, "notes": { "type": "object" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "create_payment_link",
+      "description": "Create a Razorpay payment link.",
+      "method": "POST",
+      "path": "/payment_links",
+      "input_schema": { "type": "object", "properties": { "amount": { "type": "integer" }, "currency": { "type": "string" }, "accept_partial": { "type": "boolean" }, "first_min_partial_amount": { "type": "integer" }, "description": { "type": "string" }, "customer": { "type": "object" }, "notify": { "type": "object" }, "reminder_enable": { "type": "boolean" }, "notes": { "type": "object" }, "callback_url": { "type": "string" }, "callback_method": { "type": "string" } }, "required": ["amount", "currency"] }
+    },
+    {
+      "name": "list_payment_links",
+      "description": "List Razorpay payment links.",
+      "method": "GET",
+      "path": "/payment_links",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" }, "from": { "type": "integer" }, "to": { "type": "integer" }, "reference_id": { "type": "string" } } }
+    },
+    {
+      "name": "get_payment_link",
+      "description": "Retrieve one Razorpay payment link.",
+      "method": "GET",
+      "path": "/payment_links/{payment_link_id}",
+      "input_schema": { "type": "object", "properties": { "payment_link_id": { "type": "string" } }, "required": ["payment_link_id"] }
+    },
+    {
+      "name": "create_invoice",
+      "description": "Create a Razorpay invoice.",
+      "method": "POST",
+      "path": "/invoices",
+      "input_schema": { "type": "object", "properties": { "type": { "type": "string" }, "description": { "type": "string" }, "customer": { "type": "object" }, "line_items": { "type": "array" }, "sms_notify": { "type": "integer" }, "email_notify": { "type": "integer" }, "expire_by": { "type": "integer" }, "notes": { "type": "object" } } }
+    },
+    {
+      "name": "list_invoices",
+      "description": "List Razorpay invoices.",
+      "method": "GET",
+      "path": "/invoices",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" }, "from": { "type": "integer" }, "to": { "type": "integer" } } }
+    },
+    {
+      "name": "get_invoice",
+      "description": "Retrieve one Razorpay invoice.",
+      "method": "GET",
+      "path": "/invoices/{invoice_id}",
+      "input_schema": { "type": "object", "properties": { "invoice_id": { "type": "string" } }, "required": ["invoice_id"] }
+    },
+    {
+      "name": "create_plan",
+      "description": "Create a Razorpay subscription plan.",
+      "method": "POST",
+      "path": "/plans",
+      "input_schema": { "type": "object", "properties": { "period": { "type": "string" }, "interval": { "type": "integer" }, "item": { "type": "object" }, "notes": { "type": "object" } }, "required": ["period", "interval", "item"] }
+    },
+    {
+      "name": "list_plans",
+      "description": "List Razorpay subscription plans.",
+      "method": "GET",
+      "path": "/plans",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" } } }
+    },
+    {
+      "name": "get_plan",
+      "description": "Retrieve one Razorpay plan.",
+      "method": "GET",
+      "path": "/plans/{plan_id}",
+      "input_schema": { "type": "object", "properties": { "plan_id": { "type": "string" } }, "required": ["plan_id"] }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a Razorpay subscription.",
+      "method": "POST",
+      "path": "/subscriptions",
+      "input_schema": { "type": "object", "properties": { "plan_id": { "type": "string" }, "total_count": { "type": "integer" }, "quantity": { "type": "integer" }, "customer_notify": { "type": "integer" }, "start_at": { "type": "integer" }, "expire_by": { "type": "integer" }, "addons": { "type": "array" }, "notes": { "type": "object" } }, "required": ["plan_id", "total_count"] }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List Razorpay subscriptions.",
+      "method": "GET",
+      "path": "/subscriptions",
+      "input_schema": { "type": "object", "properties": { "count": { "type": "integer" }, "skip": { "type": "integer" } } }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Retrieve one Razorpay subscription.",
+      "method": "GET",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": { "type": "object", "properties": { "subscription_id": { "type": "string" } }, "required": ["subscription_id"] }
+    },
+    {
+      "name": "cancel_subscription",
+      "description": "Cancel a Razorpay subscription.",
+      "method": "POST",
+      "path": "/subscriptions/{subscription_id}/cancel",
+      "input_schema": { "type": "object", "properties": { "subscription_id": { "type": "string" }, "cancel_at_cycle_end": { "type": "integer" } }, "required": ["subscription_id"] }
+    }
+  ],
+  "health_check": { "tool": "list_payments", "input": { "count": 1 } }
+}

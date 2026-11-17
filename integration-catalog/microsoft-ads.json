@@ -1,0 +1,947 @@
+{
+  "slug": "microsoft-ads",
+  "name": "Microsoft Advertising",
+  "description": "Microsoft Advertising (formerly Bing Ads) v13 — Customer Management, Campaign Management, Reporting, and Ad Insight keyword planning. These tools call Microsoft's REST/JSON service routes. OAuth2 uses Microsoft identity and every API call requires a Developer Token.",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.microsoft.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "search-ads",
+    "microsoft",
+    "bing-ads",
+    "ppc"
+  ],
+  "base_url": "https://campaign.api.bingads.microsoft.com/CampaignManagement/v13",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "DeveloperToken": "{{developer_token}}",
+      "CustomerId": "{{customer_id}}",
+      "CustomerAccountId": "{{account_id}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "developer_token",
+        "label": "Developer Token",
+        "description": "Required on every Bing Ads API request. Apply at https://developers.ads.microsoft.com/.",
+        "type": "password"
+      },
+      {
+        "name": "customer_id",
+        "label": "CustomerId",
+        "description": "Manager (Customer) ID — sent in the CustomerId header"
+      },
+      {
+        "name": "account_id",
+        "label": "CustomerAccountId",
+        "description": "Default Account ID — sent in the CustomerAccountId header"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "https://ads.microsoft.com/msads.manage",
+        "offline_access"
+      ],
+      "client_id_required": true,
+      "pkce": false,
+      "extra_authorize_params": {
+        "response_mode": "query",
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_user",
+      "description": "Get the authenticated user (Customer Management). UserId=0 returns the current user. Returns user info, customer roles, and accessible accounts.",
+      "method": "POST",
+      "path": "/CustomerManagement/v13/User/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "UserId": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List accounts the authenticated user can access. Use SearchAccounts with optional Predicates to filter by name, AccountLifeCycleStatus, or ParentCustomerId. Ordering and Pagination supported.",
+      "method": "POST",
+      "path": "/CustomerManagement/v13/Accounts/Search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Predicates": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of {Field, Operator, Value} predicates"
+          },
+          "Ordering": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "PageInfo": {
+            "type": "object",
+            "description": "{\"Index\": 0, \"Size\": 100}"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_campaigns_by_account",
+      "description": "Get all campaigns under an account. CampaignType is a flags string: 'Search Shopping DynamicSearchAds Audience'.",
+      "method": "POST",
+      "path": "/CampaignsByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "CampaignType": {
+            "type": "string",
+            "default": "Search Shopping DynamicSearchAds Audience",
+            "description": "Space-separated flags"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "add_campaigns",
+      "description": "Add one or more campaigns. Each campaign requires Name, BudgetType (DailyBudgetStandard|DailyBudgetAccelerated|MonthlyBudgetSpendUntilDepleted), DailyBudget, Languages, TimeZone, Status (Active|Paused), CampaignType (Search|Shopping|DynamicSearchAds|Audience).",
+      "method": "POST",
+      "path": "/Campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Array of Campaign objects"
+          }
+        },
+        "required": [
+          "AccountId",
+          "Campaigns"
+        ]
+      }
+    },
+    {
+      "name": "update_campaigns",
+      "description": "Update one or more campaigns. Pass full Campaign objects with Id set. Fields not specified are left unchanged when UpdateAuditInfo=false.",
+      "method": "PUT",
+      "path": "/Campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Campaigns"
+        ]
+      }
+    },
+    {
+      "name": "get_ad_groups_by_campaign",
+      "description": "Get all ad groups under a campaign.",
+      "method": "POST",
+      "path": "/AdGroupsByCampaignId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": {
+            "type": "integer"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "CampaignId"
+        ]
+      }
+    },
+    {
+      "name": "add_ad_groups",
+      "description": "Add one or more ad groups under a campaign. Each ad group requires Name, StartDate, EndDate, Language, CpcBid, AdRotation, Status, Network.",
+      "method": "POST",
+      "path": "/AdGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": {
+            "type": "integer"
+          },
+          "AdGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "CampaignId",
+          "AdGroups"
+        ]
+      }
+    },
+    {
+      "name": "get_ads_by_ad_group",
+      "description": "Get all ads under an ad group. AdTypes is a flags string e.g. 'Text ResponsiveSearch ProductAd App ExpandedText DynamicSearch ResponsiveAd'.",
+      "method": "POST",
+      "path": "/AdsByAdGroupId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "AdTypes": {
+            "type": "string",
+            "default": "ResponsiveSearch ResponsiveAd Text ExpandedText"
+          }
+        },
+        "required": [
+          "AdGroupId"
+        ]
+      }
+    },
+    {
+      "name": "add_keywords",
+      "description": "Add keywords to an ad group. Each keyword requires Text, MatchType (Broad|Phrase|Exact), Status; optional Bid, Param1/2/3, FinalUrls.",
+      "method": "POST",
+      "path": "/Keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Keywords": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Keywords"
+        ]
+      }
+    },
+    {
+      "name": "submit_report",
+      "description": "Queue a performance report (Reporting service). ReportRequest selects type — KeywordPerformanceReportRequest, CampaignPerformanceReportRequest, AdPerformanceReportRequest, AccountPerformanceReportRequest, AdGroupPerformanceReportRequest. Specify Aggregation (Daily|Hourly|Weekly|Monthly|Summary), Time (date range or LastSevenDays etc.), Columns (string array of metrics).",
+      "method": "POST",
+      "path": "/Reporting/v13/GenerateReport/Submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ReportRequest": {
+            "type": "object",
+            "description": "Typed report request with @odata.type field, e.g. \"#Microsoft.Advertising.Reporting.Api.CampaignPerformanceReportRequest\""
+          }
+        },
+        "required": [
+          "ReportRequest"
+        ]
+      }
+    },
+    {
+      "name": "poll_report",
+      "description": "Poll a queued report request by ReportRequestId until Status=Success, then download from ReportDownloadUrl.",
+      "method": "POST",
+      "path": "/Reporting/v13/GenerateReport/Poll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ReportRequestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ReportRequestId"
+        ]
+      }
+    },
+    {
+      "name": "get_historical_search_count",
+      "description": "Get Bing historical search counts for up to 1,000 keywords, grouped daily, weekly, or monthly and optionally by device. This is Ad Insight market-search data, not campaign performance reporting. Dates are native Microsoft DayMonthAndYear objects such as {\"Day\":1,\"Month\":1,\"Year\":2026}.",
+      "method": "POST",
+      "base_url": "https://adinsight.api.bingads.microsoft.com",
+      "path": "/AdInsight/v13/HistoricalSearchCount/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Keywords": {
+            "type": "array",
+            "description": "One to 1,000 keywords, each no longer than 100 characters.",
+            "items": { "type": "string", "maxLength": 100 },
+            "minItems": 1,
+            "maxItems": 1000
+          },
+          "Language": {
+            "type": "string",
+            "description": "Microsoft Advertising language name supported by the selected publisher countries, for example English, French, or Spanish."
+          },
+          "PublisherCountries": {
+            "type": "array",
+            "description": "Optional country/region codes used as the historical-data source, for example US, FR, or ES.",
+            "items": { "type": "string" }
+          },
+          "StartDate": {
+            "type": "object",
+            "properties": {
+              "Day": { "type": "integer", "minimum": 1, "maximum": 31 },
+              "Month": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "Year": { "type": "integer" }
+            },
+            "required": ["Day", "Month", "Year"]
+          },
+          "EndDate": {
+            "type": "object",
+            "properties": {
+              "Day": { "type": "integer", "minimum": 1, "maximum": 31 },
+              "Month": { "type": "integer", "minimum": 1, "maximum": 12 },
+              "Year": { "type": "integer" }
+            },
+            "required": ["Day", "Month", "Year"]
+          },
+          "TimePeriodRollup": {
+            "type": "string",
+            "enum": ["Daily", "Weekly", "Monthly"]
+          },
+          "Devices": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["Computers", "NonSmartphones", "Smartphones", "Tablets"] }
+          }
+        },
+        "required": ["Keywords", "Language", "StartDate", "EndDate", "TimePeriodRollup"]
+      }
+    },
+    {
+      "name": "get_keyword_ideas",
+      "description": "Generate Microsoft Keyword Planner ideas and request monthly search counts, competition, suggested bid, relevance, source, and impression share. SearchParameters must contain one Query or URL seed plus Language, Location, and Network parameters. Every derived object needs Microsoft's Type discriminator. Ready example: [{\"Type\":\"QuerySearchParameter\",\"Queries\":[\"running shoes\"]},{\"Type\":\"LanguageSearchParameter\",\"Languages\":[{\"Type\":\"LanguageCriterion\",\"Language\":\"English\"}]},{\"Type\":\"LocationSearchParameter\",\"Locations\":[{\"Type\":\"LocationCriterion\",\"LocationId\":190}]},{\"Type\":\"NetworkSearchParameter\",\"Network\":{\"Type\":\"NetworkCriterion\",\"Network\":\"OwnedAndOperatedAndSyndicatedSearch\"}}].",
+      "method": "POST",
+      "base_url": "https://adinsight.api.bingads.microsoft.com",
+      "path": "/AdInsight/v13/KeywordIdeas/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ExpandIdeas": {
+            "type": "boolean",
+            "description": "True to discover related ideas; false to return attributes only for supplied query keywords.",
+            "default": true
+          },
+          "IdeaAttributes": {
+            "type": "array",
+            "description": "Competition is required. Keyword is always returned.",
+            "items": {
+              "type": "string",
+              "enum": ["AdGroup", "AdImpressionShare", "Competition", "Keyword", "MonthlySearchCounts", "Relevance", "Source", "SuggestedBid"]
+            },
+            "minItems": 1
+          },
+          "SearchParameters": {
+            "type": "array",
+            "description": "Native Microsoft Ad Insight search-parameter objects. Use one object per parameter type and do not duplicate types.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "Type": {
+                  "type": "string",
+                  "enum": ["QuerySearchParameter", "UrlSearchParameter", "LanguageSearchParameter", "LocationSearchParameter", "NetworkSearchParameter", "DeviceSearchParameter", "CompetitionSearchParameter", "DateRangeSearchParameter", "ExcludeAccountKeywordsSearchParameter", "IdeaTextSearchParameter", "ImpressionShareSearchParameter", "SearchVolumeSearchParameter", "SuggestedBidSearchParameter"]
+                },
+                "Queries": {
+                  "type": "array",
+                  "description": "Up to 200 product/service words or phrases. Use with Type=QuerySearchParameter.",
+                  "items": { "type": "string" },
+                  "minItems": 1,
+                  "maxItems": 200
+                },
+                "Url": { "type": "string", "description": "URL seed." },
+                "Languages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Type": { "type": "string", "enum": ["LanguageCriterion"] },
+                      "Language": { "type": "string" }
+                    },
+                    "required": ["Type", "Language"]
+                  },
+                  "minItems": 1
+                },
+                "Locations": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Type": { "type": "string", "enum": ["LocationCriterion"] },
+                      "LocationId": { "type": "integer" }
+                    },
+                    "required": ["Type", "LocationId"]
+                  },
+                  "minItems": 1,
+                  "maxItems": 2000
+                },
+                "Network": {
+                  "type": "object",
+                  "properties": {
+                    "Type": { "type": "string", "enum": ["NetworkCriterion"] },
+                    "Network": { "type": "string", "enum": ["OwnedAndOperatedAndSyndicatedSearch", "OwnedAndOperatedOnly", "SyndicatedSearchOnly"] }
+                  },
+                  "required": ["Type", "Network"]
+                },
+                "Device": {
+                  "type": "object",
+                  "properties": {
+                    "Type": { "type": "string", "enum": ["DeviceCriterion"] },
+                    "DeviceName": { "type": "string", "enum": ["Computers", "NonSmartphones", "Smartphones", "Tablets"] }
+                  },
+                  "required": ["Type", "DeviceName"]
+                },
+                "CompetitionLevels": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["Low", "Medium", "High"] }
+                },
+                "StartDate": {
+                  "type": "object",
+                  "properties": { "Day": { "type": "integer" }, "Month": { "type": "integer" }, "Year": { "type": "integer" } },
+                  "required": ["Day", "Month", "Year"]
+                },
+                "EndDate": {
+                  "type": "object",
+                  "properties": { "Day": { "type": "integer" }, "Month": { "type": "integer" }, "Year": { "type": "integer" } },
+                  "required": ["Day", "Month", "Year"]
+                },
+                "Minimum": { "type": "number", "description": "Minimum value for search-volume, bid, relevance, or impression-share filters." },
+                "Maximum": { "type": "number", "description": "Maximum value for search-volume, bid, relevance, or impression-share filters." },
+                "ExcludeAccountKeywords": { "type": "boolean" }
+              },
+              "required": ["Type"]
+            },
+            "minItems": 4
+          }
+        },
+        "required": ["ExpandIdeas", "IdeaAttributes", "SearchParameters"]
+      }
+    },
+    {
+      "name": "get_keyword_traffic_estimates",
+      "description": "Get estimated CPC, position, clicks, CTR, impressions, and total cost for proposed keywords and bids. This route expects Microsoft's native campaign/ad-group estimator hierarchy; it does not create or modify campaigns.",
+      "method": "POST",
+      "base_url": "https://adinsight.api.bingads.microsoft.com",
+      "path": "/AdInsight/v13/KeywordTrafficEstimates/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignEstimators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "CampaignId": { "type": "integer", "description": "Optional existing campaign ID; omit for a proposed campaign." },
+                "DailyBudget": { "type": "number" },
+                "Criteria": {
+                  "type": "array",
+                  "description": "Optional native campaign criterion objects for language, location, network, or device targeting.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Type": { "type": "string", "enum": ["LanguageCriterion", "LocationCriterion", "NetworkCriterion", "DeviceCriterion"] },
+                      "Language": { "type": "string" },
+                      "LocationId": { "type": "integer" },
+                      "Network": { "type": "string", "enum": ["OwnedAndOperatedAndSyndicatedSearch", "OwnedAndOperatedOnly", "SyndicatedSearchOnly"] },
+                      "DeviceName": { "type": "string", "enum": ["Computers", "NonSmartphones", "Smartphones", "Tablets"] }
+                    },
+                    "required": ["Type"]
+                  }
+                },
+                "NegativeKeywords": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Id": { "type": "integer" },
+                      "MatchType": { "type": "string", "enum": ["Broad", "Phrase", "Exact"] },
+                      "Text": { "type": "string" }
+                    },
+                    "required": ["MatchType", "Text"]
+                  }
+                },
+                "AdGroupEstimators": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "AdGroupId": { "type": "integer", "description": "Optional existing ad group ID; omit for a proposed ad group." },
+                      "MaxCpc": { "type": "number" },
+                      "KeywordEstimators": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "Keyword": {
+                              "type": "object",
+                              "properties": {
+                                "Id": { "type": "integer" },
+                                "MatchType": { "type": "string", "enum": ["Broad", "Phrase", "Exact"] },
+                                "Text": { "type": "string" }
+                              },
+                              "required": ["MatchType", "Text"]
+                            },
+                            "MaxCpc": { "type": "number" }
+                          },
+                          "required": ["Keyword", "MaxCpc"]
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["MaxCpc", "KeywordEstimators"]
+                  },
+                  "minItems": 1
+                }
+              },
+              "required": ["DailyBudget", "AdGroupEstimators"]
+            },
+            "minItems": 1
+          }
+        },
+        "required": ["CampaignEstimators"]
+      }
+    },
+    {
+      "name": "delete_campaigns",
+      "description": "Delete one or more campaigns by ID. Use update_campaigns with Status=Paused when you want a reversible pause instead.",
+      "method": "POST",
+      "path": "/Campaigns/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "CampaignIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "CampaignIds"
+        ]
+      }
+    },
+    {
+      "name": "update_ad_groups",
+      "description": "Update one or more ad groups. Each ad group must include Id and only changed fields.",
+      "method": "PUT",
+      "path": "/AdGroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": {
+            "type": "integer"
+          },
+          "AdGroups": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "CampaignId",
+          "AdGroups"
+        ]
+      }
+    },
+    {
+      "name": "delete_ad_groups",
+      "description": "Delete one or more ad groups by ID.",
+      "method": "POST",
+      "path": "/AdGroups/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": {
+            "type": "integer"
+          },
+          "AdGroupIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "CampaignId",
+          "AdGroupIds"
+        ]
+      }
+    },
+    {
+      "name": "add_ads",
+      "description": "Add one or more ads to an ad group. Supports responsive search ads, expanded text ads, product ads, app ads, and audience ads depending on account/campaign type.",
+      "method": "POST",
+      "path": "/Ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Ads"
+        ]
+      }
+    },
+    {
+      "name": "update_ads",
+      "description": "Update one or more ads. Each ad must include Id and type-specific fields to mutate.",
+      "method": "PUT",
+      "path": "/Ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Ads"
+        ]
+      }
+    },
+    {
+      "name": "delete_ads",
+      "description": "Delete one or more ads by ID.",
+      "method": "POST",
+      "path": "/Ads/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "AdIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "AdIds"
+        ]
+      }
+    },
+    {
+      "name": "get_audiences_by_account",
+      "description": "List audiences under an account. AudienceType can include Custom, RemarketingList, InMarket, Product, SimilarRemarketingList, CombinedList, CustomerList, or ImpressionBasedRemarketingList depending on account access.",
+      "method": "POST",
+      "path": "/AudiencesByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "AudienceType": {
+            "type": "string"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "add_audiences",
+      "description": "Create one or more audiences such as remarketing lists, custom audiences, customer lists, or combined lists.",
+      "method": "POST",
+      "path": "/Audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Audiences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Audiences"
+        ]
+      }
+    },
+    {
+      "name": "update_audiences",
+      "description": "Update one or more audiences. Each audience must include Id and changed fields.",
+      "method": "PUT",
+      "path": "/Audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Audiences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Audiences"
+        ]
+      }
+    },
+    {
+      "name": "delete_audiences",
+      "description": "Delete one or more audiences by ID.",
+      "method": "POST",
+      "path": "/Audiences/Delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "AudienceIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "AudienceIds"
+        ]
+      }
+    },
+    {
+      "name": "add_media",
+      "description": "Upload image/media assets for ads. Media objects carry Type, Data, MediaType, Text, or URL fields depending on media kind.",
+      "method": "POST",
+      "path": "/Media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Media": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Media",
+          "Media"
+        ]
+      }
+    },
+    {
+      "name": "get_media_meta_data_by_account",
+      "description": "List uploaded media metadata for an account.",
+      "method": "POST",
+      "path": "/MediaMetaDataByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "MediaEnabledEntities": {
+            "type": "string"
+          },
+          "PageInfo": {
+            "type": "object",
+            "description": "{Index, Size}"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "create_ads",
+      "description": "Generic alias for add_ads: create one or more ads in an ad group.",
+      "method": "POST",
+      "path": "/Ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdGroupId": {
+            "type": "integer"
+          },
+          "Ads": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AdGroupId",
+          "Ads"
+        ]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "Generic alias for get_audiences_by_account: list audiences under an account.",
+      "method": "POST",
+      "path": "/AudiencesByAccountId/Query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "AudienceType": {
+            "type": "string"
+          },
+          "ReturnAdditionalFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "AccountId"
+        ]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Generic alias for add_audiences: create audiences under an account.",
+      "method": "POST",
+      "path": "/Audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Audiences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Audiences"
+        ]
+      }
+    },
+    {
+      "name": "create_creative_asset",
+      "description": "Generic alias for add_media: upload image/media creative assets.",
+      "method": "POST",
+      "path": "/Media",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AccountId": {
+            "type": "integer"
+          },
+          "Media": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "AccountId",
+          "Media"
+        ]
+      }
+    }
+  ]
+}

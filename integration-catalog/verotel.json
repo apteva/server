@@ -1,0 +1,124 @@
+{
+  "slug": "verotel",
+  "name": "Verotel",
+  "description": "Adult-friendly Verotel Control Center API for websites, sales, transactions, refunds, subscription cancellation, termination, extension, and downgrade operations.",
+  "logo": "https://www.google.com/s2/favicons?domain=verotel.com&sz=128",
+  "categories": ["payments", "adult", "high-risk", "subscriptions", "checkout"],
+  "base_url": "https://controlcenter.verotel.com/api",
+  "auth": {
+    "types": ["basic"],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json; version=2.0.0",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "basic_auth",
+        "label": "Basic Auth",
+        "description": "Base64-encoded Verotel Control Center API credentials. Do not include the 'Basic ' prefix."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_websites",
+      "description": "List Verotel websites available to the Control Center API credential.",
+      "method": "GET",
+      "path": "/websites",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_website_sales",
+      "description": "List Verotel sales for a website, sorted by created_at. Use date filters to keep results below the 5000 sale API limit.",
+      "method": "GET",
+      "path": "/website/{website_id}/sales",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "website_id": { "type": "integer" },
+          "from_date": { "type": "string", "description": "ISO date, e.g. 2026-06-01." },
+          "to_date": { "type": "string", "description": "ISO date, e.g. 2026-06-30." },
+          "is_approved": { "type": "boolean" },
+          "is_testing": { "type": "boolean" }
+        },
+        "required": ["website_id", "from_date"]
+      }
+    },
+    {
+      "name": "list_website_transactions",
+      "description": "List Verotel transactions for a website, sorted by created_at. Use date filters to keep results below the 5000 transaction API limit.",
+      "method": "GET",
+      "path": "/website/{website_id}/transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "website_id": { "type": "integer" },
+          "from_date": { "type": "string" },
+          "to_date": { "type": "string" },
+          "is_approved": { "type": "boolean" },
+          "is_testing": { "type": "boolean" },
+          "convert_to_currency": { "type": "string" }
+        },
+        "required": ["website_id", "from_date"]
+      }
+    },
+    {
+      "name": "get_sale",
+      "description": "Retrieve one Verotel sale by ID.",
+      "method": "GET",
+      "path": "/sale/{sale_id}",
+      "input_schema": { "type": "object", "properties": { "sale_id": { "type": "integer" } }, "required": ["sale_id"] }
+    },
+    {
+      "name": "get_sale_transactions",
+      "description": "List transactions for one Verotel sale.",
+      "method": "GET",
+      "path": "/sale/{sale_id}/transactions",
+      "input_schema": { "type": "object", "properties": { "sale_id": { "type": "integer" } }, "required": ["sale_id"] }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Retrieve one Verotel transaction by ID.",
+      "method": "GET",
+      "path": "/transaction/{transaction_id}",
+      "input_schema": { "type": "object", "properties": { "transaction_id": { "type": "integer" } }, "required": ["transaction_id"] }
+    },
+    {
+      "name": "refund_transaction",
+      "description": "Refund a Verotel transaction. Provide partial_refund_amount for a partial refund.",
+      "method": "POST",
+      "path": "/transaction/{transaction_id}/refund",
+      "input_schema": { "type": "object", "properties": { "transaction_id": { "type": "integer" }, "partial_refund_amount": { "type": "number" } }, "required": ["transaction_id"] }
+    },
+    {
+      "name": "cancel_future_billing",
+      "description": "Cancel future billing for a Verotel sale.",
+      "method": "POST",
+      "path": "/sale/{sale_id}/cancel",
+      "input_schema": { "type": "object", "properties": { "sale_id": { "type": "integer" } }, "required": ["sale_id"] }
+    },
+    {
+      "name": "terminate_sale",
+      "description": "Terminate a Verotel sale.",
+      "method": "POST",
+      "path": "/sale/{sale_id}/terminate",
+      "input_schema": { "type": "object", "properties": { "sale_id": { "type": "integer" } }, "required": ["sale_id"] }
+    },
+    {
+      "name": "extend_sale",
+      "description": "Extend the subscription period of a Verotel sale.",
+      "method": "POST",
+      "path": "/sale/{sale_id}/extend",
+      "input_schema": { "type": "object", "properties": { "sale_id": { "type": "integer" }, "original_expiration_date": { "type": "string" }, "extend_by_days": { "type": "integer" } }, "required": ["sale_id", "original_expiration_date", "extend_by_days"] }
+    },
+    {
+      "name": "downgrade_sale",
+      "description": "Downgrade a Verotel sale to a lower price.",
+      "method": "POST",
+      "path": "/sale/{sale_id}/downgrade",
+      "input_schema": { "type": "object", "properties": { "sale_id": { "type": "integer" }, "currency": { "type": "string" }, "new_price": { "type": "number" } }, "required": ["sale_id", "currency", "new_price"] }
+    }
+  ],
+  "health_check": { "tool": "list_websites" }
+}

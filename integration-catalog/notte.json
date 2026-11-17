@@ -1,0 +1,480 @@
+{
+  "slug": "notte",
+  "name": "Notte",
+  "description": "Browser automation platform with cloud sessions, CDP and live viewers, typed page actions, scraping, replay/debugging, profiles, autonomous browser agents, workflow export, and usage reporting.",
+  "logo": "https://www.google.com/s2/favicons?domain=notte.cc&sz=128",
+  "categories": ["browser-automation", "ai-agents", "scraping", "headless-browser", "workflow-automation"],
+  "base_url": "https://api.notte.cc",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Notte API key from https://console.notte.cc."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "start_session",
+      "description": "Start a cloud browser session. Returns session_id, cdp_url, viewer_url, status, and lifecycle metadata.",
+      "method": "POST",
+      "path": "/sessions/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "headless": { "type": "boolean", "default": true },
+          "solve_captchas": { "type": "boolean", "default": false },
+          "max_duration_minutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 15 },
+          "idle_timeout_minutes": { "type": "integer", "minimum": 1, "maximum": 15, "default": 3 },
+          "proxies": { "description": "false, true for Notte defaults, or an array of typed notte/external/tailnet proxy objects." },
+          "browser_type": { "type": "string", "enum": ["chromium", "chrome", "chrome-nightly", "chrome-turbo"], "default": "chromium" },
+          "user_agent": { "type": "string" },
+          "chrome_args": { "type": "array", "items": { "type": "string" } },
+          "viewport_width": { "type": "integer" },
+          "viewport_height": { "type": "integer" },
+          "aspect_ratio": { "type": "string", "enum": ["5:4", "16:9"] },
+          "cdp_url": { "type": "string", "description": "Optional external provider CDP URL for Notte to control." },
+          "use_file_storage": { "type": "boolean", "default": true },
+          "screenshot_type": { "type": "string", "enum": ["raw", "full", "last_action"], "default": "last_action" },
+          "profile": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "persist": { "type": "boolean", "default": false } },
+            "required": ["id"]
+          },
+          "web_bot_auth": { "type": "boolean", "default": false },
+          "extra_http_headers": { "type": "object", "description": "Headers applied to browser requests." },
+          "vault_id": { "type": "string", "description": "Notte vault available to this session." }
+        }
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "List browser sessions with pagination and active/current-token filters.",
+      "method": "GET",
+      "path": "/sessions",
+      "query_params": ["page", "page_size", "only_active", "only_current_token"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "default": 10 },
+          "only_active": { "type": "boolean" },
+          "only_current_token": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "get_session",
+      "description": "Get session status, connection URLs, steps, errors, and lifecycle metadata.",
+      "method": "GET",
+      "path": "/sessions/{session_id}",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "stop_session",
+      "description": "Stop an active browser session and persist profile changes when configured.",
+      "method": "DELETE",
+      "path": "/sessions/{session_id}/stop",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "get_session_debug",
+      "description": "Get debug information and viewer/CDP details for a session.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/debug",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "session_id": { "type": "string" }, "update_metadata": { "type": "boolean", "default": true } },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "get_session_replay",
+      "description": "Get presigned replay artifacts for reviewing and debugging a session.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/replay",
+      "input_schema": { "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"] }
+    },
+    {
+      "name": "get_session_network_logs",
+      "description": "Get recent browser network request/response logs or request a downloadable log artifact.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/network/logs",
+      "query_params": ["limit", "download"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1 },
+          "download": { "type": "boolean", "default": false }
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "get_session_workflow_code",
+      "description": "Export a session's recorded actions as reusable generated workflow code. Use after validating the live session actions.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/workflow/code",
+      "query_params": ["as_workflow", "infer_response_format"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "as_workflow": { "type": "boolean" },
+          "infer_response_format": { "type": "boolean" }
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "observe_page",
+      "description": "Observe the current page and return actionable elements with stable action IDs. Agents should call this before click/fill actions instead of guessing selectors.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/page/observe",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "update_metadata": { "type": "boolean", "default": true },
+          "min_nb_actions": { "type": "integer", "minimum": 0 },
+          "max_nb_actions": { "type": "integer", "minimum": 1, "default": 100 },
+          "instructions": { "type": "string" },
+          "perception_type": { "type": "string", "enum": ["fast", "deep"] }
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "execute_page_action",
+      "description": "Execute one typed Notte page action. Use observe_page first for target IDs/selectors. Supported types include goto, click, fill, check, select_dropdown_option, press_key, wait, scroll_up/down, evaluate_js, upload_file, download_file, tab navigation, captcha_solve, and scrape.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/page/execute",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "update_metadata": { "type": "boolean", "default": true },
+          "type": { "type": "string", "enum": ["goto", "goto_new_tab", "close_tab", "switch_tab", "go_back", "go_forward", "reload", "wait", "press_key", "scroll_up", "scroll_down", "captcha_solve", "scrape", "evaluate_js", "click", "fill", "multi_factor_fill", "fallback_fill", "form_fill", "check", "select_dropdown_option", "upload_file", "download_file"] },
+          "url": { "type": "string" },
+          "selector": { "type": "string", "description": "Selector or stable target returned by observe_page." },
+          "id": { "type": "string", "description": "Observed element/action ID when supported." },
+          "value": { "description": "Action value, text, option, or field data." },
+          "text": { "type": "string" },
+          "key": { "type": "string" },
+          "code": { "type": "string", "description": "JavaScript for evaluate_js." },
+          "seconds": { "type": "number" },
+          "tab_index": { "type": "integer" },
+          "file_path": { "type": "string" },
+          "instructions": { "type": "string" },
+          "schema": { "type": "object" }
+        },
+        "required": ["session_id", "type"]
+      }
+    },
+    {
+      "name": "screenshot_page",
+      "description": "Capture the current session page screenshot.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/page/screenshot",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "session_id": { "type": "string" }, "update_metadata": { "type": "boolean", "default": true } },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "scrape_session_page",
+      "description": "Scrape the current session page to markdown and optional structured data.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/page/scrape",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "update_metadata": { "type": "boolean", "default": true },
+          "selector": { "type": "string" },
+          "scrape_links": { "type": "boolean", "default": true },
+          "scrape_images": { "type": "boolean", "default": false },
+          "ignored_tags": { "type": "array", "items": { "type": "string" } },
+          "only_main_content": { "type": "boolean", "default": false },
+          "only_images": { "type": "boolean", "default": false },
+          "response_format": { "type": "object", "description": "Optional JSON Schema for structured output." },
+          "instructions": { "type": "string" },
+          "use_link_placeholders": { "type": "boolean", "default": false }
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "get_session_cookies",
+      "description": "Get cookies from an active browser session.",
+      "method": "GET",
+      "path": "/sessions/{session_id}/cookies",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "session_id": { "type": "string" }, "update_metadata": { "type": "boolean", "default": true } },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "set_session_cookies",
+      "description": "Set Playwright-compatible cookies on an active session.",
+      "method": "POST",
+      "path": "/sessions/{session_id}/cookies",
+      "query_params": ["update_metadata"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string" },
+          "update_metadata": { "type": "boolean", "default": true },
+          "cookies": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["session_id", "cookies"]
+      }
+    },
+    {
+      "name": "scrape_webpage",
+      "description": "Create a temporary browser automatically, render one URL, and return markdown plus optional images or structured extraction.",
+      "method": "POST",
+      "path": "/scrape",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "headless": { "type": "boolean", "default": true },
+          "solve_captchas": { "type": "boolean", "default": false },
+          "max_duration_minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+          "idle_timeout_minutes": { "type": "integer", "minimum": 1, "maximum": 15 },
+          "proxies": { "description": "false, true, or typed proxy array." },
+          "browser_type": { "type": "string", "enum": ["chromium", "chrome", "chrome-nightly", "chrome-turbo"] },
+          "profile": { "type": "object", "properties": { "id": { "type": "string" }, "persist": { "type": "boolean" } }, "required": ["id"] },
+          "selector": { "type": "string" },
+          "scrape_links": { "type": "boolean", "default": true },
+          "scrape_images": { "type": "boolean", "default": false },
+          "ignored_tags": { "type": "array", "items": { "type": "string" } },
+          "only_main_content": { "type": "boolean", "default": false },
+          "only_images": { "type": "boolean", "default": false },
+          "response_format": { "type": "object", "description": "Optional JSON Schema." },
+          "instructions": { "type": "string" },
+          "use_link_placeholders": { "type": "boolean", "default": false }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "scrape_html",
+      "description": "Extract markdown or structured data from supplied page frame HTML without launching a browser.",
+      "method": "POST",
+      "path": "/scrape_from_html",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "frames": { "type": "array", "items": { "type": "object" }, "description": "Frame data; the main frame must be first." },
+          "selector": { "type": "string" },
+          "scrape_links": { "type": "boolean", "default": true },
+          "scrape_images": { "type": "boolean", "default": false },
+          "ignored_tags": { "type": "array", "items": { "type": "string" } },
+          "only_main_content": { "type": "boolean", "default": false },
+          "only_images": { "type": "boolean", "default": false },
+          "response_format": { "type": "object" },
+          "instructions": { "type": "string", "default": "" },
+          "use_link_placeholders": { "type": "boolean", "default": false }
+        },
+        "required": ["frames"]
+      }
+    },
+    {
+      "name": "search_web",
+      "description": "Search the web and return search results, a sourced answer, or structured output.",
+      "method": "POST",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string" },
+          "depth": { "type": "string", "enum": ["standard", "fast", "deep"], "default": "standard" },
+          "outputType": { "type": "string", "enum": ["searchResults", "sourcedAnswer", "structured"], "default": "searchResults" },
+          "response_format": { "type": "object", "description": "JSON Schema when outputType='structured'." }
+        },
+        "required": ["q"]
+      }
+    },
+    {
+      "name": "start_agent",
+      "description": "Start an autonomous Notte browser agent on an existing session. Returns agent_id; poll get_agent until closed.",
+      "method": "POST",
+      "path": "/agents/start",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task": { "type": "string" },
+          "session_id": { "type": "string" },
+          "url": { "type": "string" },
+          "response_format": { "type": "object", "description": "Optional JSON Schema for the final answer." },
+          "session_offset": { "type": "integer" },
+          "reasoning_model": { "type": "string" },
+          "use_vision": { "type": "boolean", "default": true },
+          "max_steps": { "type": "integer", "minimum": 1, "maximum": 150, "default": 20 },
+          "vault_id": { "type": "string" },
+          "persona_id": { "type": "string" },
+          "notifier_config": { "type": "object" }
+        },
+        "required": ["task", "session_id"]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List agent runs with pagination and active/saved/current-token filters.",
+      "method": "GET",
+      "path": "/agents",
+      "query_params": ["page", "page_size", "only_active", "only_saved", "only_current_token"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "default": 10 },
+          "only_active": { "type": "boolean" },
+          "only_saved": { "type": "boolean" },
+          "only_current_token": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "get_agent",
+      "description": "Get agent status and final answer/error when complete.",
+      "method": "GET",
+      "path": "/agents/{agent_id}",
+      "input_schema": { "type": "object", "properties": { "agent_id": { "type": "string" } }, "required": ["agent_id"] }
+    },
+    {
+      "name": "stop_agent",
+      "description": "Stop an active agent run.",
+      "method": "DELETE",
+      "path": "/agents/{agent_id}/stop",
+      "query_params": ["session_id"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "agent_id": { "type": "string" }, "session_id": { "type": "string" } },
+        "required": ["agent_id"]
+      }
+    },
+    {
+      "name": "get_agent_workflow_code",
+      "description": "Export a completed agent run as reusable workflow code.",
+      "method": "GET",
+      "path": "/agents/{agent_id}/workflow/code",
+      "query_params": ["as_workflow", "infer_response_format"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "agent_id": { "type": "string" },
+          "as_workflow": { "type": "boolean" },
+          "infer_response_format": { "type": "boolean" }
+        },
+        "required": ["agent_id"]
+      }
+    },
+    {
+      "name": "create_profile",
+      "description": "Create an empty reusable browser profile.",
+      "method": "POST",
+      "path": "/profiles/create",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" } } }
+    },
+    {
+      "name": "list_profiles",
+      "description": "List browser profiles with pagination and filters.",
+      "method": "GET",
+      "path": "/profiles",
+      "query_params": ["page", "page_size", "name", "only_active", "only_current_token"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "default": 10 },
+          "name": { "type": "string" },
+          "only_active": { "type": "boolean" },
+          "only_current_token": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get a browser profile by ID.",
+      "method": "GET",
+      "path": "/profiles/{profile_id}",
+      "input_schema": { "type": "object", "properties": { "profile_id": { "type": "string" } }, "required": ["profile_id"] }
+    },
+    {
+      "name": "delete_profile",
+      "description": "Delete a browser profile by ID.",
+      "method": "DELETE",
+      "path": "/profiles/{profile_id}",
+      "input_schema": { "type": "object", "properties": { "profile_id": { "type": "string" } }, "required": ["profile_id"] }
+    },
+    {
+      "name": "get_profile_cookies",
+      "description": "Export cookies stored in a browser profile.",
+      "method": "GET",
+      "path": "/profiles/{profile_id}/cookies",
+      "input_schema": { "type": "object", "properties": { "profile_id": { "type": "string" } }, "required": ["profile_id"] }
+    },
+    {
+      "name": "set_profile_cookies",
+      "description": "Import cookies into a profile using Playwright or Chrome format, replacing or appending existing cookies.",
+      "method": "POST",
+      "path": "/profiles/{profile_id}/cookies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profile_id": { "type": "string" },
+          "cookies": { "type": "array", "items": { "type": "object" }, "minItems": 1 },
+          "source_format": { "type": "string", "enum": ["playwright", "chrome"], "default": "playwright" },
+          "mode": { "type": "string", "enum": ["replace", "append"], "default": "replace" }
+        },
+        "required": ["profile_id", "cookies"]
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get aggregate Notte usage for a billing period.",
+      "method": "GET",
+      "path": "/usage",
+      "query_params": ["period"],
+      "input_schema": { "type": "object", "properties": { "period": { "type": "string", "description": "Provider-supported usage period." } } }
+    },
+    {
+      "name": "get_usage_logs",
+      "description": "List detailed usage events with endpoint and active/current-token filters.",
+      "method": "GET",
+      "path": "/usage/logs",
+      "query_params": ["endpoint", "page", "page_size", "only_active", "only_current_token"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "default": 10 },
+          "only_active": { "type": "boolean" },
+          "only_current_token": { "type": "boolean" }
+        }
+      }
+    }
+  ],
+  "health_check": { "tool": "list_sessions", "input": { "page": 1, "page_size": 1, "only_current_token": true } }
+}

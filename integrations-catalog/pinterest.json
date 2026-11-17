@@ -34,6 +34,7 @@
         "boards:read_secret", "boards:write_secret", "pins:read_secret", "pins:write_secret"
       ],
       "client_id_required": true,
+      "client_secret_required": true,
       "pkce": false,
       "token_auth_basic_only": true,
       "setup_url": "https://developers.pinterest.com/apps/",

@@ -1,0 +1,248 @@
+{
+  "slug": "meshy",
+  "name": "Meshy AI",
+  "description": "MCP server for Meshy AI - text-to-3D, image-to-3D, and AI texturing with PBR materials",
+  "logo": "https://www.google.com/s2/favicons?domain=meshy.ai&sz=128",
+  "categories": [
+    "3d-modeling",
+    "ai",
+    "text-to-3d",
+    "image-to-3d",
+    "texturing",
+    "pbr"
+  ],
+  "base_url": "https://api.meshy.ai",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Meshy API key (starts with msy_*, get from meshy.ai API settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "text_to_3d",
+      "description": "Generate a 3D model from a text prompt",
+      "method": "GET",
+      "path": "/text-to-3d",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Text description of the 3D model to generate"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "What to avoid in the generation"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Generation mode: 'preview' (mesh only) or 'refine' (with textures)",
+            "enum": [
+              "preview",
+              "refine"
+            ],
+            "default": "preview"
+          },
+          "art_style": {
+            "type": "string",
+            "description": "Art style for the model",
+            "enum": [
+              "realistic",
+              "cartoon",
+              "low-poly",
+              "sculpture"
+            ],
+            "default": "realistic"
+          },
+          "ai_model": {
+            "type": "string",
+            "description": "AI model version to use",
+            "enum": [
+              "meshy-4",
+              "meshy-5",
+              "meshy-6-preview"
+            ],
+            "default": "meshy-4"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "text_to_3d_get",
+      "description": "Get the status and result of a text-to-3D task",
+      "method": "GET",
+      "path": "/text-to-3d-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "image_to_3d",
+      "description": "Generate a 3D model from an image",
+      "method": "GET",
+      "path": "/image-to-3d",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string",
+            "description": "URL of the image to convert to 3D"
+          },
+          "ai_model": {
+            "type": "string",
+            "description": "AI model version",
+            "default": "meshy-4"
+          },
+          "topology": {
+            "type": "string",
+            "description": "Mesh topology: 'quad' or 'triangle'",
+            "enum": [
+              "quad",
+              "triangle"
+            ],
+            "default": "quad"
+          },
+          "target_polycount": {
+            "type": "number",
+            "description": "Target polygon count",
+            "default": 30000
+          },
+          "should_texture": {
+            "type": "boolean",
+            "description": "Generate textures (costs extra credits)",
+            "default": true
+          }
+        },
+        "required": [
+          "image_url"
+        ]
+      }
+    },
+    {
+      "name": "image_to_3d_get",
+      "description": "Get the status and result of an image-to-3D task",
+      "method": "GET",
+      "path": "/image-to-3d-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "The task ID"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "task_list",
+      "description": "List all tasks with pagination",
+      "method": "GET",
+      "path": "/task-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_type": {
+            "type": "string",
+            "description": "Type of tasks to list",
+            "enum": [
+              "text-to-3d",
+              "image-to-3d"
+            ],
+            "default": "text-to-3d"
+          },
+          "page_num": {
+            "type": "number",
+            "description": "Page number (1-indexed)"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page (max 50)"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Sort by field",
+            "enum": [
+              "created_at",
+              "-created_at"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "retexture",
+      "description": "Apply AI texturing to an existing 3D model",
+      "method": "GET",
+      "path": "/retexture",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_task_id": {
+            "type": "string",
+            "description": "Task ID of the model to retexture"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Texture description prompt"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "description": "What to avoid"
+          },
+          "style": {
+            "type": "string",
+            "description": "Texture style",
+            "enum": [
+              "realistic",
+              "fake-3d-cartoon",
+              "japanese-anime",
+              "cartoon-line-art",
+              "realistic-hand-drawn",
+              "2.5d-cartoon"
+            ],
+            "default": "realistic"
+          },
+          "resolution": {
+            "type": "number",
+            "description": "Texture resolution",
+            "enum": [
+              1024,
+              2048,
+              4096
+            ],
+            "default": 2048
+          }
+        },
+        "required": [
+          "model_task_id",
+          "prompt"
+        ]
+      }
+    }
+  ]
+}

@@ -69,6 +69,31 @@ func (hr *HostRouter) lookup(host string) (RouteHit, bool) {
 }
 
 func (hr *HostRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Public HTTP-01 verification must precede the proxy's HTTPS-only guard.
+	// Absolute-form proxy traffic stays on the proxy transport path.
+	if r.TLS == nil && !r.URL.IsAbs() && hr.server != nil && hr.server.ingressCerts != nil && hr.server.ingressCerts.ServeHTTPChallenge(w, r) {
+		return
+	}
+	if hr.serveForwardProxyIngress(w, r) {
+		return
+	}
+	if hr.server != nil && hr.server.instanceHTTPS != nil {
+		n := hr.server.instanceHTTPS
+		if n.serveProbe(w, r) {
+			return
+		}
+		if n.allowsHost(r.Host) {
+			if n.activeHost(r.Host) && !requestIsTLS(r) && !strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
+				http.Redirect(w, r, "https://"+stripHostPort(r.Host)+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+				return
+			}
+			if hr.server.ingressCerts != nil && hr.server.ingressCerts.ServeHTTPChallenge(w, r) {
+				return
+			}
+			hr.next.ServeHTTP(w, r)
+			return
+		}
+	}
 	if hr.server != nil && hr.server.ingressCerts != nil && hr.server.ingressCerts.ServeHTTPChallenge(w, r) {
 		return
 	}
@@ -180,6 +205,10 @@ func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit Rou
 			req.Header.Set("X-Forwarded-Proto", "http")
 		}
 	}
+	// IP provenance is independent of the route's optional bearer-token swap.
+	// Only app-owned destinations get a signed assertion; other backends have
+	// caller-supplied internal metadata removed.
+	configureAppClientIP(proxy, r, hr.resolveAppToken(hit))
 	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, err error) {
 		log.Printf("[host-router] proxy %s → %s: %v", hit.Hostname, target, err)
 		http.Error(rw, "backend unreachable: "+err.Error(), http.StatusBadGateway)
@@ -193,7 +222,7 @@ func (hr *HostRouter) serveRoute(w http.ResponseWriter, r *http.Request, hit Rou
 		cw.finalize()
 		return
 	}
-	proxy.ServeHTTP(w, r)
+	hr.server.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "hostname", Hostname: hit.Hostname})
 }
 
 // resolveTarget returns the backend URL to proxy to. For ordinary

@@ -1,0 +1,157 @@
+{
+  "slug": "roblox-open-cloud",
+  "name": "Roblox Open Cloud",
+  "description": "Roblox Open Cloud APIs for publishing place files, inspecting universes and places, operating on supported Studio instances, sending cross-server messages, restarting servers, and polling asynchronous operations.",
+  "logo": "https://www.google.com/s2/favicons?domain=create.roblox.com&sz=128",
+  "categories": ["game-development", "roblox", "publishing", "cloud", "multiplayer"],
+  "base_url": "https://apis.roblox.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Open Cloud API Key",
+        "description": "API key created in Creator Dashboard with the universe resources, operations, and IP restrictions required by the tools you use.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": { "tool": "introspect_api_key" },
+  "tools": [
+    {
+      "name": "introspect_api_key",
+      "description": "Inspect the identity and access configuration associated with the current Roblox Open Cloud API key.",
+      "method": "POST",
+      "path": "/api-keys/v1/introspect",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_universe",
+      "description": "Get metadata for a Roblox universe accessible to the API key.",
+      "method": "GET",
+      "path": "/cloud/v2/universes/{universe_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "universe_id": { "type": "string", "description": "Numeric Roblox universe ID." } },
+        "required": ["universe_id"]
+      }
+    },
+    {
+      "name": "get_place",
+      "description": "Get metadata for a place inside a Roblox universe.",
+      "method": "GET",
+      "path": "/cloud/v2/universes/{universe_id}/places/{place_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "universe_id": { "type": "string" }, "place_id": { "type": "string" } },
+        "required": ["universe_id", "place_id"]
+      }
+    },
+    {
+      "name": "publish_place_version",
+      "description": "Upload and publish a Roblox place file. Supply an rbxl binary or rbxlx XML file through a runtime binary handle and grant universe-places:write access to the API key.",
+      "method": "POST",
+      "path": "/universes/v1/{universeId}/places/{placeId}/versions",
+      "query_params": ["versionType"],
+      "body_binary_param": "file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "universeId": { "type": "string" },
+          "placeId": { "type": "string" },
+          "versionType": { "type": "string", "enum": ["Published", "Saved"], "description": "Publish live or save without publishing." },
+          "file": { "type": "string", "description": "rbxl/rbxlx bytes as a blobref:// handle or runtime binary envelope. Use application/octet-stream for rbxl and application/xml for rbxlx." }
+        },
+        "required": ["universeId", "placeId", "versionType", "file"]
+      }
+    },
+    {
+      "name": "list_instance_children",
+      "description": "Start an asynchronous Open Cloud operation that lists children of an instance in a collaborative Roblox Studio session.",
+      "method": "GET",
+      "path": "/cloud/v2/universes/{universe_id}/places/{place_id}/instances/{instance_id}:listChildren",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "universe_id": { "type": "string" }, "place_id": { "type": "string" }, "instance_id": { "type": "string", "description": "Roblox instance ID." }
+        },
+        "required": ["universe_id", "place_id", "instance_id"]
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Start an asynchronous operation that reads a supported script instance from a collaborative Roblox Studio session.",
+      "method": "GET",
+      "path": "/cloud/v2/universes/{universe_id}/places/{place_id}/instances/{instance_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "universe_id": { "type": "string" }, "place_id": { "type": "string" }, "instance_id": { "type": "string" } },
+        "required": ["universe_id", "place_id", "instance_id"]
+      }
+    },
+    {
+      "name": "update_instance",
+      "description": "Start an asynchronous operation that updates supported properties of a Script, LocalScript, or ModuleScript in a collaborative Roblox Studio session.",
+      "method": "PATCH",
+      "path": "/cloud/v2/universes/{universe_id}/places/{place_id}/instances/{instance_id}",
+      "body_root_param": "request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "universe_id": { "type": "string" },
+          "place_id": { "type": "string" },
+          "instance_id": { "type": "string" },
+          "request": {
+            "type": "object",
+            "description": "Documented update request, normally containing engineInstance.Details for the supported instance type and properties. Maximum request body is 200 KB."
+          }
+        },
+        "required": ["universe_id", "place_id", "instance_id", "request"]
+      }
+    },
+    {
+      "name": "poll_operation",
+      "description": "Poll the full Roblox Open Cloud operation URL returned by an asynchronous instance request until done is true.",
+      "method": "GET",
+      "path": "{operation_url}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation_url": { "type": "string", "format": "uri", "description": "Full https://apis.roblox.com/cloud/v2/... operation URL." }
+        },
+        "required": ["operation_url"]
+      }
+    },
+    {
+      "name": "publish_message",
+      "description": "Publish a message to a Roblox universe topic for delivery through MessagingService to live servers.",
+      "method": "POST",
+      "path": "/cloud/v2/universes/{universe_id}:publishMessage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "universe_id": { "type": "string" },
+          "topic": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "required": ["universe_id", "topic", "message"]
+      }
+    },
+    {
+      "name": "restart_servers",
+      "description": "Request a restart of active servers for a Roblox universe so players migrate to fresh instances.",
+      "method": "POST",
+      "path": "/cloud/v2/universes/{universe_id}:restartServers",
+      "input_schema": {
+        "type": "object",
+        "properties": { "universe_id": { "type": "string" } },
+        "required": ["universe_id"]
+      }
+    }
+  ]
+}

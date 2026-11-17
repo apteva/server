@@ -1,0 +1,176 @@
+{
+  "slug": "ashby",
+  "name": "Ashby",
+  "description": "Ashby applicant tracking system (ATS) and recruiting platform. Manage candidates, jobs, and applications for your hiring pipeline.",
+  "logo": "https://www.google.com/s2/favicons?domain=ashbyhq.com&sz=128",
+  "categories": [
+    "ats",
+    "recruiting",
+    "hiring",
+    "hr",
+    "candidates",
+    "applicant-tracking"
+  ],
+  "base_url": "https://api.ashbyhq.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Api Key",
+        "description": "Ashby API key (generate from Ashby admin settings)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_candidates",
+      "description": "List all candidates in your Ashby organization. Supports cursor-based pagination for iterating through large candidate lists. Use the nextCursor from the response to fetch the next page of results.",
+      "method": "POST",
+      "path": "/candidate.list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response's nextCursor field. Omit for the first page."
+          },
+          "syncToken": {
+            "type": "string",
+            "description": "Sync token for incremental synchronization. Only returns candidates updated since the token was issued."
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Number of candidates to return per page."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_candidate",
+      "description": "Retrieve detailed information about a specific candidate by their ID. Returns candidate profile data including name, email, phone, social profiles, tags, and application history.",
+      "method": "POST",
+      "path": "/candidate.info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The unique ID of the candidate to retrieve."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List all jobs in your Ashby organization including open, closed, and archived positions. Supports cursor-based pagination. Returns job metadata such as title, department, location, and status.",
+      "method": "POST",
+      "path": "/job.list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response's nextCursor field. Omit for the first page."
+          },
+          "syncToken": {
+            "type": "string",
+            "description": "Sync token for incremental synchronization. Only returns jobs updated since the token was issued."
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Number of jobs to return per page."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_applications",
+      "description": "List all applications in your Ashby organization. Returns application details including candidate, job, current stage, status, and source. Supports cursor-based pagination for iterating through large result sets.",
+      "method": "POST",
+      "path": "/application.list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor from a previous response's nextCursor field. Omit for the first page."
+          },
+          "syncToken": {
+            "type": "string",
+            "description": "Sync token for incremental synchronization. Only returns applications updated since the token was issued."
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Number of applications to return per page."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_candidate",
+      "description": "Create a new candidate in Ashby. At minimum, a name is required. Optionally include email, phone number, LinkedIn URL, and other profile information. Returns the newly created candidate object with its assigned ID.",
+      "method": "POST",
+      "path": "/candidate.create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Full name of the candidate (required)."
+          },
+          "email": {
+            "type": "string",
+            "description": "Primary email address of the candidate."
+          },
+          "phoneNumber": {
+            "type": "string",
+            "description": "Phone number of the candidate."
+          },
+          "linkedInUrl": {
+            "type": "string",
+            "description": "LinkedIn profile URL of the candidate."
+          },
+          "githubUrl": {
+            "type": "string",
+            "description": "GitHub profile URL of the candidate."
+          },
+          "website": {
+            "type": "string",
+            "description": "Personal website URL of the candidate."
+          },
+          "alternateEmailAddresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of additional email addresses for the candidate."
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "ID of the source to attribute this candidate to."
+          },
+          "creditedToUserId": {
+            "type": "string",
+            "description": "ID of the user who should be credited for adding this candidate."
+          },
+          "location": {
+            "type": "string",
+            "description": "Location of the candidate (e.g. 'San Francisco, CA')."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ]
+}

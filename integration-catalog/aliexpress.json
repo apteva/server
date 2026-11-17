@@ -1,0 +1,369 @@
+{
+  "slug": "aliexpress",
+  "name": "AliExpress",
+  "description": "Alibaba TOP/Open Platform / Affiliate API for product catalog search, product details, hot products, categories, and affiliate link generation. Uses Alibaba TOP request signing with an App Key and App Secret from the AliExpress developer portal.",
+  "logo": "https://www.google.com/s2/favicons?domain=aliexpress.com&sz=128",
+  "categories": [
+    "dropshipping",
+    "ecommerce",
+    "marketplace",
+    "products",
+    "supplier-catalog",
+    "affiliate"
+  ],
+  "base_url": "https://api-sg.aliexpress.com",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded;charset=utf-8"
+    },
+    "credential_fields": [
+      {
+        "name": "app_key",
+        "label": "App Key",
+        "description": "Alibaba TOP/Open Platform App Key from the developer portal.",
+        "type": "text"
+      },
+      {
+        "name": "app_secret",
+        "label": "App Secret",
+        "description": "Alibaba TOP/Open Platform App Secret used server-side to sign TOP requests."
+      },
+      {
+        "name": "tracking_id",
+        "label": "Tracking ID",
+        "description": "Optional AliExpress affiliate tracking ID. Used by product search/detail and link generation when present.",
+        "required": false,
+        "type": "text"
+      },
+      {
+        "name": "app_signature",
+        "label": "App Signature",
+        "description": "Optional app_signature value required by some AliExpress API approvals.",
+        "required": false,
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "affiliate_categories_list",
+      "description": "List AliExpress affiliate categories. Use category IDs to scope catalog imports.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.category.get",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "affiliate_products_search",
+      "description": "Search AliExpress affiliate products by keyword, category, price, delivery country, currency, language, and pagination. Main source for Catalog import discovery.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "description": "Search keywords."
+          },
+          "category_ids": {
+            "type": "string",
+            "description": "Comma-separated AliExpress category IDs."
+          },
+          "page_no": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number."
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 20,
+            "description": "Products per page."
+          },
+          "target_currency": {
+            "type": "string",
+            "default": "USD",
+            "description": "Target currency code."
+          },
+          "target_language": {
+            "type": "string",
+            "default": "EN",
+            "description": "Target language code."
+          },
+          "ship_to_country": {
+            "type": "string",
+            "description": "Destination country code for availability/shipping filtering."
+          },
+          "sort": {
+            "type": "string",
+            "description": "AliExpress sort expression such as SALE_PRICE_ASC, SALE_PRICE_DESC, LAST_VOLUME_ASC, or LAST_VOLUME_DESC."
+          },
+          "min_sale_price": {
+            "type": "number",
+            "description": "Minimum sale price."
+          },
+          "max_sale_price": {
+            "type": "number",
+            "description": "Maximum sale price."
+          },
+          "delivery_days": {
+            "type": "integer",
+            "description": "Maximum delivery days when supported."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to return. Leave blank for AliExpress defaults."
+          },
+          "tracking_id": {
+            "type": "string",
+            "description": "Optional override for the credential-level affiliate tracking ID."
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.product.query",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "affiliate_hot_products_search",
+      "description": "Search AliExpress hot products for a category or market. Useful for importing trending product candidates.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_ids": {
+            "type": "string",
+            "description": "Comma-separated AliExpress category IDs."
+          },
+          "keywords": {
+            "type": "string",
+            "description": "Optional keyword filter."
+          },
+          "page_no": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 20
+          },
+          "target_currency": {
+            "type": "string",
+            "default": "USD"
+          },
+          "target_language": {
+            "type": "string",
+            "default": "EN"
+          },
+          "ship_to_country": {
+            "type": "string",
+            "description": "Destination country code."
+          },
+          "tracking_id": {
+            "type": "string"
+          }
+        }
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.hotproduct.query",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "affiliate_product_get",
+      "description": "Get AliExpress affiliate product details by product ID. Returns richer product data for Catalog import preview/commit.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_ids": {
+            "type": "string",
+            "description": "Comma-separated AliExpress product IDs."
+          },
+          "target_currency": {
+            "type": "string",
+            "default": "USD"
+          },
+          "target_language": {
+            "type": "string",
+            "default": "EN"
+          },
+          "country": {
+            "type": "string",
+            "description": "Destination country code, for example US."
+          },
+          "fields": {
+            "type": "string",
+            "description": "Comma-separated fields to return. Common fields include commission_rate, sale_price, product_title, product_main_image_url, product_detail_url."
+          },
+          "tracking_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_ids"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.productdetail.get",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "affiliate_links_generate",
+      "description": "Generate AliExpress affiliate promotion links for product URLs. Use after import when creating public product pages or checkout flows.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_values": {
+            "type": "string",
+            "description": "Comma-separated AliExpress product/detail URLs to convert."
+          },
+          "promotion_link_type": {
+            "type": "integer",
+            "default": 0,
+            "description": "AliExpress promotion link type."
+          },
+          "tracking_id": {
+            "type": "string",
+            "description": "Optional override for affiliate tracking ID."
+          }
+        },
+        "required": [
+          "source_values"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.link.generate",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "affiliate_featured_promos_list",
+      "description": "List AliExpress featured promotional campaigns.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.featuredpromo.get",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "affiliate_featured_promo_products_list",
+      "description": "List products for an AliExpress featured promotion.",
+      "method": "POST",
+      "path": "/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "promotion_name": {
+            "type": "string",
+            "description": "Featured promotion name or identifier from affiliate_featured_promos_list."
+          },
+          "category_id": {
+            "type": "string",
+            "description": "Optional category ID."
+          },
+          "page_no": {
+            "type": "integer",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "default": 20
+          },
+          "target_currency": {
+            "type": "string",
+            "default": "USD"
+          },
+          "target_language": {
+            "type": "string",
+            "default": "EN"
+          },
+          "tracking_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "promotion_name"
+        ]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "top",
+            "params": {
+              "method": "aliexpress.affiliate.featuredpromo.products.get",
+              "sign_method": "hmac"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "affiliate_categories_list"
+  }
+}

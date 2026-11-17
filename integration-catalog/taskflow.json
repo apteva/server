@@ -1,0 +1,705 @@
+{
+  "slug": "taskflow",
+  "name": "TaskFlow",
+  "description": "MCP server for comprehensive task and project management with lists, tasks, and productivity workflows",
+  "logo": "https://cdn-icons-png.flaticon.com/512/906/906334.png",
+  "categories": [
+    "tasks",
+    "productivity",
+    "project-management",
+    "organization",
+    "workflow"
+  ],
+  "base_url": "https://tasksapi.schwartzindustries.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your OmniKit API key for TaskFlow access (starts with 'okt_')"
+      },
+      {
+        "name": "projectId",
+        "label": "Project Id",
+        "description": "Project ID for task management context (optional)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_task",
+      "description": "Create new tasks with priorities, due dates, and assignments",
+      "method": "POST",
+      "path": "/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Task name/title"
+              },
+              "project_id": {
+                "type": "string",
+                "description": "Project ID"
+              },
+              "description": {
+                "type": "string",
+                "description": "Task description"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed",
+                  "archived"
+                ],
+                "default": "pending"
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "urgent"
+                ],
+                "default": "medium"
+              },
+              "difficulty": {
+                "type": "string",
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ],
+                "default": "medium"
+              },
+              "deadline": {
+                "type": "string",
+                "description": "Due date (ISO 8601)"
+              },
+              "list_id": {
+                "type": "string",
+                "description": "List ID to add task to"
+              },
+              "assigned_to_id": {
+                "type": "string",
+                "description": "User ID to assign to"
+              },
+              "estimated_hours": {
+                "type": "number",
+                "description": "Estimated completion time"
+              },
+              "position": {
+                "type": "integer",
+                "description": "Task position in list"
+              }
+            },
+            "required": [
+              "name",
+              "project_id"
+            ]
+          }
+        },
+        "required": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "update_task",
+      "description": "Update existing task properties",
+      "method": "PUT",
+      "path": "/tasks/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Task ID to update"
+          },
+          "updates": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Task name/title"
+              },
+              "description": {
+                "type": "string",
+                "description": "Task description"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed",
+                  "archived"
+                ]
+              },
+              "priority": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "urgent"
+                ]
+              },
+              "difficulty": {
+                "type": "string",
+                "enum": [
+                  "easy",
+                  "medium",
+                  "hard"
+                ]
+              },
+              "deadline": {
+                "type": "string",
+                "description": "Due date (ISO 8601)"
+              },
+              "list_id": {
+                "type": "string",
+                "description": "Move to different list"
+              },
+              "project_id": {
+                "type": "string",
+                "description": "Move to different project"
+              },
+              "assigned_to_id": {
+                "type": "string",
+                "description": "Reassign to different user"
+              },
+              "estimated_hours": {
+                "type": "number",
+                "description": "Update time estimate"
+              },
+              "position": {
+                "type": "integer",
+                "description": "Update position in list"
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "updates"
+        ]
+      }
+    },
+    {
+      "name": "complete_task",
+      "description": "Mark tasks as completed",
+      "method": "POST",
+      "path": "/tasks/{{param.id}}/complete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Task ID to complete"
+          },
+          "actual_hours": {
+            "type": "number",
+            "description": "Actual hours spent on task"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Completion notes"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_task",
+      "description": "Delete tasks permanently",
+      "method": "DELETE",
+      "path": "/tasks/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Task ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Retrieve individual task with full details",
+      "method": "GET",
+      "path": "/tasks/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Task ID to retrieve"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List tasks with filtering by status, priority, project, list, and assignment",
+      "method": "GET",
+      "path": "/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "archived"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ]
+          },
+          "assigned_to_id": {
+            "type": "string",
+            "description": "Filter by assigned user"
+          },
+          "list_id": {
+            "type": "string",
+            "description": "Filter by list"
+          },
+          "is_archived": {
+            "type": "boolean",
+            "description": "Include archived tasks",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "search_tasks",
+      "description": "Search tasks by name and description text",
+      "method": "GET",
+      "path": "/tasks/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "searchTerm": {
+            "type": "string",
+            "description": "Search query text",
+            "minLength": 1
+          },
+          "includeArchived": {
+            "type": "boolean",
+            "description": "Include archived tasks",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        },
+        "required": [
+          "searchTerm"
+        ]
+      }
+    },
+    {
+      "name": "create_list",
+      "description": "Create new project lists for organizing tasks",
+      "method": "POST",
+      "path": "/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "List name"
+              },
+              "project_id": {
+                "type": "string",
+                "description": "Project ID"
+              },
+              "description": {
+                "type": "string",
+                "description": "List description"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "inactive",
+                  "archived"
+                ],
+                "default": "active"
+              },
+              "color": {
+                "type": "string",
+                "description": "List color code",
+                "default": "#007acc"
+              },
+              "icon": {
+                "type": "string",
+                "description": "List icon"
+              },
+              "position": {
+                "type": "integer",
+                "description": "List position"
+              }
+            },
+            "required": [
+              "name",
+              "project_id"
+            ]
+          }
+        },
+        "required": [
+          "list"
+        ]
+      }
+    },
+    {
+      "name": "update_list",
+      "description": "Update existing project list properties",
+      "method": "PUT",
+      "path": "/lists/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "List ID to update"
+          },
+          "updates": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "List name"
+              },
+              "description": {
+                "type": "string",
+                "description": "List description"
+              },
+              "project_id": {
+                "type": "string",
+                "description": "Move to different project"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "inactive",
+                  "archived"
+                ]
+              },
+              "color": {
+                "type": "string",
+                "description": "List color code"
+              },
+              "icon": {
+                "type": "string",
+                "description": "List icon"
+              },
+              "position": {
+                "type": "integer",
+                "description": "List position"
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "updates"
+        ]
+      }
+    },
+    {
+      "name": "delete_list",
+      "description": "Delete project lists permanently",
+      "method": "DELETE",
+      "path": "/lists/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "List ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_list",
+      "description": "Retrieve individual list with full details",
+      "method": "GET",
+      "path": "/lists/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "List ID to retrieve"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_lists",
+      "description": "List all project lists with filtering options",
+      "method": "GET",
+      "path": "/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "archived"
+            ]
+          },
+          "is_archived": {
+            "type": "boolean",
+            "description": "Include archived lists",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_list_tasks",
+      "description": "Retrieve all tasks within a specific list",
+      "method": "GET",
+      "path": "/lists/{{param.list_id}}/tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_id": {
+            "type": "string",
+            "description": "List ID to get tasks from"
+          },
+          "includeArchived": {
+            "type": "boolean",
+            "description": "Include archived tasks",
+            "default": false
+          }
+        },
+        "required": [
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List projects for an organization with optional search and filtering by active status. Returns project names, slugs, descriptions, and metadata with pagination support.",
+      "method": "GET",
+      "path": "/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID to list projects for"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status",
+            "default": true
+          },
+          "search": {
+            "type": "string",
+            "description": "Search projects by name"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a new project in an organization. Automatically generates a URL slug from the project name if not provided. Validates organization existence and slug uniqueness.",
+      "method": "POST",
+      "path": "/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID to create the project in"
+          },
+          "description": {
+            "type": "string",
+            "description": "Project description"
+          },
+          "slug": {
+            "type": "string",
+            "description": "URL-friendly slug (auto-generated from name if not provided)"
+          }
+        },
+        "required": [
+          "name",
+          "organization_id"
+        ]
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Retrieve a single project by ID with full details including name, slug, description, organization, and active status.",
+      "method": "GET",
+      "path": "/projects/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Project ID to retrieve"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_project",
+      "description": "Update an existing project's name, description, slug, or active status. Validates slug uniqueness within the organization when changing slugs.",
+      "method": "PUT",
+      "path": "/projects/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Project ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New project name"
+          },
+          "description": {
+            "type": "string",
+            "description": "New project description"
+          },
+          "slug": {
+            "type": "string",
+            "description": "New URL-friendly slug"
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Set project active or inactive"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_project",
+      "description": "Delete a project. Defaults to soft delete (deactivation). Supports hard delete and cascade deletion of all related tasks and lists.",
+      "method": "DELETE",
+      "path": "/projects/{{param.id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Project ID to delete"
+          },
+          "hardDelete": {
+            "type": "boolean",
+            "description": "Permanently delete instead of soft delete",
+            "default": false
+          },
+          "cascadeDelete": {
+            "type": "boolean",
+            "description": "Also delete all tasks and lists in the project",
+            "default": false
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

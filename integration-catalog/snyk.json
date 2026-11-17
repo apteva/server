@@ -1,0 +1,108 @@
+{
+  "slug": "snyk",
+  "name": "Snyk",
+  "description": "MCP server for Snyk - organizations, projects, issues, and targets via the Snyk REST API",
+  "logo": "https://www.google.com/s2/favicons?domain=snyk.io&sz=128",
+  "categories": ["security", "developer-tools", "vulnerability-scanning", "devops"],
+  "base_url": "https://api.snyk.io/rest",
+  "auth": {
+    "types": ["api_key"],
+    "headers": { "Authorization": "token {{api_key}}" },
+    "query_params": { "version": "2024-10-15" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Token", "description": "API token from Account Settings → General → Auth Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_orgs",
+      "description": "List organizations the user belongs to",
+      "method": "GET",
+      "path": "/orgs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" }
+        }
+      },
+      "query_params": ["limit"]
+    },
+    {
+      "name": "get_org",
+      "description": "Get a single organization",
+      "method": "GET",
+      "path": "/orgs/{org_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "org_id": { "type": "string" } },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List projects in an organization",
+      "method": "GET",
+      "path": "/orgs/{org_id}/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "limit": { "type": "integer" },
+          "names": { "type": "string", "description": "Comma-separated project names" },
+          "origins": { "type": "string", "description": "Comma-separated origins, e.g. github,gitlab" },
+          "types": { "type": "string", "description": "Comma-separated project types, e.g. npm,maven" }
+        },
+        "required": ["org_id"]
+      },
+      "query_params": ["limit", "names", "origins", "types"]
+    },
+    {
+      "name": "get_project",
+      "description": "Get a single project",
+      "method": "GET",
+      "path": "/orgs/{org_id}/projects/{project_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "project_id": { "type": "string" }
+        },
+        "required": ["org_id", "project_id"]
+      }
+    },
+    {
+      "name": "list_issues",
+      "description": "List issues (vulnerabilities) in an organization, filterable by severity and project",
+      "method": "GET",
+      "path": "/orgs/{org_id}/issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "scan_item.id": { "type": "string", "description": "Project ID to filter issues to" },
+          "scan_item.type": { "type": "string", "default": "project" },
+          "effective_severity_level": { "type": "string", "description": "Comma-separated: critical,high,medium,low" },
+          "status": { "type": "string", "description": "Comma-separated: open,resolved" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["org_id"]
+      },
+      "query_params": ["scan_item.id", "scan_item.type", "effective_severity_level", "status", "limit"]
+    },
+    {
+      "name": "list_targets",
+      "description": "List targets (repos / source URLs) in an organization",
+      "method": "GET",
+      "path": "/orgs/{org_id}/targets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["org_id"]
+      },
+      "query_params": ["limit"]
+    }
+  ]
+}

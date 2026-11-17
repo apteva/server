@@ -1,0 +1,448 @@
+{
+  "slug": "arest",
+  "name": "aREST IoT",
+  "description": "aREST IoT platform for managing Arduino and ESP devices with digital/analog I/O, variables, functions, and MQTT communication",
+  "logo": "https://www.google.com/s2/favicons?domain=arduino.cc&sz=128",
+  "categories": [
+    "iot",
+    "arest",
+    "arduino",
+    "esp",
+    "embedded",
+    "mqtt",
+    "sensors"
+  ],
+  "base_url": "https://api.arest.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_devices",
+      "description": "List all aREST IoT devices registered in a project. Returns device IDs, names, hardware types, and connection status.",
+      "method": "GET",
+      "path": "/list-devices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter by status (online/offline)"
+          },
+          "connected": {
+            "type": "boolean",
+            "description": "Filter by connection state"
+          },
+          "hardware_type": {
+            "type": "string",
+            "description": "Filter by hardware type (e.g., arduino, esp8266, esp32)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max results (default: 50)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_device",
+      "description": "Get details of a specific aREST device including pins, variables, functions, and MQTT credentials.",
+      "method": "GET",
+      "path": "/get-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "register_device",
+      "description": "Register a new aREST IoT device. Returns MQTT credentials and connection info for Arduino/ESP devices.",
+      "method": "GET",
+      "path": "/register-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "description": "Unique device identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Device display name"
+          },
+          "hardware_type": {
+            "type": "string",
+            "description": "Hardware type (e.g., arduino_uno, esp8266, esp32)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Device description"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional device metadata"
+          }
+        },
+        "required": [
+          "device_id",
+          "name",
+          "hardware_type"
+        ]
+      }
+    },
+    {
+      "name": "delete_device",
+      "description": "Delete an aREST device from the system. This permanently removes the device and its data.",
+      "method": "DELETE",
+      "path": "/delete-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "digital_read",
+      "description": "Read digital value (HIGH/LOW) from a pin on an aREST device. Returns 0 or 1.",
+      "method": "GET",
+      "path": "/digital-read",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "pin": {
+            "type": "number",
+            "description": "Pin number to read"
+          }
+        },
+        "required": [
+          "id",
+          "pin"
+        ]
+      }
+    },
+    {
+      "name": "digital_write",
+      "description": "Write digital value (HIGH/LOW) to a pin on an aREST device. Use to control LEDs, relays, etc.",
+      "method": "GET",
+      "path": "/digital-write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "pin": {
+            "type": "number",
+            "description": "Pin number to write"
+          },
+          "value": {
+            "type": "number",
+            "description": "Value: 0 (LOW) or 1 (HIGH)",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "pin",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "analog_read",
+      "description": "Read analog value (0-1023) from a pin on an aREST device. Use for sensors like temperature, light, etc.",
+      "method": "GET",
+      "path": "/analog-read",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "pin": {
+            "type": "number",
+            "description": "Analog pin number (e.g., 0 for A0)"
+          }
+        },
+        "required": [
+          "id",
+          "pin"
+        ]
+      }
+    },
+    {
+      "name": "analog_write",
+      "description": "Write PWM value (0-255) to a pin on an aREST device. Use for dimming LEDs, motor speed control, etc.",
+      "method": "GET",
+      "path": "/analog-write",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "pin": {
+            "type": "number",
+            "description": "PWM-capable pin number"
+          },
+          "value": {
+            "type": "number",
+            "description": "PWM value (0-255)",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "required": [
+          "id",
+          "pin",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "set_pin_mode",
+      "description": "Set the mode of a pin on an aREST device. Modes: o=output, i=input, I=input_pullup.",
+      "method": "GET",
+      "path": "/set-pin-mode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "pin": {
+            "type": "number",
+            "description": "Pin number"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Pin mode: o (output), i (input), I (input_pullup)",
+            "enum": [
+              "o",
+              "i",
+              "I"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "pin",
+          "mode"
+        ]
+      }
+    },
+    {
+      "name": "read_variable",
+      "description": "Read a variable value from an aREST device. Variables are custom data exposed by the device firmware.",
+      "method": "GET",
+      "path": "/read-variable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "variable_name": {
+            "type": "string",
+            "description": "Variable name (e.g., 'temperature', 'humidity')"
+          }
+        },
+        "required": [
+          "id",
+          "variable_name"
+        ]
+      }
+    },
+    {
+      "name": "call_function",
+      "description": "Call a function on an aREST device with optional parameters. Functions are custom actions defined in device firmware.",
+      "method": "GET",
+      "path": "/call-function",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Device database ID"
+          },
+          "function_name": {
+            "type": "string",
+            "description": "Function name to call"
+          },
+          "params": {
+            "type": "string",
+            "description": "Parameter string to pass to the function"
+          }
+        },
+        "required": [
+          "id",
+          "function_name"
+        ]
+      }
+    },
+    {
+      "name": "dashboard_list",
+      "description": "List all IoT dashboards in a project. Dashboards provide visual monitoring and control of devices.",
+      "method": "GET",
+      "path": "/dashboard-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Max results (default: 50)"
+          },
+          "offset": {
+            "type": "number",
+            "description": "Offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "dashboard_get",
+      "description": "Get details of a specific IoT dashboard including widgets and layout configuration.",
+      "method": "GET",
+      "path": "/dashboard-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Dashboard ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "dashboard_create",
+      "description": "Create a new IoT dashboard for visualizing and controlling devices.",
+      "method": "GET",
+      "path": "/dashboard-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Dashboard name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Dashboard description"
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "Whether dashboard is publicly accessible",
+            "default": false
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "dashboard_delete",
+      "description": "Delete an IoT dashboard. This also removes all widgets in the dashboard.",
+      "method": "GET",
+      "path": "/dashboard-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number",
+            "description": "Dashboard ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "widget_add",
+      "description": "Add a widget to an IoT dashboard. Widgets display device data or provide controls.",
+      "method": "GET",
+      "path": "/widget-add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dashboard_id": {
+            "type": "number",
+            "description": "Dashboard ID"
+          },
+          "widget_type": {
+            "type": "string",
+            "description": "Widget type (gauge, chart, button, slider, etc.)"
+          },
+          "device_id": {
+            "type": "number",
+            "description": "Device ID to connect"
+          },
+          "pin": {
+            "type": "number",
+            "description": "Pin number (for I/O widgets)"
+          },
+          "variable_name": {
+            "type": "string",
+            "description": "Variable name (for variable widgets)"
+          },
+          "config": {
+            "type": "object",
+            "description": "Widget configuration (title, colors, ranges, etc.)"
+          }
+        },
+        "required": [
+          "dashboard_id",
+          "widget_type",
+          "device_id"
+        ]
+      }
+    }
+  ]
+}

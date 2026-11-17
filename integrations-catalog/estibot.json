@@ -1,0 +1,325 @@
+{
+  "slug": "estibot",
+  "name": "EstiBot",
+  "description": "Domain appraisals, keyword metrics, website information, leads and drop/zone data through the current EstiBot API. Requires Advanced or Expert API access. Lookups count against plan quotas. Personal/internal-use licensing applies; organizations with more than three employees and redistribution require an appropriate license. Documentation: https://github.com/domainret/estibot-api.",
+  "logo": "https://www.google.com/s2/favicons?domain=estibot.com&sz=128",
+  "categories": [
+    "domains",
+    "domain-appraisal",
+    "market-research"
+  ],
+  "base_url": "https://public-api.estibot.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Sign up at https://www.estibot.com/register for an API-enabled Advanced or Expert account, then use its API key. Confirm the provider's organization and data-use licensing requirements at https://github.com/domainret/estibot-api.",
+        "type": "password",
+        "required": true
+      }
+    ],
+    "query_params": {
+      "k": "{{api_key}}"
+    }
+  },
+  "tools": [
+    {
+      "name": "appraise_domain",
+      "description": "Appraise one domain, returning all valuation and supporting fields. mode=auto uses recent cache or live lookup; live can take about three seconds per domain. Only one appraisal query may be in flight.",
+      "method": "GET",
+      "path": "/api?a=appraise",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name without a scheme, path, or port, e.g. example.com.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+$"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Lookup mode; default auto.",
+            "enum": [
+              "auto",
+              "cache",
+              "live"
+            ]
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "query_param_aliases": {
+        "domain": "d",
+        "mode": "t"
+      },
+      "timeout_ms": 60000
+    },
+    {
+      "name": "appraise_domains",
+      "description": "Appraise up to 200 domains in cache or live mode. Choose cache for a fast initial lookup; auto is unsupported for batches. Preserve top-level not_found and cache fields. A live batch may take five minutes. Only one appraisal query may be in flight.",
+      "method": "GET",
+      "path": "/api?a=appraise",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "Domains separated by >>, e.g. example.com>>startup.net. Up to 200 names. Wait for each appraisal request to finish before the next.",
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+(?:>>[^\\s,>/:]+\\.[^\\s,>/:]+){0,199}$"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Batch lookup mode. Choose cache first, then live for domains returned in not_found.",
+            "enum": [
+              "cache",
+              "live"
+            ]
+          }
+        },
+        "required": [
+          "domains",
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "query_param_aliases": {
+        "domains": "d",
+        "mode": "t"
+      },
+      "timeout_ms": 360000
+    },
+    {
+      "name": "generate_leads",
+      "description": "Generate end-user leads for one domain, optionally combined with a keyword. Consumes plan quota; allow up to 60 seconds and only one lead query at a time.",
+      "method": "GET",
+      "path": "/api?a=lead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name without a scheme, path, or port, e.g. example.com.",
+            "minLength": 1,
+            "maxLength": 253,
+            "pattern": "^[^\\s,>/:]+\\.[^\\s,>/:]+$"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Optional keyword to combine with the domain, e.g. fast cars."
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "query_param_aliases": {
+        "domain": "d"
+      },
+      "timeout_ms": 90000
+    },
+    {
+      "name": "get_keyword_metrics",
+      "description": "Retrieve keyword search volume and CPC. Supply keywords, not domains to be automatically parsed. Separate multiple keywords with >>. Provider permits up to three concurrent keyword queries.",
+      "method": "GET",
+      "path": "/api?a=bid_tool",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "description": "One or more keyword phrases separated by >>, e.g. car insurance>>fast cars.",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "keywords"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "query_param_aliases": {
+        "keywords": "d"
+      }
+    },
+    {
+      "name": "get_site_info",
+      "description": "Retrieve crawl information including site usage, title and public contact/MX data for domains separated by >>. Provider permits up to three concurrent site-info queries.",
+      "method": "GET",
+      "path": "/api?a=site_info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "string",
+            "description": "Domain names separated by >>.",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "domains"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "query_param_aliases": {
+        "domains": "d"
+      }
+    },
+    {
+      "name": "get_drop_list",
+      "description": "Generate a drop-list download and return the full JSON envelope containing the compressed CSV URL. Maximum 20 downloads/day, one query at a time. Dates must meet the provider's current list-date restrictions.",
+      "method": "GET",
+      "path": "/api?a=drops",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_type": {
+            "type": "string",
+            "description": "List type.",
+            "enum": [
+              "raw_pendingdelete",
+              "appraisals",
+              "complete"
+            ]
+          },
+          "list": {
+            "type": "string",
+            "description": "List name, e.g. available, namejet pre-release or pendingdelete."
+          },
+          "date": {
+            "type": "string",
+            "description": "Requested list date YYYY-MM-DD.",
+            "format": "date"
+          }
+        },
+        "required": [
+          "list_type"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "query_param_aliases": {
+        "list_type": "t"
+      },
+      "timeout_ms": 60000
+    },
+    {
+      "name": "get_zone_changes",
+      "description": "Generate a ZIP/CSV URL for new or deleted domains. Maximum 25 downloads/day, one query at a time. Download URLs expire after one hour. Returns JSON rather than following a direct-file redirect.",
+      "method": "GET",
+      "path": "/api?a=zone_diff",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Zone change type.",
+            "enum": [
+              "new",
+              "deleted"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "success",
+        "success_codes": [
+          "true"
+        ],
+        "message_path": "message"
+      },
+      "rate_limit": {
+        "min_interval_ms": 600,
+        "max_retries": 0
+      },
+      "timeout_ms": 60000
+    }
+  ]
+}

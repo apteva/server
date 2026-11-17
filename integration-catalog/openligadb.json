@@ -1,0 +1,345 @@
+{
+  "slug": "openligadb",
+  "name": "OpenLigaDB",
+  "description": "Community-maintained football fixtures, results, teams and standings, particularly German leagues. Public JSON API without a key; ODbL data license. Cache results and use last-change timestamps before fetching a matchday again. Limit: 60 requests/minute per IP across all tools. Coverage and update speed depend on community contributors. Docs: https://api.openligadb.de and https://www.openligadb.de/",
+  "logo": "https://www.google.com/s2/favicons?domain=openligadb.de&sz=128",
+  "categories": [
+    "sports",
+    "football",
+    "soccer",
+    "open-data",
+    "scores",
+    "standings"
+  ],
+  "base_url": "https://api.openligadb.de",
+  "auth": {
+    "types": [
+      "none"
+    ],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "list_leagues",
+      "description": "Discover leagues and season identifiers. Cache this reference list.",
+      "method": "GET",
+      "path": "/getavailableleagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_leagues_by_season",
+      "description": "List available leagues in a specific season.",
+      "method": "GET",
+      "path": "/getavailableleagues/{season}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "season": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "season"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_sports",
+      "description": "List sports covered by the community database.",
+      "method": "GET",
+      "path": "/getavailablesports",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_match",
+      "description": "Get match details and results. Check result types to distinguish halftime and full-time scores.",
+      "method": "GET",
+      "path": "/getmatchdata/{matchId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "matchId": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "matchId"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_matches",
+      "description": "Get a league matchday. Use league shortcut, season start year and matchday from discovery.",
+      "method": "GET",
+      "path": "/getmatchdata/{leagueShortcut}/{leagueSeason}/{groupOrderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueShortcut": {
+            "type": "string"
+          },
+          "leagueSeason": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "groupOrderId": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          }
+        },
+        "required": [
+          "leagueShortcut",
+          "leagueSeason",
+          "groupOrderId"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_matchdays",
+      "description": "List matchdays/groups in a season.",
+      "method": "GET",
+      "path": "/getavailablegroups/{leagueShortcut}/{leagueSeason}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueShortcut": {
+            "type": "string"
+          },
+          "leagueSeason": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "leagueShortcut",
+          "leagueSeason"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List participating teams and provider IDs.",
+      "method": "GET",
+      "path": "/getavailableteams/{leagueShortcut}/{leagueSeason}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueShortcut": {
+            "type": "string"
+          },
+          "leagueSeason": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "leagueShortcut",
+          "leagueSeason"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_table",
+      "description": "Get the league table for a season.",
+      "method": "GET",
+      "path": "/getbltable/{leagueShortcut}/{leagueSeason}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueShortcut": {
+            "type": "string"
+          },
+          "leagueSeason": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "leagueShortcut",
+          "leagueSeason"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_top_scorers",
+      "description": "Get goalscorers for a league season.",
+      "method": "GET",
+      "path": "/getgoalgetters/{leagueShortcut}/{leagueSeason}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueShortcut": {
+            "type": "string"
+          },
+          "leagueSeason": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "leagueShortcut",
+          "leagueSeason"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_last_change",
+      "description": "Check when matchday data last changed; fetch full data only when this value changes.",
+      "method": "GET",
+      "path": "/getlastchangedate/{leagueShortcut}/{leagueSeason}/{groupOrderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueShortcut": {
+            "type": "string",
+            "description": "der Shortcut der Liga, z.B. 'bl1' für die erste Bundesliga"
+          },
+          "leagueSeason": {
+            "type": "integer",
+            "format": "int32",
+            "description": "die Saison der Liga, z.B. 2019 für die Saison 2019/2020"
+          },
+          "groupOrderId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "beim Fußball der Spieltag, z.B. 1"
+          }
+        },
+        "required": [
+          "leagueShortcut",
+          "leagueSeason",
+          "groupOrderId"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_next_team_match",
+      "description": "Get the next match for a team in a league.",
+      "method": "GET",
+      "path": "/getnextmatchbyleagueteam/{leagueId}/{teamId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "leagueId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "die Id der Liga"
+          },
+          "teamId": {
+            "type": "integer",
+            "format": "int32",
+            "description": "die Id des Teams"
+          }
+        },
+        "required": [
+          "leagueId",
+          "teamId"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_sports"
+  }
+}

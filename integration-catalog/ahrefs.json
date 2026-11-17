@@ -1,0 +1,156 @@
+{
+  "slug": "ahrefs",
+  "name": "Ahrefs",
+  "description": "Ahrefs API v3 — Domain Rating, backlinks, referring domains, organic keywords, organic competitors, top pages, paid traffic. Industry-leading link database. Requires Enterprise / API plan.",
+  "logo": "https://www.google.com/s2/favicons?domain=ahrefs.com&sz=128",
+  "categories": ["seo", "backlinks", "keywords", "competitors", "link-analysis", "rank-tracking"],
+  "base_url": "https://api.ahrefs.com/v3",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Generate at ahrefs.com/api/profile (Enterprise/API plan required)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "domain_rating",
+      "description": "Domain Rating (DR) for a target",
+      "method": "GET",
+      "path": "/site-explorer/domain-rating",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "date": { "type": "string" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "backlinks",
+      "description": "List backlinks for a target with traffic and DR",
+      "method": "GET",
+      "path": "/site-explorer/all-backlinks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "mode": { "type": "string", "description": "exact|prefix|domain|subdomains" },
+          "limit": { "type": "number" },
+          "offset": { "type": "number" },
+          "select": { "type": "string", "description": "Comma-separated fields, e.g. url_from,url_to,domain_rating_source,traffic_domain" },
+          "where": { "type": "string" },
+          "order_by": { "type": "string" }
+        },
+        "required": ["target", "select"]
+      }
+    },
+    {
+      "name": "referring_domains",
+      "description": "Referring domains pointing to a target",
+      "method": "GET",
+      "path": "/site-explorer/refdomains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "mode": { "type": "string" },
+          "limit": { "type": "number" },
+          "select": { "type": "string" }
+        },
+        "required": ["target", "select"]
+      }
+    },
+    {
+      "name": "organic_keywords",
+      "description": "Organic keywords a target ranks for",
+      "method": "GET",
+      "path": "/site-explorer/organic-keywords",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "country": { "type": "string" },
+          "mode": { "type": "string" },
+          "limit": { "type": "number" },
+          "select": { "type": "string" }
+        },
+        "required": ["target", "country", "select"]
+      }
+    },
+    {
+      "name": "organic_competitors",
+      "description": "Organic competitors for a target",
+      "method": "GET",
+      "path": "/site-explorer/organic-competitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "country": { "type": "string" },
+          "mode": { "type": "string" },
+          "limit": { "type": "number" },
+          "select": { "type": "string" }
+        },
+        "required": ["target", "country", "select"]
+      }
+    },
+    {
+      "name": "top_pages",
+      "description": "Top pages on a domain by organic traffic",
+      "method": "GET",
+      "path": "/site-explorer/top-pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "country": { "type": "string" },
+          "mode": { "type": "string" },
+          "limit": { "type": "number" },
+          "select": { "type": "string" }
+        },
+        "required": ["target", "country", "select"]
+      }
+    },
+    {
+      "name": "keywords_explorer_overview",
+      "description": "Keywords Explorer overview — volume, KD, CPC, traffic potential",
+      "method": "GET",
+      "path": "/keywords-explorer/overview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": { "type": "string", "description": "Comma-separated list" },
+          "country": { "type": "string" },
+          "select": { "type": "string" }
+        },
+        "required": ["keywords", "country", "select"]
+      }
+    },
+    {
+      "name": "metrics_history",
+      "description": "Historical metrics time series for a target",
+      "method": "GET",
+      "path": "/site-explorer/metrics-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": { "type": "string" },
+          "mode": { "type": "string" },
+          "history_grouping": { "type": "string", "description": "daily|weekly|monthly" },
+          "date_from": { "type": "string" },
+          "date_to": { "type": "string" }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "subscription_info",
+      "description": "Account subscription and quota usage",
+      "method": "GET",
+      "path": "/subscription-info/limits-and-usage",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

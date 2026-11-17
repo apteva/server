@@ -1,0 +1,251 @@
+{
+  "slug": "42matters",
+  "name": "42matters",
+  "description": "App market intelligence for Apple App Store and Google Play, including current and historical top charts, app lookup and search, rank history, and download estimates.",
+  "logo": "https://www.google.com/s2/favicons?domain=42matters.com&sz=128",
+  "categories": ["app-intelligence", "mobile-apps", "ios", "android", "rankings", "market-research"],
+  "base_url": "https://data.42matters.com/api/v3.0",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "access_token": "{{api_key}}" },
+    "headers": { "Accept": "application/json" },
+    "credential_fields": [
+      { "name": "api_key", "label": "Access Token", "description": "42matters API access token from your account dashboard. A free signup/trial is available; individual endpoints require the documented plan level.", "type": "password", "required": true }
+    ]
+  },
+  "health_check": null,
+  "tools": [
+    {
+      "name": "get_ios_top_charts",
+      "description": "Get current or historical Apple App Store top free, paid, or grossing charts for a country, category, and device. The free trial limits returned results; historical depth depends on plan.",
+      "method": "GET",
+      "path": "/ios/apps/top_appstore_charts.json",
+      "query_params": ["list_name", "primaryGenreId", "device_type", "country", "app_country", "limit", "page", "date", "fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_name": { "type": "string", "enum": ["topselling_free", "topselling_paid", "topgrossing"] },
+          "primaryGenreId": { "type": "integer", "description": "Apple genre ID; use 36 for Overall or 6014 for Games." },
+          "device_type": { "type": "string", "enum": ["iphone", "ipad"] },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$", "description": "Storefront used to localize returned app metadata." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "page": { "type": "integer", "minimum": 1 },
+          "date": { "type": "string", "format": "date", "description": "Historical chart date. Omit for latest." },
+          "fields": { "type": "string", "description": "Optional comma-separated response fields." }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lookup_ios_app",
+      "description": "Look up an Apple App Store app by numeric app ID or bundle ID and return store metadata.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v2.0",
+      "path": "/ios/apps/lookup.json",
+      "query_params": ["id", "bundleId", "include_unpublished", "lang", "app_country", "fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "description": "Numeric Apple App Store app ID." },
+          "bundleId": { "type": "string", "description": "Apple bundle identifier; use when id is unavailable." },
+          "include_unpublished": { "type": "boolean" },
+          "lang": { "type": "string" },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "fields": { "type": "string" }
+        },
+        "anyOf": [{ "required": ["id"] }, { "required": ["bundleId"] }],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_ios_apps",
+      "description": "Search 42matters' Apple App Store index by app title, description, or developer. Search order is 42matters relevance, not Apple's chart order.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v2.0",
+      "path": "/ios/apps/search.json",
+      "query_params": ["q", "include_desc", "include_developer", "limit", "page", "app_country", "available_in", "fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "minLength": 1 },
+          "include_desc": { "type": "boolean" },
+          "include_developer": { "type": "boolean" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "page": { "type": "integer", "minimum": 1 },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "available_in": { "type": "string", "description": "Comma-separated country codes that apps must support." },
+          "fields": { "type": "string" }
+        },
+        "required": ["q"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_ios_rank_history",
+      "description": "Get an iOS app's historical App Store chart ranks by country, chart type, device, and genre.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v4.0",
+      "path": "/ios/apps/ranks.json",
+      "query_params": ["id", "country", "start_date", "end_date", "days", "list_names", "device_types", "primaryGenreIds", "app_country", "sort_order", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "days": { "type": "integer", "minimum": 1 },
+          "list_names": { "type": "string", "description": "Comma-separated chart names: topselling_free, topselling_paid, topgrossing." },
+          "device_types": { "type": "string", "description": "Comma-separated iphone and/or ipad." },
+          "primaryGenreIds": { "type": "string", "description": "Comma-separated Apple genre IDs." },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "sort_order": { "type": "string", "enum": ["asc", "desc"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "page": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_ios_download_estimates",
+      "description": "Get historical estimated downloads for an iOS app. This high-credit endpoint requires a Large plan or above; results are estimates, not Apple-reported sales.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v5.0",
+      "path": "/ios/apps/download_estimates.json",
+      "query_params": ["id", "country", "aggr", "start_date", "end_date", "days", "sort_order", "device_type", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "country": { "type": "string", "description": "Country code, comma-separated codes, ALL, TOP, TOP_5, TOP_10, or TOP_20." },
+          "aggr": { "type": "string", "enum": ["daily", "weekly", "monthly", "region"] },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "days": { "type": "integer", "minimum": 1 },
+          "sort_order": { "type": "string", "enum": ["asc", "desc"] },
+          "device_type": { "type": "string", "enum": ["iphone", "ipad", "any"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "page": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_android_top_charts",
+      "description": "Get current or historical Google Play top free, paid, grossing, trending, or new-app charts by country and category.",
+      "method": "GET",
+      "path": "/android/apps/top_google_charts.json",
+      "query_params": ["list_name", "cat_key", "country", "app_country", "limit", "page", "date", "fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "list_name": { "type": "string", "enum": ["topselling_free", "topselling_paid", "topgrossing", "movers_shakers", "topselling_new_free", "topselling_new_paid"] },
+          "cat_key": { "type": "string", "description": "Google Play category key; use OVERALL for all apps." },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "page": { "type": "integer", "minimum": 1 },
+          "date": { "type": "string", "format": "date" },
+          "fields": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "lookup_android_app",
+      "description": "Look up a Google Play app by package name and return store metadata.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v2.0",
+      "path": "/android/apps/lookup.json",
+      "query_params": ["p", "include_unpublished", "lang", "app_country", "fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "p": { "type": "string", "description": "Google Play package name." },
+          "include_unpublished": { "type": "boolean" },
+          "lang": { "type": "string" },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "fields": { "type": "string" }
+        },
+        "required": ["p"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "search_android_apps",
+      "description": "Search 42matters' Google Play index by app title, description, or developer.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v2.0",
+      "path": "/android/apps/search.json",
+      "query_params": ["q", "include_desc", "include_developer", "limit", "page", "app_country", "available_in", "fields"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": { "type": "string", "minLength": 1 },
+          "include_desc": { "type": "boolean" },
+          "include_developer": { "type": "boolean" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "page": { "type": "integer", "minimum": 1 },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "available_in": { "type": "string" },
+          "fields": { "type": "string" }
+        },
+        "required": ["q"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_android_rank_history",
+      "description": "Get a Google Play app's historical chart ranks by country, chart type, and category.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v4.0",
+      "path": "/android/apps/ranks.json",
+      "query_params": ["p", "country", "start_date", "end_date", "days", "list_names", "cat_keys", "app_country", "sort_order", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "p": { "type": "string" },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "days": { "type": "integer", "minimum": 1 },
+          "list_names": { "type": "string" },
+          "cat_keys": { "type": "string" },
+          "app_country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "sort_order": { "type": "string", "enum": ["asc", "desc"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "page": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["p"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_android_download_estimates",
+      "description": "Get historical estimated downloads for a Google Play app. This high-credit endpoint requires a Large plan or above.",
+      "method": "GET",
+      "base_url": "https://data.42matters.com/api/v5.0",
+      "path": "/android/apps/download_estimates.json",
+      "query_params": ["p", "country", "aggr", "start_date", "end_date", "days", "sort_order", "limit", "page"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "p": { "type": "string" },
+          "country": { "type": "string" },
+          "aggr": { "type": "string", "enum": ["daily", "weekly", "monthly", "region"] },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "days": { "type": "integer", "minimum": 1 },
+          "sort_order": { "type": "string", "enum": ["asc", "desc"] },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "page": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["p"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

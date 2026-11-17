@@ -1,0 +1,121 @@
+{
+  "slug": "eia",
+  "name": "EIA — U.S. Energy Information Administration",
+  "description": "Official US energy data — crude oil spot + futures prices, refined product prices (gasoline, diesel, jet fuel, heating oil), natural gas, electricity retail + generation, coal, renewables, and country-level energy stats. Drives commodity markets, energy ETF/stock prices, transport-sector inflation expectations, and (less obviously) crypto mining cost discussions. Free, official, no rate limit cap. Sign up at https://www.eia.gov/opendata/register.php. v2 API is category-routed — paths like /petroleum/pri/spt/data fetch petroleum spot prices.",
+  "logo": "https://www.google.com/s2/favicons?domain=eia.gov&sz=128",
+  "categories": [
+    "energy",
+    "commodities",
+    "macro",
+    "oil",
+    "gas",
+    "electricity",
+    "public-data",
+    "government"
+  ],
+  "base_url": "https://api.eia.gov/v2",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "EIA API Key",
+        "description": "From https://www.eia.gov/opendata/register.php. Free, no cap. Email-based signup."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "browse_route",
+      "description": "Walk the EIA category tree to discover what data exists. Pass a route prefix (or empty string for root) and EIA returns the children + leaf-data-endpoints. Use to drill from 'petroleum' → 'pri' (prices) → 'spt' (spot) → 'data' (the time-series).",
+      "method": "GET",
+      "path": "/{route}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "route": {"type": "string", "description": "Empty (root) or a slash-path like 'petroleum/pri/spt'."}
+        }
+      }
+    },
+    {
+      "name": "get_data",
+      "description": "Fetch observations from a leaf-data route. Generic — works for any EIA series once you know the route. Apply facets to narrow by series, region, fuel type, etc. The agent typically calls browse_route first to find the right route + facet keys.",
+      "method": "GET",
+      "path": "/{route}/data/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "route":         {"type": "string", "description": "Leaf route, e.g. 'petroleum/pri/spt' for petroleum spot prices."},
+          "frequency":     {"type": "string", "enum": ["daily","weekly","monthly","quarterly","annual"], "description": "Resample frequency."},
+          "data[0]":       {"type": "string", "description": "Data column to return — 'value' is the standard."},
+          "facets[series][]": {"type": "string", "description": "Series filter (route-specific). E.g. for petroleum/pri/spt: RWTC (WTI Cushing) or RBRTE (Brent)."},
+          "start":         {"type": "string", "description": "YYYY-MM-DD or YYYY-MM. Lower bound."},
+          "end":           {"type": "string", "description": "Upper bound."},
+          "sort[0][column]": {"type": "string", "default": "period"},
+          "sort[0][direction]": {"type": "string", "enum": ["asc","desc"], "default": "desc"},
+          "length":        {"type": "integer", "default": 5000, "description": "Max rows (default 5000, max ~5000 per page)."},
+          "offset":        {"type": "integer", "default": 0}
+        },
+        "required": ["route"]
+      }
+    },
+    {
+      "name": "petroleum_spot_prices",
+      "description": "Helper for the most-asked-for series: petroleum spot prices (WTI, Brent, and refined products). Calls /petroleum/pri/spt/data with the right facets. Series codes: RWTC (WTI Cushing OK), RBRTE (Brent spot), EER_EPMRU_PF4_RGC_DPG (RBOB gasoline), EER_EPD2DXL0_PF4_RGC_DPG (Distillate).",
+      "method": "GET",
+      "path": "/petroleum/pri/spt/data/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "frequency": {"type": "string", "enum": ["daily","weekly","monthly","annual"], "default": "daily"},
+          "data[0]":   {"type": "string", "default": "value"},
+          "facets[series][]": {"type": "string", "default": "RWTC"},
+          "start":     {"type": "string"},
+          "end":       {"type": "string"},
+          "length":    {"type": "integer", "default": 100}
+        }
+      }
+    },
+    {
+      "name": "natural_gas_prices",
+      "description": "Helper: Henry Hub + other natural gas spot prices. Calls /natural-gas/pri/fut/data with futures or /natural-gas/pri/sum/data for spot summary. Henry Hub spot series = RNGWHHD.",
+      "method": "GET",
+      "path": "/natural-gas/pri/sum/data/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "frequency": {"type": "string", "enum": ["daily","weekly","monthly","annual"], "default": "daily"},
+          "data[0]":   {"type": "string", "default": "value"},
+          "facets[series][]": {"type": "string", "default": "RNGWHHD"},
+          "start":     {"type": "string"},
+          "end":       {"type": "string"},
+          "length":    {"type": "integer", "default": 100}
+        }
+      }
+    },
+    {
+      "name": "electricity_retail_sales",
+      "description": "Helper: US retail electricity sales by state + sector. Useful for tracking economic activity proxies + crypto-mining-region demand.",
+      "method": "GET",
+      "path": "/electricity/retail-sales/data/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "frequency": {"type": "string", "enum": ["monthly","quarterly","annual"], "default": "monthly"},
+          "data[0]":   {"type": "string", "default": "sales"},
+          "facets[stateid][]": {"type": "string", "description": "Two-letter state code (US, TX, CA, ...). Default: US (national total)."},
+          "facets[sectorid][]": {"type": "string", "description": "ALL, IND (industrial), COM (commercial), RES (residential), TRA (transport)."},
+          "start":     {"type": "string"},
+          "end":       {"type": "string"},
+          "length":    {"type": "integer", "default": 100}
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "browse_route"
+  }
+}

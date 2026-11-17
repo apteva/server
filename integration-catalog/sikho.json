@@ -1,0 +1,258 @@
+{
+  "slug": "sikho",
+  "name": "Sikho.ai",
+  "description": "Sikho.ai Creator/Publisher API for programmatically creating marketplace courses, bulk-importing modules and lessons, uploading structured lesson sections, and generating course content with AI. The current public API does not expose course pricing or Stripe Connect setup; configure selling and final marketplace publication in the Sikho creator dashboard after the course content is ready.",
+  "logo": "https://www.google.com/s2/favicons?domain=sikho.ai&sz=128",
+  "categories": ["marketplace", "courses", "education", "creator-economy", "ai-generation", "digital-products"],
+  "base_url": "https://sikho.ai/api/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Sikho Creator API key beginning with sk_live_. Generate it from the Developer section after verifying your email."
+      }
+    ]
+  },
+  "health_check": { "tool": "get_profile" },
+  "tools": [
+    {
+      "name": "get_profile",
+      "description": "Get the authenticated Sikho creator profile and account tier.",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_quota",
+      "description": "Get current Sikho API quota usage, remaining daily units, and AI credit balance before bulk imports or generation.",
+      "method": "GET",
+      "path": "/me/quota",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_my_courses",
+      "description": "List courses owned by the authenticated creator.",
+      "method": "GET",
+      "path": "/me/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+          "status": { "type": "string", "enum": ["draft", "published", "archived"] }
+        }
+      }
+    },
+    {
+      "name": "list_courses",
+      "description": "List the authenticated creator's Sikho courses with status, category, and text search filters.",
+      "method": "GET",
+      "path": "/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "default": 1 },
+          "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+          "status": { "type": "string", "enum": ["draft", "published", "archived"] },
+          "category": { "type": "string" },
+          "q": { "type": "string", "description": "Search title and description." }
+        }
+      }
+    },
+    {
+      "name": "get_course",
+      "description": "Retrieve one Sikho course with all modules and lessons. Use this after mutations to inspect the complete structure.",
+      "method": "GET",
+      "path": "/courses/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_course",
+      "description": "Create a draft Sikho course. Add modules and lessons next, or use bulk_create_course to create the whole structure at once.",
+      "method": "POST",
+      "path": "/courses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 3, "maxLength": 500 },
+          "description": { "type": "string" },
+          "short_description": { "type": "string", "maxLength": 500 },
+          "category": { "type": "string", "default": "general" },
+          "difficulty_level": { "type": "string", "default": "beginner" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "language": { "type": "string", "default": "en" },
+          "course_type": { "type": "string", "default": "intensive" }
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "update_course",
+      "description": "Update Sikho course metadata. The published API currently does not expose price or marketplace-listing settings.",
+      "method": "PATCH",
+      "path": "/courses/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string", "minLength": 3, "maxLength": 500 },
+          "description": { "type": "string" },
+          "category": { "type": "string" },
+          "difficulty_level": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "delete_course",
+      "description": "Delete a Sikho course. Paid courses with existing buyers may need to be archived in the dashboard instead so buyer access is preserved.",
+      "method": "DELETE",
+      "path": "/courses/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } }, "required": ["id"] }
+    },
+    {
+      "name": "bulk_create_course",
+      "description": "Create a complete Sikho course with nested modules, lessons, and available content sections in one API call. This is the most efficient route for importing an agent-generated course. It consumes 500 quota units.",
+      "method": "POST",
+      "path": "/courses/bulk",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "course": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "category": { "type": "string" },
+              "difficulty_level": { "type": "string" },
+              "status": { "type": "string", "enum": ["draft", "published", "archived"], "default": "draft" }
+            },
+            "required": ["title"]
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "description": { "type": "string" },
+                "lessons": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": { "type": "string" },
+                      "study_material": { "type": "string", "description": "Primary lesson text." },
+                      "video": { "type": "object", "additionalProperties": true, "description": "Sikho video-section object, commonly containing a selected or external video reference." },
+                      "quiz": { "type": "object", "additionalProperties": true },
+                      "resources": { "type": "object", "additionalProperties": true },
+                      "practice": { "type": "object", "additionalProperties": true },
+                      "summary": { "type": "object", "additionalProperties": true }
+                    },
+                    "required": ["title"]
+                  }
+                }
+              },
+              "required": ["title"]
+            }
+          }
+        },
+        "required": ["course", "modules"]
+      }
+    },
+    {
+      "name": "create_module",
+      "description": "Add a module to an existing Sikho course.",
+      "method": "POST",
+      "path": "/courses/{courseId}/modules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "courseId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["courseId", "title"]
+      }
+    },
+    {
+      "name": "delete_module",
+      "description": "Delete a Sikho module and all lessons within it.",
+      "method": "DELETE",
+      "path": "/modules/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } }, "required": ["id"] }
+    },
+    {
+      "name": "create_lesson",
+      "description": "Add an empty lesson to a Sikho module, then populate its six content sections with upload_lesson_content or AI generation tools.",
+      "method": "POST",
+      "path": "/modules/{moduleId}/lessons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "moduleId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "lesson_type": { "type": "string" },
+          "estimated_duration": { "type": "integer", "minimum": 0, "description": "Estimated lesson duration in minutes." }
+        },
+        "required": ["moduleId", "title"]
+      }
+    },
+    {
+      "name": "delete_lesson",
+      "description": "Delete a Sikho lesson.",
+      "method": "DELETE",
+      "path": "/lessons/{id}",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } }, "required": ["id"] }
+    },
+    {
+      "name": "upload_lesson_content",
+      "description": "Set one lesson content section. study_material accepts a string; video, quiz, resources, practice, and summary accept the structured JSON object documented/returned by Sikho. This route replaces the selected section.",
+      "method": "PUT",
+      "path": "/lessons/{id}/content/{sectionType}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sectionType": { "type": "string", "enum": ["study_material", "video", "quiz", "resources", "practice", "summary"] },
+          "content": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "object", "additionalProperties": true }
+            ],
+            "description": "String for study_material; provider-shaped object for all other sections."
+          }
+        },
+        "required": ["id", "sectionType", "content"]
+      }
+    },
+    {
+      "name": "generate_lesson_content",
+      "description": "Generate one Sikho lesson section with AI. Generation consumes credits; call get_quota first for predictable automation.",
+      "method": "POST",
+      "path": "/lessons/{id}/generate/{contentType}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "contentType": { "type": "string", "enum": ["study_material", "resources", "video", "quiz", "practice", "summary"] }
+        },
+        "required": ["id", "contentType"]
+      }
+    },
+    {
+      "name": "generate_full_lesson",
+      "description": "Generate all six Sikho lesson sections with AI in one call. This is the highest-credit lesson operation; check quota first.",
+      "method": "POST",
+      "path": "/lessons/{id}/generate-full",
+      "input_schema": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" } }, "required": ["id"] }
+    }
+  ]
+}

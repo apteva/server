@@ -1,0 +1,100 @@
+{
+  "slug": "nvidia-nim",
+  "name": "NVIDIA NIM",
+  "description": "OpenAI-compatible inference for models hosted on NVIDIA NIM (integrate.api.nvidia.com). Bearer-token auth; serves both as an agent runtime backend and as a callable chat/completions integration.",
+  "logo": "https://www.google.com/s2/favicons?domain=nvidia.com&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "nvidia",
+    "chat",
+    "inference"
+  ],
+  "base_url": "https://integrate.api.nvidia.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Your NVIDIA NIM API key — create one at https://build.nvidia.com"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create a chat completion via POST /chat/completions. OpenAI-compatible request and response shape.",
+      "method": "POST",
+      "path": "/chat/completions",
+      "timeout_ms": 300000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Model ID, e.g. meta/llama-3.3-70b-instruct. Call list_models for the live set."
+          },
+          "messages": {
+            "type": "array",
+            "description": "Conversation so far, as OpenAI-style {role, content} objects.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "One of system, user, assistant, tool."
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Message text."
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Maximum tokens to generate."
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature, 0–2."
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List models available to this account via GET /models.",
+      "method": "GET",
+      "path": "/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  },
+  "runtime": {
+    "role": "llm",
+    "provider_key": "nvidia",
+    "env": {
+      "NVIDIA_API_KEY": "{{credentials.token}}"
+    }
+  }
+}

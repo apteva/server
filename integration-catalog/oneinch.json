@@ -1,0 +1,94 @@
+{
+  "slug": "oneinch",
+  "name": "1inch DEX Aggregator",
+  "description": "Multi-chain DEX aggregator \u2014 best swap quotes across 400+ liquidity sources on Ethereum, BSC, Polygon, Arbitrum, Optimism, and more.",
+  "logo": "https://www.google.com/s2/favicons?domain=1inch.io&sz=128",
+  "categories": [
+    "dex",
+    "aggregator",
+    "swap",
+    "defi",
+    "multi-chain"
+  ],
+  "base_url": "https://api.1inch.dev",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_quote",
+      "description": "Get the best swap quote across all DEX sources on a given chain. Chain IDs: 1=Ethereum, 56=BSC, 137=Polygon, 42161=Arbitrum, 10=Optimism, 8453=Base.",
+      "method": "GET",
+      "path": "/get-quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "description": "Chain ID (1=ETH, 56=BSC, 137=Polygon, 42161=Arbitrum, 10=Optimism, 8453=Base)",
+            "default": 1
+          },
+          "src": {
+            "type": "string",
+            "description": "Source token address (ETH: 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE)"
+          },
+          "dst": {
+            "type": "string",
+            "description": "Destination token address"
+          },
+          "amount": {
+            "type": "string",
+            "description": "Amount in smallest unit (wei for ETH)"
+          }
+        },
+        "required": [
+          "chainId",
+          "src",
+          "dst",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "get_tokens",
+      "description": "Get all supported tokens on a chain with addresses, symbols, and decimals.",
+      "method": "GET",
+      "path": "/get-tokens",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "default": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "get_liquidity_sources",
+      "description": "Get all available liquidity sources (DEXs) on a chain.",
+      "method": "GET",
+      "path": "/get-liquidity-sources",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "default": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,1486 @@
+{
+  "slug": "expo-eas",
+  "name": "Expo EAS",
+  "description": "Manage Expo EAS projects, Android/iOS build jobs, artifacts, and Git-backed EAS Workflows through the GraphQL API used by the official EAS CLI. Direct native-build jobs require an already prepared project archive and signing inputs; this integration does not run local prebuild, resolve eas.json, or package source files. Use a configured EAS Workflow for repository-based builds.",
+  "logo": "https://www.google.com/s2/favicons?domain=expo.dev&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "builds"
+  ],
+  "base_url": "https://api.expo.dev",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "type": "password",
+        "required": true,
+        "description": "Create an Expo personal access token at expo.dev/accounts/<account>/settings/access-tokens, or use an organization robot token. Use the same token as EXPO_TOKEN in EAS CLI."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Verify the token and identify the current user or robot actor.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query CurrentActor { meActor { __typename id } }"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.meActor"
+    },
+    {
+      "name": "get_project",
+      "description": "Get an existing Expo project by its EAS project UUID.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "description": "extra.eas.projectId in Expo app config."
+          }
+        },
+        "required": [
+          "appId"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query ProjectById($appId: String!) { app { byId(appId: $appId) { id name slug ownerAccount { id name } } } }"
+        },
+        "include_fields": {
+          "appId": "variables.appId"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.app.byId"
+    },
+    {
+      "name": "get_project_by_name",
+      "description": "Resolve an Expo project UUID from its full @owner/slug name.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "description": "For example @acme/my-app."
+          }
+        },
+        "required": [
+          "fullName"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query ProjectByName($fullName: String!) { app { byFullName(fullName: $fullName) { id name slug ownerAccount { id name } } } }"
+        },
+        "include_fields": {
+          "fullName": "variables.fullName"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.app.byFullName"
+    },
+    {
+      "name": "list_builds",
+      "description": "List project builds. Supply limit and offset explicitly; filter by platform, status, or build profile.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "filter": {
+            "type": "object",
+            "properties": {
+              "appBuildVersion": {
+                "type": "string"
+              },
+              "appIdentifier": {
+                "type": "string"
+              },
+              "appVersion": {
+                "type": "string"
+              },
+              "buildProfile": {
+                "type": "string"
+              },
+              "channel": {
+                "type": "string"
+              },
+              "developmentClient": {
+                "type": "boolean"
+              },
+              "distribution": {
+                "type": "string",
+                "enum": [
+                  "INTERNAL",
+                  "SIMULATOR",
+                  "STORE"
+                ]
+              },
+              "fingerprintHash": {
+                "type": "string"
+              },
+              "gitCommitHash": {
+                "type": "string"
+              },
+              "hasFingerprint": {
+                "type": "boolean"
+              },
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "ANDROID",
+                  "IOS"
+                ]
+              },
+              "runtimeVersion": {
+                "type": "string"
+              },
+              "sdkVersion": {
+                "type": "string"
+              },
+              "simulator": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "CANCELED",
+                  "ERRORED",
+                  "FINISHED",
+                  "IN_PROGRESS",
+                  "IN_QUEUE",
+                  "NEW",
+                  "PENDING_CANCEL"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "appId",
+          "limit",
+          "offset"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query ProjectBuilds($appId: String!, $limit: Int!, $offset: Int!, $filter: BuildFilter) { app { byId(appId: $appId) { builds(limit: $limit, offset: $offset, filter: $filter) { id status platform createdAt completedAt buildProfile appIdentifier appVersion appBuildVersion gitCommitHash message error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl xcodeBuildLogsUrl } logFiles } } } }"
+        },
+        "include_fields": {
+          "appId": "variables.appId",
+          "limit": "variables.limit",
+          "offset": "variables.offset",
+          "filter": "variables.filter"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.app.byId.builds"
+    },
+    {
+      "name": "get_build",
+      "description": "Poll a build and retrieve artifact URLs, log-file URLs, and errors. FINISHED, ERRORED, and CANCELED are terminal states.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildId"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query BuildById($buildId: ID!) { builds { byId(buildId: $buildId) { id status platform createdAt completedAt buildProfile appIdentifier appVersion appBuildVersion gitCommitHash message error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl xcodeBuildLogsUrl } logFiles } } }"
+        },
+        "include_fields": {
+          "buildId": "variables.buildId"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.builds.byId"
+    },
+    {
+      "name": "create_android_build",
+      "description": "Create a native Android build from a prepared job. Prepare/upload the source archive and signing material first; an accessible projectArchive of type URL is supported. For repository-driven builds prefer start_workflow. This consumes EAS build usage.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          },
+          "job": {
+            "type": "object",
+            "properties": {
+              "applicationArchivePath": {
+                "type": "string"
+              },
+              "artifactPath": {
+                "type": "string",
+                "description": "@deprecated"
+              },
+              "buildArtifactPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "buildProfile": {
+                "type": "string"
+              },
+              "buildType": {
+                "type": "string",
+                "enum": [
+                  "APK",
+                  "APP_BUNDLE",
+                  "DEVELOPMENT_CLIENT"
+                ]
+              },
+              "builderEnvironment": {
+                "type": "object",
+                "properties": {
+                  "bun": {
+                    "type": "string"
+                  },
+                  "corepack": {
+                    "type": "boolean"
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "expoCli": {
+                    "type": "string"
+                  },
+                  "image": {
+                    "type": "string"
+                  },
+                  "ndk": {
+                    "type": "string"
+                  },
+                  "node": {
+                    "type": "string"
+                  },
+                  "pnpm": {
+                    "type": "string"
+                  },
+                  "yarn": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "cache": {
+                "type": "object",
+                "properties": {
+                  "clear": {
+                    "type": "boolean"
+                  },
+                  "disabled": {
+                    "type": "boolean"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "customBuildConfig": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "developmentClient": {
+                "type": "boolean"
+              },
+              "environment": {
+                "type": "string"
+              },
+              "experimental": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "gradleCommand": {
+                "type": "string"
+              },
+              "loggerLevel": {
+                "type": "string",
+                "enum": [
+                  "DEBUG",
+                  "ERROR",
+                  "FATAL",
+                  "INFO",
+                  "TRACE",
+                  "WARN"
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "BUILD",
+                  "CUSTOM",
+                  "LOCAL",
+                  "REPACK",
+                  "RESIGN"
+                ]
+              },
+              "projectArchive": {
+                "type": "object",
+                "properties": {
+                  "bucketKey": {
+                    "type": "string"
+                  },
+                  "gitRef": {
+                    "type": "string"
+                  },
+                  "metadataLocation": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "GCS",
+                      "GIT",
+                      "NONE",
+                      "URL"
+                    ]
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              "projectRootDirectory": {
+                "type": "string"
+              },
+              "releaseChannel": {
+                "type": "string"
+              },
+              "secrets": {
+                "type": "object",
+                "properties": {
+                  "buildCredentials": {
+                    "type": "object",
+                    "properties": {
+                      "keystore": {
+                        "type": "object",
+                        "properties": {
+                          "dataBase64": {
+                            "type": "string"
+                          },
+                          "keyAlias": {
+                            "type": "string"
+                          },
+                          "keyPassword": {
+                            "type": "string"
+                          },
+                          "keystorePassword": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "dataBase64",
+                          "keyAlias",
+                          "keystorePassword"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "keystore"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "triggeredBy": {
+                "type": "string",
+                "enum": [
+                  "EAS_CLI",
+                  "GIT_BASED_INTEGRATION"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "GENERIC",
+                  "MANAGED",
+                  "UNKNOWN"
+                ]
+              },
+              "updates": {
+                "type": "object",
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "username": {
+                "type": "string"
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "versionCode": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "versionCode"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "projectArchive",
+              "projectRootDirectory",
+              "type"
+            ],
+            "additionalProperties": false,
+            "description": "Prepared EAS worker job. type is GENERIC or MANAGED; projectArchive describes an uploaded/archive URL or configured Git source. projectRootDirectory is relative to the archive. Provide platform signing secrets for device/release builds. This does not resolve a local eas.json profile."
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "appBuildVersion": {
+                "type": "string"
+              },
+              "appIdentifier": {
+                "type": "string"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "appVersion": {
+                "type": "string"
+              },
+              "buildProfile": {
+                "type": "string"
+              },
+              "channel": {
+                "type": "string"
+              },
+              "cliVersion": {
+                "type": "string"
+              },
+              "credentialsSource": {
+                "type": "string",
+                "enum": [
+                  "LOCAL",
+                  "REMOTE"
+                ]
+              },
+              "customNodeVersion": {
+                "type": "string"
+              },
+              "customWorkflowName": {
+                "type": "string"
+              },
+              "developmentClient": {
+                "type": "boolean"
+              },
+              "distribution": {
+                "type": "string",
+                "enum": [
+                  "INTERNAL",
+                  "SIMULATOR",
+                  "STORE"
+                ]
+              },
+              "environment": {
+                "type": "string"
+              },
+              "expoPackageVersion": {
+                "type": "string"
+              },
+              "fingerprintHash": {
+                "type": "string"
+              },
+              "fingerprintSource": {
+                "type": "object",
+                "properties": {
+                  "bucketKey": {
+                    "type": "string"
+                  },
+                  "isDebugFingerprint": {
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "GCS"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "gitCommitHash": {
+                "type": "string"
+              },
+              "gitCommitMessage": {
+                "type": "string"
+              },
+              "iosEnterpriseProvisioning": {
+                "type": "string",
+                "enum": [
+                  "ADHOC",
+                  "UNIVERSAL"
+                ]
+              },
+              "isGitWorkingTreeDirty": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "projectMetadataFile": {
+                "type": "object",
+                "properties": {
+                  "bucketKey": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "GCS",
+                      "GIT",
+                      "NONE",
+                      "URL"
+                    ]
+                  }
+                },
+                "required": [
+                  "bucketKey",
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              "reactNativeVersion": {
+                "type": "string"
+              },
+              "releaseChannel": {
+                "type": "string"
+              },
+              "requiredPackageManager": {
+                "type": "string"
+              },
+              "runFromCI": {
+                "type": "boolean"
+              },
+              "runWithNoWaitFlag": {
+                "type": "boolean"
+              },
+              "runtimeVersion": {
+                "type": "string"
+              },
+              "sdkVersion": {
+                "type": "string"
+              },
+              "simulator": {
+                "type": "boolean"
+              },
+              "trackingContext": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string",
+                "enum": [
+                  "GENERIC",
+                  "MANAGED",
+                  "UNKNOWN"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "buildParams": {
+            "type": "object",
+            "properties": {
+              "reactNativeVersion": {
+                "type": "string"
+              },
+              "resourceClass": {
+                "type": "string",
+                "enum": [
+                  "ANDROID_DEFAULT",
+                  "ANDROID_LARGE",
+                  "ANDROID_MEDIUM",
+                  "IOS_DEFAULT",
+                  "IOS_LARGE",
+                  "IOS_MEDIUM",
+                  "IOS_M_LARGE",
+                  "IOS_M_MEDIUM",
+                  "LEGACY",
+                  "LINUX_LARGE",
+                  "LINUX_MEDIUM"
+                ]
+              },
+              "sdkVersion": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "resourceClass"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "appId",
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "mutation CreateAndroidBuild($appId: ID!, $job: AndroidJobInput!, $metadata: BuildMetadataInput, $buildParams: BuildParamsInput) { build { createAndroidBuild(appId: $appId, job: $job, metadata: $metadata, buildParams: $buildParams) { build { id status platform createdAt completedAt buildProfile appIdentifier appVersion appBuildVersion gitCommitHash message error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl xcodeBuildLogsUrl } logFiles } deprecationInfo { type message } } } }"
+        },
+        "include_fields": {
+          "appId": "variables.appId",
+          "job": "variables.job",
+          "metadata": "variables.metadata",
+          "buildParams": "variables.buildParams"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.build.createAndroidBuild"
+    },
+    {
+      "name": "create_ios_build",
+      "description": "Create a signed iOS or simulator build from a prepared job. Prepare/upload the source archive and signing material first; an accessible projectArchive of type URL is supported. For repository-driven builds prefer start_workflow. This consumes EAS build usage.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          },
+          "job": {
+            "type": "object",
+            "properties": {
+              "applicationArchivePath": {
+                "type": "string"
+              },
+              "artifactPath": {
+                "type": "string",
+                "description": "@deprecated"
+              },
+              "buildArtifactPaths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "buildConfiguration": {
+                "type": "string"
+              },
+              "buildProfile": {
+                "type": "string"
+              },
+              "buildType": {
+                "type": "string",
+                "enum": [
+                  "DEVELOPMENT_CLIENT",
+                  "RELEASE"
+                ],
+                "description": "@deprecated"
+              },
+              "builderEnvironment": {
+                "type": "object",
+                "properties": {
+                  "bun": {
+                    "type": "string"
+                  },
+                  "bundler": {
+                    "type": "string"
+                  },
+                  "cocoapods": {
+                    "type": "string"
+                  },
+                  "corepack": {
+                    "type": "boolean"
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "expoCli": {
+                    "type": "string"
+                  },
+                  "fastlane": {
+                    "type": "string"
+                  },
+                  "image": {
+                    "type": "string"
+                  },
+                  "node": {
+                    "type": "string"
+                  },
+                  "pnpm": {
+                    "type": "string"
+                  },
+                  "yarn": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "cache": {
+                "type": "object",
+                "properties": {
+                  "clear": {
+                    "type": "boolean"
+                  },
+                  "disabled": {
+                    "type": "boolean"
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "customBuildConfig": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              },
+              "developmentClient": {
+                "type": "boolean"
+              },
+              "distribution": {
+                "type": "string",
+                "enum": [
+                  "INTERNAL",
+                  "SIMULATOR",
+                  "STORE"
+                ],
+                "description": "@deprecated"
+              },
+              "environment": {
+                "type": "string"
+              },
+              "experimental": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "loggerLevel": {
+                "type": "string",
+                "enum": [
+                  "DEBUG",
+                  "ERROR",
+                  "FATAL",
+                  "INFO",
+                  "TRACE",
+                  "WARN"
+                ]
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "BUILD",
+                  "CUSTOM",
+                  "LOCAL",
+                  "REPACK",
+                  "RESIGN"
+                ]
+              },
+              "projectArchive": {
+                "type": "object",
+                "properties": {
+                  "bucketKey": {
+                    "type": "string"
+                  },
+                  "gitRef": {
+                    "type": "string"
+                  },
+                  "metadataLocation": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "GCS",
+                      "GIT",
+                      "NONE",
+                      "URL"
+                    ]
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              "projectRootDirectory": {
+                "type": "string"
+              },
+              "releaseChannel": {
+                "type": "string"
+              },
+              "scheme": {
+                "type": "string"
+              },
+              "secrets": {
+                "type": "object",
+                "properties": {
+                  "buildCredentials": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "distributionCertificate": {
+                          "type": "object",
+                          "properties": {
+                            "dataBase64": {
+                              "type": "string"
+                            },
+                            "password": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "dataBase64",
+                            "password"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "provisioningProfileBase64": {
+                          "type": "string"
+                        },
+                        "targetName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "distributionCertificate",
+                        "provisioningProfileBase64",
+                        "targetName"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "simulator": {
+                "type": "boolean"
+              },
+              "triggeredBy": {
+                "type": "string",
+                "enum": [
+                  "EAS_CLI",
+                  "GIT_BASED_INTEGRATION"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "GENERIC",
+                  "MANAGED",
+                  "UNKNOWN"
+                ]
+              },
+              "updates": {
+                "type": "object",
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "username": {
+                "type": "string"
+              },
+              "version": {
+                "type": "object",
+                "properties": {
+                  "buildNumber": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "buildNumber"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "projectArchive",
+              "projectRootDirectory",
+              "type"
+            ],
+            "additionalProperties": false,
+            "description": "Prepared EAS worker job. type is GENERIC or MANAGED; projectArchive describes an uploaded/archive URL or configured Git source. projectRootDirectory is relative to the archive. Provide platform signing secrets for device/release builds. This does not resolve a local eas.json profile."
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "appBuildVersion": {
+                "type": "string"
+              },
+              "appIdentifier": {
+                "type": "string"
+              },
+              "appName": {
+                "type": "string"
+              },
+              "appVersion": {
+                "type": "string"
+              },
+              "buildProfile": {
+                "type": "string"
+              },
+              "channel": {
+                "type": "string"
+              },
+              "cliVersion": {
+                "type": "string"
+              },
+              "credentialsSource": {
+                "type": "string",
+                "enum": [
+                  "LOCAL",
+                  "REMOTE"
+                ]
+              },
+              "customNodeVersion": {
+                "type": "string"
+              },
+              "customWorkflowName": {
+                "type": "string"
+              },
+              "developmentClient": {
+                "type": "boolean"
+              },
+              "distribution": {
+                "type": "string",
+                "enum": [
+                  "INTERNAL",
+                  "SIMULATOR",
+                  "STORE"
+                ]
+              },
+              "environment": {
+                "type": "string"
+              },
+              "expoPackageVersion": {
+                "type": "string"
+              },
+              "fingerprintHash": {
+                "type": "string"
+              },
+              "fingerprintSource": {
+                "type": "object",
+                "properties": {
+                  "bucketKey": {
+                    "type": "string"
+                  },
+                  "isDebugFingerprint": {
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "GCS"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "gitCommitHash": {
+                "type": "string"
+              },
+              "gitCommitMessage": {
+                "type": "string"
+              },
+              "iosEnterpriseProvisioning": {
+                "type": "string",
+                "enum": [
+                  "ADHOC",
+                  "UNIVERSAL"
+                ]
+              },
+              "isGitWorkingTreeDirty": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              },
+              "projectMetadataFile": {
+                "type": "object",
+                "properties": {
+                  "bucketKey": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "GCS",
+                      "GIT",
+                      "NONE",
+                      "URL"
+                    ]
+                  }
+                },
+                "required": [
+                  "bucketKey",
+                  "type"
+                ],
+                "additionalProperties": false
+              },
+              "reactNativeVersion": {
+                "type": "string"
+              },
+              "releaseChannel": {
+                "type": "string"
+              },
+              "requiredPackageManager": {
+                "type": "string"
+              },
+              "runFromCI": {
+                "type": "boolean"
+              },
+              "runWithNoWaitFlag": {
+                "type": "boolean"
+              },
+              "runtimeVersion": {
+                "type": "string"
+              },
+              "sdkVersion": {
+                "type": "string"
+              },
+              "simulator": {
+                "type": "boolean"
+              },
+              "trackingContext": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string",
+                "enum": [
+                  "GENERIC",
+                  "MANAGED",
+                  "UNKNOWN"
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "buildParams": {
+            "type": "object",
+            "properties": {
+              "reactNativeVersion": {
+                "type": "string"
+              },
+              "resourceClass": {
+                "type": "string",
+                "enum": [
+                  "ANDROID_DEFAULT",
+                  "ANDROID_LARGE",
+                  "ANDROID_MEDIUM",
+                  "IOS_DEFAULT",
+                  "IOS_LARGE",
+                  "IOS_MEDIUM",
+                  "IOS_M_LARGE",
+                  "IOS_M_MEDIUM",
+                  "LEGACY",
+                  "LINUX_LARGE",
+                  "LINUX_MEDIUM"
+                ]
+              },
+              "sdkVersion": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "resourceClass"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "appId",
+          "job"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "mutation CreateIosBuild($appId: ID!, $job: IosJobInput!, $metadata: BuildMetadataInput, $buildParams: BuildParamsInput) { build { createIosBuild(appId: $appId, job: $job, metadata: $metadata, buildParams: $buildParams) { build { id status platform createdAt completedAt buildProfile appIdentifier appVersion appBuildVersion gitCommitHash message error { errorCode message docsUrl } artifacts { buildUrl applicationArchiveUrl buildArtifactsUrl xcodeBuildLogsUrl } logFiles } deprecationInfo { type message } } } }"
+        },
+        "include_fields": {
+          "appId": "variables.appId",
+          "job": "variables.job",
+          "metadata": "variables.metadata",
+          "buildParams": "variables.buildParams"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.build.createIosBuild"
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancel a queued or running build.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "buildId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "buildId"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "mutation CancelBuild($buildId: ID!) { build { cancelBuild(buildId: $buildId) { id status } } }"
+        },
+        "include_fields": {
+          "buildId": "variables.buildId"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.build.cancelBuild"
+    },
+    {
+      "name": "list_workflows",
+      "description": "List configured EAS Workflows and their latest workflow revision IDs. A workflow with a build job can trigger Android/iOS builds without supplying a low-level worker job.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "appId"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query ProjectWorkflows($appId: String!) { app { byId(appId: $appId) { workflows { id name fileName revisionsPaginated(first: 1) { edges { node { id commitSha createdAt } } } } } } }"
+        },
+        "include_fields": {
+          "appId": "variables.appId"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.app.byId.workflows"
+    },
+    {
+      "name": "start_workflow",
+      "description": "Run a configured EAS Workflow from a Git branch, tag, or commit. Use a workflowRevisionId from list_workflows. The Expo project must have its GitHub repository connected and the workflow committed. Jobs may build and submit apps according to the workflow YAML.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflowRevisionId": {
+            "type": "string"
+          },
+          "gitRef": {
+            "type": "string",
+            "description": "Git branch, tag, or commit SHA."
+          },
+          "inputs": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Inputs declared in the workflow YAML."
+          }
+        },
+        "required": [
+          "workflowRevisionId",
+          "gitRef"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "mutation StartWorkflow($workflowRevisionId: ID!, $gitRef: String!, $inputs: JSONObject) { workflowRun { createWorkflowRunFromGitRef(workflowRevisionId: $workflowRevisionId, gitRef: $gitRef, inputs: $inputs) { id } } }"
+        },
+        "include_fields": {
+          "workflowRevisionId": "variables.workflowRevisionId",
+          "gitRef": "variables.gitRef",
+          "inputs": "variables.inputs"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.workflowRun.createWorkflowRunFromGitRef"
+    },
+    {
+      "name": "get_workflow_run",
+      "description": "Poll an EAS Workflow run and inspect its jobs and their status.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflowRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflowRunId"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "query WorkflowRunById($workflowRunId: ID!) { workflowRuns { byId(workflowRunId: $workflowRunId) { id status jobs { id status } } } }"
+        },
+        "include_fields": {
+          "workflowRunId": "variables.workflowRunId"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.workflowRuns.byId"
+    },
+    {
+      "name": "cancel_workflow_run",
+      "description": "Cancel an EAS Workflow run.",
+      "method": "POST",
+      "path": "/graphql",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflowRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflowRunId"
+        ],
+        "additionalProperties": false
+      },
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": [],
+        "constants": {
+          "query": "mutation CancelWorkflowRun($workflowRunId: ID!) { workflowRun { cancelWorkflowRun(workflowRunId: $workflowRunId) { id status } } }"
+        },
+        "include_fields": {
+          "workflowRunId": "variables.workflowRunId"
+        }
+      },
+      "response_error": {
+        "type": "graphql",
+        "paths": [
+          "errors"
+        ]
+      },
+      "response_path": "data.workflowRun.cancelWorkflowRun"
+    },
+    {
+      "name": "download_build_artifact",
+      "description": "Download an artifact or log-file URL returned by get_build. The Expo token is not forwarded to the file host.",
+      "method": "GET",
+      "path": "{download_url}",
+      "omit_auth_headers": [
+        "Authorization",
+        "Content-Type",
+        "Accept"
+      ],
+      "response_type": "binary",
+      "timeout_ms": 120000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "Exact provider-returned artifact or logFiles URL."
+          }
+        },
+        "required": [
+          "download_url"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_current_user",
+    "input": {}
+  }
+}

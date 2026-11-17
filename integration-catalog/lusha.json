@@ -1,0 +1,104 @@
+{
+  "slug": "lusha",
+  "name": "Lusha",
+  "description": "Contact data with strong mobile phone coverage. Best when you specifically need direct dials for SDR call campaigns.",
+  "logo": "https://www.google.com/s2/favicons?domain=lusha.com&sz=128",
+  "categories": ["sales", "leads", "enrichment", "phones", "contacts", "b2b"],
+  "base_url": "https://api.lusha.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "api_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Lusha API key from dashboard.lusha.com → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "person_enrich",
+      "description": "Enrich a person — pass linkedinUrl, or (firstName + lastName + companyDomain), or email. Returns work + mobile numbers and emails.",
+      "method": "POST",
+      "path": "/v2/person",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "contactId": { "type": "string", "description": "Your own client-side id, echoed back in the response" },
+                "linkedinUrl": { "type": "string" },
+                "fullName": { "type": "string" },
+                "firstName": { "type": "string" },
+                "lastName": { "type": "string" },
+                "email": { "type": "string" },
+                "companies": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "domain": { "type": "string" }, "isCurrent": { "type": "boolean" } } } }
+              }
+            }
+          }
+        },
+        "required": ["contacts"]
+      }
+    },
+    {
+      "name": "company_enrich",
+      "description": "Enrich a company by domain or name.",
+      "method": "POST",
+      "path": "/v2/company",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Your own client-side id" },
+                "domain": { "type": "string" },
+                "name": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["companies"]
+      }
+    },
+    {
+      "name": "prospecting_search",
+      "description": "Search Lusha's prospecting database for contacts matching firmographic + persona filters.",
+      "method": "POST",
+      "path": "/prospecting/contact/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pages": { "type": "object", "properties": { "page": { "type": "integer" }, "size": { "type": "integer" } } },
+          "filters": {
+            "type": "object",
+            "description": "Object with sub-filters: contacts.include / companies.include — each accepts arrays for jobTitles, seniority, departments, industries, sizes, locations, technologies, etc."
+          }
+        },
+        "required": ["filters"]
+      }
+    },
+    {
+      "name": "prospecting_company_search",
+      "description": "Search prospecting database for companies only.",
+      "method": "POST",
+      "path": "/prospecting/company/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pages": { "type": "object" },
+          "filters": { "type": "object" }
+        },
+        "required": ["filters"]
+      }
+    }
+  ]
+}

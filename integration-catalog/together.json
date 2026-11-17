@@ -1,0 +1,126 @@
+{
+  "slug": "together",
+  "name": "Together AI",
+  "description": "MCP server for Together AI - fast inference, chat, embeddings, images",
+  "logo": "https://www.google.com/s2/favicons?domain=together.ai&sz=128",
+  "categories": [
+    "ai",
+    "inference",
+    "llm",
+    "images"
+  ],
+  "base_url": "https://api.together.xyz/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create a chat completion",
+      "method": "GET",
+      "path": "/chat-completion",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array"
+          },
+          "max_tokens": {
+            "type": "number"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "stream": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "create_embedding",
+      "description": "Create text embeddings",
+      "method": "POST",
+      "path": "/create-embedding",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "input": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model",
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "generate_image",
+      "description": "Generate an image",
+      "method": "GET",
+      "path": "/generate-image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "n": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "model",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available models",
+      "method": "GET",
+      "path": "/list-models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

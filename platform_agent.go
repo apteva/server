@@ -22,6 +22,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
@@ -327,7 +328,31 @@ func (s *Server) resolvePlatformHelperMCPs(userID int64, ids []int64, strict boo
 // a restart or a deleted integration.
 func (s *Server) ensurePlatformHelperRuntimeConfig(helper *Agent) (bool, error) {
 	before := helper.Config
+	// Builder was an experimental Helper dependency and is discontinued. Older
+	// installs may still contain its derived binding; remove it before compiling
+	// the Helper's capabilities so it cannot contribute skills or MCP tools.
+	var builderDetached bool
+	if result, err := s.store.dbExec(`DELETE FROM app_agent_bindings
+		WHERE agent_id=? AND install_id IN (
+			SELECT i.id FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE a.name=?
+		)`, helper.ID, discontinuedHelperAppName); err != nil {
+		return false, fmt.Errorf("remove discontinued Helper app: %w", err)
+	} else if rows, err := result.RowsAffected(); err == nil {
+		builderDetached = rows > 0
+	}
 	ids := helperSelectedGlobalMCPServerIDs(helper)
+	// Older Helper rows also persisted Builder's MCP inventory ID. Drop that
+	// ID from the server-owned selection, otherwise capability compilation would
+	// immediately recreate the discontinued app in the Core config.
+	filteredIDs := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		record, _, err := s.store.GetMCPServer(helper.UserID, id)
+		if err == nil && record != nil && record.Name == discontinuedHelperAppName {
+			continue
+		}
+		filteredIDs = append(filteredIDs, id)
+	}
+	ids = filteredIDs
 	validIDs, selected, err := s.resolvePlatformHelperMCPs(helper.UserID, ids, false)
 	if err != nil {
 		return false, err
@@ -341,7 +366,7 @@ func (s *Server) ensurePlatformHelperRuntimeConfig(helper *Agent) (bool, error) 
 		return false, err
 	}
 	s.ensureEnvironmentMCPOnHelper(helper)
-	return helper.Config != before, nil
+	return helper.Config != before || builderDetached, nil
 }
 
 func helperHasRequiredSystemMCPs(helper *Agent) bool {
@@ -542,18 +567,24 @@ func (s *Server) applyPlatformHelperMCPConfig(helper *Agent) error {
 	if err := json.NewDecoder(resp.Body).Decode(&live); err != nil {
 		return err
 	}
-	next := make([]any, 0, len(helperConfiguredMCPServers(helper))+2)
+	// The gateway is mandatory for Helper. Recreate its current loopback URL
+	// even if a previous Core config lost or retained a stale entry.
+	next := []any{managementGatewayConfig(helper, "", s.port)}
 	if existing, _ := live["mcp_servers"].([]any); len(existing) > 0 {
 		for _, raw := range existing {
 			entry, _ := raw.(map[string]any)
 			name, _ := entry["name"].(string)
-			if name == "apteva-server" || isServerOwnedOutputMCP(name) {
+			if name != "apteva-server" && isServerOwnedOutputMCP(name) {
 				next = append(next, entry)
 			}
 		}
 	}
 	next = append(next, helperConfiguredMCPServers(helper)...)
-	body, _ := json.Marshal(map[string]any{"mcp_servers": next})
+	payload := map[string]any{"mcp_servers": next}
+	if err := s.authorizeAgentMCPConfig(helper, payload); err != nil {
+		return err
+	}
+	body, _ := json.Marshal(payload)
 	req, err = http.NewRequest(http.MethodPut, configURL, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -738,35 +769,42 @@ func (s *Server) refreshPlatformHelperDirective(helper *Agent) error {
 	if port == 0 {
 		return nil
 	}
-	body, _ := json.Marshal(map[string]any{"directive": platformHelperSystemPrompt})
-	url := fmt.Sprintf("http://127.0.0.1:%d/config", port)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(body))
+	// Reuse the generic reconciler so the Helper cannot bypass private control
+	// compilation or accidentally replace Core's MCP list with a partial PUT.
+	unlock := s.lockAgentConfig(helper.ID)
+	defer unlock()
+	latest, err := s.store.GetAgentByID(helper.ID)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if key := s.agents.GetCoreAPIKey(helper.ID); key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
-	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
-	if err != nil {
+	latest.Directive = platformHelperSystemPrompt
+	if err := s.store.UpdateAgent(latest); err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("refresh helper directive http %d: %s", resp.StatusCode, string(raw))
+	if err := s.reconcileAgentBehavior(context.Background(), latest, port); err != nil {
+		return err
 	}
+	*helper = *latest
 	return nil
 }
 
 type platformHelperStatusResponse struct {
-	Activated              bool   `json:"activated"`
-	State                  string `json:"state"`
-	ProviderConfigured     bool   `json:"provider_configured"`
-	ConversationsInstalled bool   `json:"conversations_installed"`
-	ConversationsInstallID int64  `json:"conversations_install_id,omitempty"`
-	Agent                  *Agent `json:"agent,omitempty"`
+	DefaultEnabled         bool                         `json:"default_enabled"`
+	Activated              bool                         `json:"activated"`
+	State                  string                       `json:"state"`
+	ProviderConfigured     bool                         `json:"provider_configured"`
+	ConversationsInstalled bool                         `json:"conversations_installed"`
+	ConversationsInstallID int64                        `json:"conversations_install_id,omitempty"`
+	Agent                  *Agent                       `json:"agent,omitempty"`
+	BuiltInIntegrations    []platformBuiltInIntegration `json:"built_in_integrations"`
+}
+
+type platformBuiltInIntegration struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Logo         string `json:"logo"`
+	AutoAttached bool   `json:"auto_attached"`
 }
 
 func sanitizedPlatformHelper(helper *Agent, running bool) *Agent {
@@ -786,12 +824,12 @@ func sanitizedPlatformHelper(helper *Agent, running bool) *Agent {
 }
 
 func (s *Server) platformHelperConversationsInstall(userID int64) (installID, mcpServerID int64, ok bool) {
-	err := s.store.db.QueryRow(`
+	err := s.store.dbQueryRow(`
 		SELECT i.id, COALESCE(m.id,0)
 		FROM app_installs i
 		JOIN apps a ON a.id=i.app_id
 		LEFT JOIN mcp_servers m ON m.upstream_id='app:' || i.id AND m.source='app' AND COALESCE(m.project_id,'')='' AND m.status='running'
-		WHERE a.name=? AND i.status='running' AND COALESCE(i.project_id,'')=''
+		WHERE a.name=? AND i.is_default=1 AND i.status='running' AND COALESCE(i.project_id,'')=''
 		ORDER BY CASE WHEN i.installed_by=? THEN 0 ELSE 1 END, i.id
 		LIMIT 1`, defaultConversationsApp, userID).Scan(&installID, &mcpServerID)
 	return installID, mcpServerID, err == nil && installID > 0
@@ -832,10 +870,19 @@ func (s *Server) ensurePlatformHelperConversations(userID int64, allowInstall bo
 func (s *Server) currentPlatformHelperStatus(userID int64) platformHelperStatusResponse {
 	installID, _, conversationsInstalled := s.platformHelperConversationsInstall(userID)
 	response := platformHelperStatusResponse{
-		State: "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
+		DefaultEnabled: s.store.GetSetting(helperDefaultSettingKey(userID)) != "disabled",
+		State:          "inactive", ProviderConfigured: len(s.GetProviderPool(userID, "")) > 0,
 		ConversationsInstalled: conversationsInstalled, ConversationsInstallID: installID,
+		BuiltInIntegrations: []platformBuiltInIntegration{{
+			ID: platformMCPName, Name: platformMCPDisplayName,
+			Description: platformMCPDescription,
+			Logo:        platformMCPIconURL, AutoAttached: true,
+		}},
 	}
 	helper, err := s.store.GetPlatformHelper(userID)
+	if err == nil && !platformHelperActivated(helper) {
+		response.DefaultEnabled = false
+	}
 	if err != nil || !platformHelperActivated(helper) {
 		return response
 	}
@@ -857,6 +904,45 @@ func (s *Server) handlePlatformHelperStatus(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, s.currentPlatformHelperStatus(getUserID(r)))
 }
 
+func helperDefaultSettingKey(userID int64) string { return fmt.Sprintf("helper_default:%d", userID) }
+
+func (s *Server) lockPlatformHelperActivation(userID int64) func() {
+	value, _ := s.platformHelperActivationLocks.LoadOrStore(userID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// Dashboard initialization is an explicit POST; status reads remain read-only.
+// Never installs, enables or moves Conversations, and never revives an opt-out.
+func (s *Server) handlePlatformHelperEnsureDefault(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	userID := getUserID(r)
+	if r.Header.Get("X-Apteva-Operator-ID") != itoa(userID) {
+		http.Error(w, "operator session required", 403)
+		return
+	}
+	unlock := s.lockPlatformHelperActivation(userID)
+	defer unlock()
+	status := s.currentPlatformHelperStatus(userID)
+	if cloneQuarantineEnabled() || !status.DefaultEnabled || !status.ConversationsInstalled || !status.ProviderConfigured || status.Activated {
+		writeJSON(w, status)
+		return
+	}
+	installID, mcpID, err := s.ensurePlatformHelperConversations(userID, false)
+	if err == nil {
+		err = s.activatePreparedPlatformHelper(userID, installID, mcpID)
+	}
+	if err != nil {
+		writeJSONStatus(w, 503, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(userID))
+}
+
 func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -873,6 +959,8 @@ func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Req
 		}
 	}
 	userID := getUserID(r)
+	unlock := s.lockPlatformHelperActivation(userID)
+	defer unlock()
 	if len(s.GetProviderPool(userID, "")) == 0 {
 		writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "an LLM provider is required before activating Helper", "code": "provider_required"})
 		return
@@ -893,26 +981,34 @@ func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if err := s.activatePreparedPlatformHelper(userID, installID, conversationsMCPID); err != nil {
+		writeJSONStatus(w, 503, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
+		return
+	}
+	if err := s.store.SetSetting(helperDefaultSettingKey(userID), "enabled"); err != nil {
+		http.Error(w, "save Helper preference", 500)
+		return
+	}
+	writeJSON(w, s.currentPlatformHelperStatus(userID))
+}
+
+func (s *Server) activatePreparedPlatformHelper(userID, installID, conversationsMCPID int64) error {
 	helper, err := s.store.GetOrCreatePlatformHelper(userID, platformHelperSystemPrompt)
 	if err != nil {
-		http.Error(w, "create platform helper: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("create platform helper: %w", err)
 	}
 	setPlatformHelperActivated(helper, true)
 	selected := append(helperSelectedGlobalMCPServerIDs(helper), conversationsMCPID)
 	setHelperSelectedGlobalMCPServerIDs(helper, selected)
 	if _, err := s.ensurePlatformHelperRuntimeConfig(helper); err != nil {
-		http.Error(w, "configure platform helper: "+err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("configure platform helper: %w", err)
 	}
 	if err := s.store.UpdateAgent(helper); err != nil {
-		http.Error(w, "persist platform helper", http.StatusInternalServerError)
-		return
+		return fmt.Errorf("persist platform helper: %w", err)
 	}
-	if _, err := s.store.db.Exec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
+	if _, err := s.store.dbExec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
 		ON CONFLICT(install_id,agent_id) DO UPDATE SET enabled=1`, installID, helper.ID); err != nil {
-		http.Error(w, "attach Conversations to platform helper", http.StatusInternalServerError)
-		return
+		return fmt.Errorf("attach Conversations to platform helper: %w", err)
 	}
 	starter := s.platformHelperStarter
 	if starter == nil {
@@ -920,10 +1016,9 @@ func (s *Server) handlePlatformHelperActivate(w http.ResponseWriter, r *http.Req
 	}
 	helper, err = starter(userID)
 	if err != nil {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "helper_start_failed"})
-		return
+		return err
 	}
-	writeJSON(w, s.currentPlatformHelperStatus(userID))
+	return nil
 }
 
 func (s *Server) handlePlatformHelperDeactivate(w http.ResponseWriter, r *http.Request) {
@@ -932,6 +1027,12 @@ func (s *Server) handlePlatformHelperDeactivate(w http.ResponseWriter, r *http.R
 		return
 	}
 	userID := getUserID(r)
+	unlock := s.lockPlatformHelperActivation(userID)
+	defer unlock()
+	if err := s.store.SetSetting(helperDefaultSettingKey(userID), "disabled"); err != nil {
+		http.Error(w, "save Helper preference", 500)
+		return
+	}
 	helper, err := s.store.GetPlatformHelper(userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeJSON(w, s.currentPlatformHelperStatus(userID))
@@ -974,7 +1075,7 @@ const platformHelperBasePrompt = `You are Apteva Helper, the platform assistant 
 
 Help the operator understand the current page, design agents, create and manage agents, choose apps, integrations, and MCP servers, and inspect recent agent activity. Be concise and practical. User-facing dashboard conversations have their own durable reply capability and perform available control-plane mutations directly. Main has no internal chat-reply tool; when main receives an action-required request from a conversation, perform the durable work and return its result with the core send tool to that originating conversation. When the operator asks you to create or manage agents, ask briefly for missing details, then use the apteva-server MCP tools such as agents_create, agents_list, agents_start, agents_stop, agents_delete, agents_update, mcp_servers_list, and agent_list_activity when appropriate.
 
-For workspace setup, use setup_presets_list and setup_preview to explore the user's selected preset or recommend one. Read the current project's agents and apps before proposing changes. When a setup conversation opens with no user message, proactively send a brief welcome and ask what the user wants to accomplish; this is an intentional proactive check, not a dashboard-generated prompt. Ask concise questions about missing goals, show the proposed agents, apps, required connections and recommended interface from the preset, and wait for the user to agree to the concrete setup before calling setup_apply. Explain that interface recommendations affect only the current user at the end of onboarding; later preset installs preserve their interface. Include the agreed interface_level in setup_apply if the user overrides the recommendation. Use the exact project ID supplied by the setup conversation. Inspect returned warnings and agent status; explain unfinished work and help resolve it without duplicating resources. Keep the conversation with Helper while configuring the workspace; do not create a generic starter assistant merely to begin setup.`
+For workspace onboarding, prefer the real staged-workspace flow over a prose plan or setup_preview. Read the current project's agents and apps first. When the setup conversation identifies an agent the operator wants, create or update that real agent immediately with the apteva-server agents_create/agents_update tools, using start=false and a stable idempotency_key such as onboarding:<project_id>:<role>. Include config {"onboarding_staged":true} so the dashboard can distinguish it from unrelated agents. Install safe required apps when needed and report any missing connection or permission explicitly. Do not claim an agent was added unless the authoritative tool receipt confirms it. The onboarding sidebar reads actual project agents/apps/connections/skills, so keep those resources authoritative and current. The operator's Review workspace action is the confirmation boundary: do not start staged agents before that action. After confirmation, staged agents are activated by the dashboard; simulations may then run against those exact agents through Environments and Evals. Use setup_presets_list/setup_preview only for the manual preset browser or compatibility with older clients, not as the source of truth for an active AI onboarding conversation. If the operator asks for a change, update the staged resources in place rather than describing a hypothetical plan. Use the exact project ID supplied by the setup conversation. When a setup conversation opens with no user message, proactively send a brief welcome and ask what the user wants to accomplish; this is an intentional proactive check, not a dashboard-generated prompt. Keep the conversation with Helper while configuring the workspace; do not create a generic starter assistant merely to begin setup.`
 
 var platformHelperSystemPrompt = platformHelperBasePrompt + "\n\n" + aptevaHelperSkill
 

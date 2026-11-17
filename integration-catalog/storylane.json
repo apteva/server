@@ -1,0 +1,180 @@
+{
+  "slug": "storylane",
+  "name": "Storylane",
+  "description": "MCP server for Storylane interactive product demos \u2014 list demos, manage demo links with personalization and access controls",
+  "logo": "https://www.google.com/s2/favicons?domain=storylane.io&sz=128",
+  "categories": [
+    "demo-automation",
+    "interactive-demos",
+    "product-demos",
+    "sales-enablement"
+  ],
+  "base_url": "https://api.storylane.io/api/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "workspace_id",
+        "label": "workspace_id"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_demos",
+      "description": "List all published demos in your Storylane workspace",
+      "method": "GET",
+      "path": "/list-demos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Your Storylane workspace ID"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "get_demo",
+      "description": "Get detailed information about a specific demo including type (image/HTML), creation date, and conversion CTA settings",
+      "method": "GET",
+      "path": "/get-demo",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Your Storylane workspace ID"
+          },
+          "demoId": {
+            "type": "string",
+            "description": "ID of the demo to retrieve"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "demoId"
+        ]
+      }
+    },
+    {
+      "name": "list_demo_links",
+      "description": "List all shareable links associated with a specific demo, including personalization tokens, passcodes, and expiration settings",
+      "method": "GET",
+      "path": "/list-demo-links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Your Storylane workspace ID"
+          },
+          "demoId": {
+            "type": "string",
+            "description": "ID of the demo"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "demoId"
+        ]
+      }
+    },
+    {
+      "name": "create_demo_link",
+      "description": "Create a new shareable link for a demo. Links can include email personalization, passcode protection, and expiration dates.",
+      "method": "POST",
+      "path": "/create-demo-link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Your Storylane workspace ID"
+          },
+          "demoId": {
+            "type": "string",
+            "description": "ID of the demo to create a link for"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name/label for the link (e.g., prospect name or campaign)"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email for personalization \u2014 pre-fills email fields in the demo"
+          },
+          "passcode": {
+            "type": "string",
+            "description": "Optional passcode to protect access to the demo"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "Expiration date (ISO 8601) after which the link is disabled"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "demoId"
+        ]
+      }
+    },
+    {
+      "name": "update_demo_link",
+      "description": "Update an existing demo link's settings (passcode, expiration, personalization tokens)",
+      "method": "PATCH",
+      "path": "/update-demo-link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Your Storylane workspace ID"
+          },
+          "demoId": {
+            "type": "string",
+            "description": "ID of the demo"
+          },
+          "linkId": {
+            "type": "string",
+            "description": "ID of the link to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated link name"
+          },
+          "passcode": {
+            "type": "string",
+            "description": "New or updated passcode"
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "New expiration date (ISO 8601)"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Enable or disable the link"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "demoId",
+          "linkId"
+        ]
+      }
+    }
+  ]
+}

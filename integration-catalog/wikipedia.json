@@ -1,0 +1,112 @@
+{
+  "slug": "wikipedia",
+  "name": "Wikipedia",
+  "description": "Free encyclopedia API — page lookups, search, and the recent-changes firehose. Wikipedia updates remarkably fast on major real-world events (deaths, election outcomes, breaking news) — often within minutes — making it a surprisingly good 'has X happened?' sentinel for prediction markets. The recent-changes feed is the canonical way to monitor for sudden edits to a specific article. No auth required, just a polite User-Agent.",
+  "logo": "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128",
+  "categories": [
+    "knowledge",
+    "research",
+    "news",
+    "public-data",
+    "encyclopedia"
+  ],
+  "base_url": "https://en.wikipedia.org",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "User-Agent": "Apteva-Trading-Agent/1.0 (https://apteva.com)",
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "page_summary",
+      "description": "Lead-paragraph summary of a Wikipedia article. Returns title, description, extract (first paragraph plain text), thumbnail, and last-modified timestamp. Use as a cheap LLM-friendly snapshot of any noun phrase ('Federal Reserve', 'Donald Trump', 'Bitcoin'). Disambiguation pages return a list of candidates.",
+      "method": "GET",
+      "path": "/api/rest_v1/page/summary/{title}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "description": "Article title — URL-safe form. Spaces become underscores."}
+        },
+        "required": ["title"]
+      }
+    },
+    {
+      "name": "search",
+      "description": "Search Wikipedia articles by free-text query. Returns suggestions with title + snippet. Use to resolve a topic to a stable article title before page_summary.",
+      "method": "GET",
+      "path": "/w/api.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action":   {"type": "string", "default": "query"},
+          "list":     {"type": "string", "default": "search"},
+          "srsearch": {"type": "string", "description": "Search query."},
+          "format":   {"type": "string", "default": "json"},
+          "srlimit":  {"type": "integer", "description": "Max results, default 10."},
+          "srprop":   {"type": "string", "default": "snippet|titlesnippet|timestamp"}
+        },
+        "required": ["srsearch"]
+      }
+    },
+    {
+      "name": "recent_changes",
+      "description": "Recent edits across Wikipedia, optionally filtered by namespace, type, or specific title. Use to monitor an article for sudden edits — Wikipedia editors often update key articles within minutes of major events (deaths, election outcomes, company news). A 'last edited 2 minutes ago' on a Polymarket-tracked person's article is a heavy hint.",
+      "method": "GET",
+      "path": "/w/api.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action":     {"type": "string", "default": "query"},
+          "list":       {"type": "string", "default": "recentchanges"},
+          "rcprop":     {"type": "string", "default": "title|timestamp|comment|user|sizes|loginfo"},
+          "rclimit":    {"type": "integer", "description": "Max changes, default 50, max 500."},
+          "rctype":     {"type": "string", "description": "Filter: edit, new, log, categorize. Default: all."},
+          "rctitles":   {"type": "string", "description": "Pipe-separated specific titles to filter (much more useful for monitoring than the full firehose)."},
+          "rcnamespace":{"type": "integer", "description": "0=articles, 1=talk, 6=files. Most cases want 0."},
+          "format":     {"type": "string", "default": "json"}
+        }
+      }
+    },
+    {
+      "name": "page_revisions",
+      "description": "Edit history for one article. Returns timestamp, user, comment, and diff-size for each revision. Use to spot when an article got updated AND who/why — sometimes the edit comment carries the news context ('add 2026 election win').",
+      "method": "GET",
+      "path": "/w/api.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action":   {"type": "string", "default": "query"},
+          "prop":     {"type": "string", "default": "revisions"},
+          "titles":   {"type": "string", "description": "Pipe-separated titles."},
+          "rvlimit":  {"type": "integer", "description": "Max revisions per title, default 10."},
+          "rvprop":   {"type": "string", "default": "timestamp|user|comment|size"},
+          "format":   {"type": "string", "default": "json"}
+        },
+        "required": ["titles"]
+      }
+    },
+    {
+      "name": "page_views",
+      "description": "Pageview statistics for an article over a date range — a noisy but real proxy for public attention. Spikes correlate with newsworthiness (death, scandal, breaking story).",
+      "method": "GET",
+      "path": "/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/all-agents/{article}/{granularity}/{start}/{end}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "article":     {"type": "string", "description": "Article title, URL-encoded."},
+          "granularity": {"type": "string", "enum": ["daily","monthly"], "default": "daily"},
+          "start":       {"type": "string", "description": "YYYYMMDD00."},
+          "end":         {"type": "string", "description": "YYYYMMDD00."}
+        },
+        "required": ["article","start","end"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "page_summary",
+    "args": {"title": "Federal_Reserve"}
+  }
+}

@@ -260,7 +260,7 @@ func (s *Server) handleInvitePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	project, _ := s.store.GetProjectAny(inv.ProjectID)
-	inviter, _ := s.store.GetUserByID(inv.InvitedBy)
+	inviter, _ := s.store.GetUserByIDContext(r.Context(), inv.InvitedBy)
 	resp := map[string]any{
 		"email": inv.Email,
 		"role":  inv.Role,
@@ -294,7 +294,7 @@ func (s *Server) handleInviteAccept(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "must be logged in to accept an invite", http.StatusUnauthorized)
 		return
 	}
-	user, err := s.store.GetUserByID(uid)
+	user, err := s.store.GetUserByIDContext(r.Context(), uid)
 	if err != nil {
 		http.Error(w, "user lookup failed", http.StatusInternalServerError)
 		return

@@ -1,0 +1,1845 @@
+{
+  "slug": "scaleway",
+  "name": "Scaleway Cloud",
+  "description": "Manage Scaleway cloud infrastructure - virtual instances, Dedibox dedicated servers, Apple silicon Mac minis, volumes, IPs, security groups, images, snapshots, and SSH keys",
+  "logo": "https://www.google.com/s2/favicons?domain=scaleway.com&sz=128",
+  "categories": [
+    "cloud",
+    "vps",
+    "hosting",
+    "infrastructure",
+    "storage",
+    "bare-metal",
+    "mac"
+  ],
+  "base_url": "https://api.scaleway.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Auth-Token": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "access_key",
+        "label": "Access Key",
+        "description": "Scaleway Access Key paired with the Secret Key. Used to load the API key's default Project automatically.",
+        "type": "text",
+        "exposure": "public"
+      },
+      {
+        "name": "token",
+        "label": "Secret Key",
+        "description": "Scaleway Secret Key paired with the Access Key"
+      },
+      {
+        "name": "project_id",
+        "label": "Default Project ID",
+        "description": "Optional Scaleway Project ID used for provisioning. Recommended when the account has more than one project.",
+        "type": "text",
+        "required": false,
+        "exposure": "public"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "api_key_get",
+      "description": "Get the current Scaleway API key metadata, including its default project",
+      "method": "GET",
+      "path": "/iam/v1alpha1/api-keys/{access_key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access_key": { "type": "string" }
+        },
+        "required": ["access_key"]
+      }
+    },
+    {
+      "name": "server_list",
+      "description": "List all Scaleway servers/instances in a zone. Returns server details including ID, name, state, IP addresses, and type.",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone (fr-par-1, fr-par-2, nl-ams-1, pl-waw-1, etc.)",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Number of results per page (max 100)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by server name"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "server_get",
+      "description": "Get detailed information about a specific Scaleway server/instance by ID",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "server_create",
+      "description": "Create a new Scaleway server/instance. Requires commercial_type (e.g., DEV1-S, GP1-S) and image ID.",
+      "method": "POST",
+      "path": "/instance/v1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Server name"
+          },
+          "commercial_type": {
+            "type": "string",
+            "description": "Instance type (DEV1-S, DEV1-M, DEV1-L, GP1-S, GP1-M, etc.)"
+          },
+          "image": {
+            "type": "string",
+            "description": "Image UUID to use for the server"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the server"
+          },
+          "enable_ipv6": {
+            "type": "boolean",
+            "description": "Enable IPv6",
+            "default": false
+          },
+          "boot_type": {
+            "type": "string",
+            "description": "Boot type (local, bootscript, rescue)",
+            "default": "local"
+          },
+          "project": { "type": "string" },
+          "dynamic_ip_required": { "type": "boolean" },
+          "routed_ip_enabled": { "type": "boolean" }
+          ,
+          "volumes": {
+            "type": "object",
+            "description": "Optional boot/data volume map keyed by device slot. For an image-derived root volume at slot 0, send only size and volume_type; do not send name or boot. Omit volumes to use the marketplace image default volume.",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Existing volume UUID to attach" },
+                "name": { "type": "string" },
+                "size": { "type": "integer", "description": "Size in bytes" },
+                "volume_type": { "type": "string", "enum": ["sbs_volume", "l_ssd"] },
+                "boot": { "type": "boolean" }
+              }
+            }
+          }
+        },
+        "required": [
+          "name",
+          "commercial_type",
+          "image"
+        ]
+      }
+    },
+    {
+      "name": "server_delete",
+      "description": "Delete/terminate a Scaleway server/instance",
+      "method": "DELETE",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID to delete"
+          }
+        },
+        "required": [
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "server_action",
+      "description": "Perform an action on a Scaleway server (poweron, poweroff, reboot, terminate, stop_in_place, backup)",
+      "method": "POST",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}/action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "poweron",
+              "poweroff",
+              "reboot",
+              "terminate",
+              "stop_in_place",
+              "backup"
+            ],
+            "description": "Action to perform"
+          }
+        },
+        "required": [
+          "server_id",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "volume_list",
+      "description": "List modern Scaleway Block Storage volumes (SBS 5K/15K) in a zone",
+      "method": "GET",
+      "path": "/block/v1/zones/{zone}/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "project_id": { "type": "string", "description": "Optional project UUID filter" },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          }
+        }
+      }
+    },
+    {
+      "name": "volume_get",
+      "description": "Get details of a Scaleway Block Storage (SBS) volume by ID",
+      "method": "GET",
+      "path": "/block/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Volume UUID"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "instance_volume_get",
+      "description": "Get details of a local Instance volume such as l_ssd by ID. Use volume_get for SBS Block Storage volumes.",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Local Instance volume UUID"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "instance_volume_delete",
+      "description": "Delete a local Instance volume such as l_ssd by ID. The volume must no longer be attached to a server. Use volume_delete for SBS Block Storage volumes.",
+      "method": "DELETE",
+      "path": "/instance/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Local Instance volume UUID"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create a modern Scaleway Block Storage volume. For an empty volume pass from_empty.size in bytes and perf_iops 5000 or 15000.",
+      "method": "POST",
+      "path": "/block/v1/zones/{zone}/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Volume name"
+          },
+          "project_id": { "type": "string", "description": "Project UUID" },
+          "perf_iops": { "type": "integer", "enum": [5000, 15000], "default": 5000 },
+          "from_empty": {
+            "type": "object",
+            "description": "Empty-volume source",
+            "properties": { "size": { "type": "integer", "description": "Volume size in bytes" } },
+            "required": ["size"]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the volume"
+          }
+        },
+        "required": [
+          "name",
+          "project_id",
+          "from_empty"
+        ]
+      }
+    },
+    {
+      "name": "volume_update",
+      "description": "Update a Scaleway Block Storage volume, including increasing its size",
+      "method": "PATCH",
+      "path": "/block/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "default": "fr-par-1" },
+          "volume_id": { "type": "string" },
+          "name": { "type": "string" },
+          "size": { "type": "integer", "description": "New size in bytes; shrinking is not supported" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "perf_iops": { "type": "integer", "enum": [5000, 15000] }
+        },
+        "required": ["volume_id"]
+      }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete a Scaleway block storage volume",
+      "method": "DELETE",
+      "path": "/block/v1/zones/{zone}/volumes/{volume_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Volume UUID to delete"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "server_volume_attach",
+      "description": "Attach a Block Storage volume to a Scaleway Instance server",
+      "method": "POST",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}/attach-volume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "volume_id": { "type": "string" },
+          "volume_type": { "type": "string", "enum": ["sbs_volume", "l_ssd"], "default": "sbs_volume" }
+        },
+        "required": ["server_id", "volume_id"]
+      }
+    },
+    {
+      "name": "server_volume_detach",
+      "description": "Detach a volume from a Scaleway Instance server without deleting it",
+      "method": "POST",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}/detach-volume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "volume_id": { "type": "string" }
+        },
+        "required": ["server_id", "volume_id"]
+      }
+    },
+    {
+      "name": "ip_list",
+      "description": "List all flexible/reserved IPs in a Scaleway zone",
+      "method": "GET",
+      "path": "/ip-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "ip_get",
+      "description": "Get details of a specific Scaleway flexible IP",
+      "method": "GET",
+      "path": "/ip-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID"
+          }
+        },
+        "required": [
+          "ip_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_create",
+      "description": "Reserve a new flexible IP address in Scaleway",
+      "method": "GET",
+      "path": "/ip-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Optionally attach to a server immediately"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the IP"
+          }
+        }
+      }
+    },
+    {
+      "name": "ip_attach",
+      "description": "Attach a flexible IP to a Scaleway server",
+      "method": "GET",
+      "path": "/ip-attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID to attach"
+          },
+          "server_id": {
+            "type": "string",
+            "description": "Server UUID to attach the IP to"
+          }
+        },
+        "required": [
+          "ip_id",
+          "server_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_detach",
+      "description": "Detach a flexible IP from its current server",
+      "method": "GET",
+      "path": "/ip-detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID to detach"
+          }
+        },
+        "required": [
+          "ip_id"
+        ]
+      }
+    },
+    {
+      "name": "ip_delete",
+      "description": "Release/delete a flexible IP address",
+      "method": "GET",
+      "path": "/ip-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "ip_id": {
+            "type": "string",
+            "description": "IP UUID to delete"
+          }
+        },
+        "required": [
+          "ip_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_list",
+      "description": "List all security groups in a Scaleway zone",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/security_groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          },
+          "project_default": {
+            "type": "boolean",
+            "description": "Only return the default security group for each project"
+          }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "security_group_get",
+      "description": "Get details of a specific Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          }
+        },
+        "required": [
+          "security_group_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_create",
+      "description": "Create a new security group in Scaleway",
+      "method": "GET",
+      "path": "/security-group-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Security group name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description"
+          },
+          "stateful": {
+            "type": "boolean",
+            "description": "Whether the security group is stateful",
+            "default": true
+          },
+          "inbound_default_policy": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "drop"
+            ],
+            "description": "Default policy for inbound traffic",
+            "default": "accept"
+          },
+          "outbound_default_policy": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "drop"
+            ],
+            "description": "Default policy for outbound traffic",
+            "default": "accept"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "security_group_delete",
+      "description": "Delete a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID to delete"
+          }
+        },
+        "required": [
+          "security_group_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_rules_list",
+      "description": "List all rules in a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-rules-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          }
+        },
+        "required": [
+          "security_group_id"
+        ]
+      }
+    },
+    {
+      "name": "security_group_rule_create",
+      "description": "Create a new rule in a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-rule-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "TCP",
+              "UDP",
+              "ICMP",
+              "ANY"
+            ],
+            "description": "Protocol for the rule"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ],
+            "description": "Direction of traffic"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "accept",
+              "drop"
+            ],
+            "description": "Action to take"
+          },
+          "ip_range": {
+            "type": "string",
+            "description": "IP range in CIDR notation (e.g., 0.0.0.0/0)"
+          },
+          "dest_port_from": {
+            "type": "integer",
+            "description": "Start of port range"
+          },
+          "dest_port_to": {
+            "type": "integer",
+            "description": "End of port range"
+          },
+          "position": {
+            "type": "integer",
+            "description": "Position of the rule (lower = higher priority)",
+            "default": 0
+          }
+        },
+        "required": [
+          "security_group_id",
+          "protocol",
+          "direction",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "security_group_rule_delete",
+      "description": "Delete a rule from a Scaleway security group",
+      "method": "GET",
+      "path": "/security-group-rule-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "security_group_id": {
+            "type": "string",
+            "description": "Security group UUID"
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "Rule UUID to delete"
+          }
+        },
+        "required": [
+          "security_group_id",
+          "rule_id"
+        ]
+      }
+    },
+    {
+      "name": "image_list",
+      "description": "List available Scaleway images for creating servers",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by image name"
+          },
+          "arch": {
+            "type": "string",
+            "description": "Filter by architecture (x86_64, arm64)"
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Filter public images only"
+          }
+        }
+      }
+    },
+    {
+      "name": "image_get",
+      "description": "Get details of a specific Scaleway image",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/images/{image_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "image_id": {
+            "type": "string",
+            "description": "Image UUID"
+          }
+        },
+        "required": [
+          "image_id"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_list",
+      "description": "List all snapshots in a Scaleway zone",
+      "method": "GET",
+      "path": "/snapshot-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "integer",
+            "description": "Results per page"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "project": {
+            "type": "string",
+            "description": "Filter by project ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "snapshot_get",
+      "description": "Get details of a specific Scaleway snapshot",
+      "method": "GET",
+      "path": "/snapshot-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Snapshot UUID"
+          }
+        },
+        "required": [
+          "snapshot_id"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_create",
+      "description": "Create a snapshot of a Scaleway volume",
+      "method": "GET",
+      "path": "/snapshot-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "name": {
+            "type": "string",
+            "description": "Snapshot name"
+          },
+          "volume_id": {
+            "type": "string",
+            "description": "Volume UUID to snapshot"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for the snapshot"
+          }
+        },
+        "required": [
+          "volume_id"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_delete",
+      "description": "Delete a Scaleway snapshot",
+      "method": "GET",
+      "path": "/snapshot-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "description": "Scaleway zone",
+            "default": "fr-par-1"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "description": "Snapshot UUID to delete"
+          }
+        },
+        "required": [
+          "snapshot_id"
+        ]
+      }
+    },
+    {
+      "name": "project_list",
+      "description": "List Scaleway projects available to this API key",
+      "method": "GET",
+      "path": "/account/v3/projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_id": { "type": "string" },
+          "name": { "type": "string" },
+          "page": { "type": "integer" },
+          "page_size": { "type": "integer" },
+          "order_by": { "type": "string" },
+          "project_ids": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["organization_id"]
+      }
+    },
+    {
+      "name": "server_types_list",
+      "description": "List server products available in a Scaleway zone",
+      "method": "GET",
+      "path": "/instance/v1/zones/{zone}/products/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "default": "fr-par-1" },
+          "per_page": { "type": "integer" }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "server_set_cloud_init",
+      "description": "Set cloud-init user data before starting a Scaleway server",
+      "method": "PATCH",
+      "path": "/instance/v1/zones/{zone}/servers/{server_id}/user_data/cloud-init",
+      "headers": { "Content-Type": "text/plain" },
+      "body_root_param": "content",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string" },
+          "server_id": { "type": "string" },
+          "content": { "type": "string" }
+        },
+        "required": ["zone", "server_id", "content"]
+      }
+    },
+    {
+      "name": "elastic_metal_offers_list",
+      "description": "List Scaleway Elastic Metal on-demand dedicated-server offers and current stock in a zone",
+      "method": "GET",
+      "path": "/baremetal/v1/zones/{zone}/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 },
+          "subscription_period": { "type": "string", "enum": ["hourly", "monthly"] },
+          "name": { "type": "string" }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "elastic_metal_os_list",
+      "description": "List operating systems available for Scaleway Elastic Metal in a zone",
+      "method": "GET",
+      "path": "/baremetal/v1/zones/{zone}/os",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "elastic_metal_servers_list",
+      "description": "List Scaleway Elastic Metal servers in a zone",
+      "method": "GET",
+      "path": "/baremetal/v1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "project_id": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 },
+          "name": { "type": "string" }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "elastic_metal_server_get",
+      "description": "Get a Scaleway Elastic Metal server",
+      "method": "GET",
+      "path": "/baremetal/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "elastic_metal_server_create",
+      "description": "Create and optionally install a Scaleway Elastic Metal dedicated server",
+      "method": "POST",
+      "path": "/baremetal/v1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "offer_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string", "default": "Managed by Apteva Instances" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "install": { "type": "object", "description": "OS installation including os_id, hostname, ssh_key_ids, user, and optional partitioning_schema" },
+          "option_ids": { "type": "array", "items": { "type": "string" }, "default": [] },
+          "protected": { "type": "boolean", "default": false },
+          "user_data": { "type": "object", "description": "BytesValue wrapper with a value field containing cloud-init" }
+        },
+        "required": ["zone", "offer_id", "name", "description"]
+      }
+    },
+    {
+      "name": "elastic_metal_server_delete",
+      "description": "Delete a Scaleway Elastic Metal server",
+      "method": "DELETE",
+      "path": "/baremetal/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "elastic_metal_server_action",
+      "description": "Start, stop, or reboot a Scaleway Elastic Metal server",
+      "method": "POST",
+      "path": "/baremetal/v1/zones/{zone}/servers/{server_id}/{action}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "action": { "type": "string", "enum": ["start", "stop", "reboot"] }
+        },
+        "required": ["zone", "server_id", "action"]
+      }
+    },
+    {
+      "name": "elastic_metal_partitioning_default_get",
+      "description": "Get Scaleway's default partitioning schema for an Elastic Metal offer and OS",
+      "method": "GET",
+      "path": "/baremetal/v1/zones/{zone}/partitioning-schemas/default",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "offer_id": { "type": "string" },
+          "os_id": { "type": "string" }
+        },
+        "required": ["zone", "offer_id", "os_id"]
+      }
+    },
+    {
+      "name": "elastic_metal_partitioning_validate",
+      "description": "Validate an Elastic Metal partitioning and RAID schema before installation",
+      "method": "POST",
+      "path": "/baremetal/v1/zones/{zone}/partitioning-schemas/validate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "offer_id": { "type": "string" },
+          "os_id": { "type": "string" },
+          "partitioning_schema": { "type": "object" }
+        },
+        "required": ["zone", "offer_id", "os_id", "partitioning_schema"]
+      }
+    },
+    {
+      "name": "elastic_metal_flexible_ips_list",
+      "description": "List Flexible IPs associated with Elastic Metal in a zone",
+      "method": "GET",
+      "path": "/flexible-ip/v1alpha1/zones/{zone}/fips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "project_id": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "elastic_metal_flexible_ip_delete",
+      "description": "Release a Scaleway Elastic Metal Flexible IP",
+      "method": "DELETE",
+      "path": "/flexible-ip/v1alpha1/zones/{zone}/fips/{fip_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1", "nl-ams-2", "pl-waw-2", "pl-waw-3"], "default": "fr-par-1" },
+          "fip_id": { "type": "string" }
+        },
+        "required": ["zone", "fip_id"]
+      }
+    },
+    {
+      "name": "apple_products_list",
+      "description": "List live Scaleway Apple silicon products, locations, lifecycle status, hardware, and prices from the public product catalog",
+      "method": "GET",
+      "path": "/product-catalog/v2alpha1/public-catalog/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "default": 100 },
+          "product_types": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["apple_silicon"] },
+            "default": ["apple_silicon"]
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["public_beta", "preview", "general_availability", "end_of_new_features", "end_of_growth", "end_of_deployment", "end_of_support", "end_of_sale", "end_of_life", "retired"]
+            }
+          },
+          "api_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "name": "apple_server_types_list",
+      "description": "List Apple silicon Mac mini server types and current stock in a zone",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/server-types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "apple_os_list",
+      "description": "List operating-system images available for Apple silicon Mac minis in a zone",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/os",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "apple_servers_list",
+      "description": "List Apple silicon Mac mini servers in a zone",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "project_id": { "type": "string" },
+          "organization_id": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "order_by": { "type": "string", "enum": ["created_at_asc", "created_at_desc", "updated_at_asc", "updated_at_desc"] }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "apple_server_get",
+      "description": "Get an Apple silicon Mac mini server by ID",
+      "method": "GET",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_create",
+      "description": "Provision a dedicated Apple silicon Mac mini. macOS servers have a mandatory 24-hour minimum allocation.",
+      "method": "POST",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "name": { "type": "string" },
+          "project_id": { "type": "string" },
+          "type": { "type": "string", "description": "Apple silicon server type, for example M4-S" },
+          "os_id": { "type": "string" },
+          "enable_vpc": { "type": "boolean", "default": false },
+          "enable_kext": { "type": "boolean", "default": false },
+          "commitment_type": { "type": "string", "enum": ["duration_24h", "renewed_monthly", "none"], "default": "duration_24h" },
+          "public_bandwidth_bps": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["zone", "name", "project_id", "type"]
+      }
+    },
+    {
+      "name": "apple_server_update",
+      "description": "Update an Apple silicon Mac mini name, deletion schedule, VPC support, commitment, or public bandwidth",
+      "method": "PATCH",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "name": { "type": "string" },
+          "schedule_deletion": { "type": "boolean" },
+          "enable_vpc": { "type": "boolean" },
+          "commitment_type": { "type": "string", "enum": ["duration_24h", "renewed_monthly", "none"] },
+          "public_bandwidth_bps": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_delete",
+      "description": "Delete an Apple silicon Mac mini after its minimum allocation period",
+      "method": "DELETE",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_reboot",
+      "description": "Reboot an Apple silicon Mac mini through the control plane",
+      "method": "POST",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "apple_server_reinstall",
+      "description": "Reinstall an Apple silicon Mac mini. This permanently erases all data on its disk.",
+      "method": "POST",
+      "path": "/apple-silicon/v1alpha1/zones/{zone}/servers/{server_id}/reinstall",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-3"], "default": "fr-par-1" },
+          "server_id": { "type": "string" },
+          "os_id": { "type": "string" },
+          "enable_kext": { "type": "boolean" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_offers_list",
+      "description": "List currently orderable Scaleway Dedibox physical-server offers in a zone",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/offers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "project_id": { "type": "string" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "order_by": { "type": "string", "enum": ["created_at_asc", "created_at_desc", "name_asc", "name_desc", "price_asc", "price_desc"] },
+          "catalog": { "type": "string", "enum": ["all", "default", "beta", "reseller", "premium", "volume", "admin", "inactive"] },
+          "sold_in": { "type": "string", "description": "Optional Dedibox datacenter name" },
+          "available_only": { "type": "boolean", "default": true }
+        },
+        "required": ["zone"]
+      }
+    },
+    {
+      "name": "dedibox_server_create",
+      "description": "Order a Scaleway Dedibox physical server. Returns a service ID while the hardware is being delivered.",
+      "method": "POST",
+      "path": "/dedibox/v1/zones/{zone}/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "offer_id": { "type": "integer" },
+          "project_id": { "type": "string" },
+          "server_option_ids": { "type": "array", "items": { "type": "integer" }, "default": [] },
+          "datacenter_name": { "type": "string" }
+        },
+        "required": ["zone", "offer_id", "project_id", "server_option_ids"]
+      }
+    },
+    {
+      "name": "dedibox_service_get",
+      "description": "Get a Dedibox order/service and its physical server resource ID once delivered",
+      "method": "PATCH",
+      "path": "/dedibox/v1/zones/{zone}/services/{service_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "service_id": { "type": "integer" }
+        },
+        "required": ["zone", "service_id"]
+      }
+    },
+    {
+      "name": "dedibox_service_delete",
+      "description": "Terminate a Dedibox order or subscription by service ID",
+      "method": "DELETE",
+      "path": "/dedibox/v1/zones/{zone}/services/{service_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "service_id": { "type": "integer" }
+        },
+        "required": ["zone", "service_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_get",
+      "description": "Get a delivered Dedibox physical server, including status and public IP addresses",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_delete",
+      "description": "Delete and terminate a delivered Dedibox physical server",
+      "method": "DELETE",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_os_list",
+      "description": "List operating systems compatible with a delivered Dedibox server",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/os",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" },
+          "project_id": { "type": "string" },
+          "type": { "type": "string", "enum": ["server", "virtu", "panel", "desktop", "custom", "rescue"] },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "order_by": { "type": "string", "enum": ["created_at_asc", "created_at_desc", "released_at_asc", "released_at_desc"] }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_install",
+      "description": "Install an operating system on a delivered Dedibox physical server",
+      "method": "POST",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}/install",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" },
+          "os_id": { "type": "integer" },
+          "hostname": { "type": "string" },
+          "user_login": { "type": "string" },
+          "user_password": { "type": "string" },
+          "root_password": { "type": "string" },
+          "ssh_key_ids": { "type": "array", "items": { "type": "string" } },
+          "partitions": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["zone", "server_id", "os_id", "hostname"]
+      }
+    },
+    {
+      "name": "dedibox_install_get",
+      "description": "Get the current Dedibox operating-system installation status",
+      "method": "GET",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}/install",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "dedibox_server_reboot",
+      "description": "Reboot a delivered Dedibox physical server",
+      "method": "POST",
+      "path": "/dedibox/v1/zones/{zone}/servers/{server_id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "zone": { "type": "string", "enum": ["fr-par-1", "fr-par-2", "nl-ams-1"], "default": "fr-par-1" },
+          "server_id": { "type": "integer" }
+        },
+        "required": ["zone", "server_id"]
+      }
+    },
+    {
+      "name": "ssh_keys_list",
+      "description": "List IAM SSH keys, optionally scoped to one Scaleway project",
+      "method": "GET",
+      "path": "/iam/v1alpha1/ssh-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "string" },
+          "name": { "type": "string" },
+          "disabled": { "type": "boolean" },
+          "page": { "type": "integer", "minimum": 1 },
+          "page_size": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      }
+    },
+    {
+      "name": "ssh_key_create",
+      "description": "Create a project-scoped IAM SSH key",
+      "method": "POST",
+      "path": "/iam/v1alpha1/ssh-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "public_key": { "type": "string" },
+          "project_id": { "type": "string" }
+        },
+        "required": ["name", "public_key", "project_id"]
+      }
+    },
+    {
+      "name": "ssh_key_delete",
+      "description": "Delete one IAM SSH key by its exact ID",
+      "method": "DELETE",
+      "path": "/iam/v1alpha1/ssh-keys/{ssh_key_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ssh_key_id": { "type": "string" }
+        },
+        "required": ["ssh_key_id"]
+      }
+    },
+    {
+      "name": "project_get",
+      "description": "Get a Scaleway project, including its Organization ID",
+      "method": "GET",
+      "path": "/account/v3/projects/{project_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "project_id": { "type": "string" } },
+        "required": ["project_id"]
+      }
+    },
+    {
+      "name": "iam_security_settings_get",
+      "description": "Get Organization security settings, including the maximum allowed API-key lifetime",
+      "method": "GET",
+      "path": "/iam/v1alpha1/organizations/{organization_id}/security-settings",
+      "input_schema": {
+        "type": "object",
+        "properties": { "organization_id": { "type": "string" } },
+        "required": ["organization_id"]
+      }
+    },
+    {
+      "name": "iam_application_create",
+      "description": "Create a Scaleway IAM application for machine credentials",
+      "method": "POST",
+      "path": "/iam/v1alpha1/applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "organization_id": { "type": "string" }
+        },
+        "required": ["name", "organization_id"]
+      }
+    },
+    {
+      "name": "iam_application_delete",
+      "description": "Delete a Scaleway IAM application",
+      "method": "DELETE",
+      "path": "/iam/v1alpha1/applications/{application_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "application_id": { "type": "string" } },
+        "required": ["application_id"]
+      }
+    },
+    {
+      "name": "iam_policy_create",
+      "description": "Create a Scaleway IAM policy with project- or Organization-scoped rules",
+      "method": "POST",
+      "path": "/iam/v1alpha1/policies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "organization_id": { "type": "string" },
+          "application_id": { "type": "string" },
+          "rules": { "type": "array", "items": { "type": "object" } },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["name", "organization_id", "application_id", "rules"]
+      }
+    },
+    {
+      "name": "iam_policy_delete",
+      "description": "Delete a Scaleway IAM policy",
+      "method": "DELETE",
+      "path": "/iam/v1alpha1/policies/{policy_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "policy_id": { "type": "string" } },
+        "required": ["policy_id"]
+      }
+    },
+    {
+      "name": "iam_api_key_create",
+      "description": "Create an API key. The secret_key is returned only by this call.",
+      "method": "POST",
+      "path": "/iam/v1alpha1/api-keys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "application_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "default_project_id": { "type": "string" },
+          "description": { "type": "string" },
+          "expires_at": { "type": "string" }
+        },
+        "required": ["application_id", "default_project_id"]
+      }
+    },
+    {
+      "name": "iam_api_key_delete",
+      "description": "Revoke a Scaleway API key",
+      "method": "DELETE",
+      "path": "/iam/v1alpha1/api-keys/{access_key}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "access_key": { "type": "string" } },
+        "required": ["access_key"]
+      }
+    },
+    {
+      "name": "object_bucket_list",
+      "description": "List Scaleway Object Storage buckets visible to the core Scaleway connection in a region",
+      "method": "GET",
+      "path": "https://s3.{region}.scw.cloud/",
+      "omit_auth_headers": ["X-Auth-Token"],
+      "body_none": true,
+      "signing": {
+        "signers": [{
+          "name": "aws_sigv4",
+          "params": {
+            "service": "s3",
+            "region_input": "region",
+            "access_key_field": "access_key",
+            "secret_key_field": "token"
+          }
+        }]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string", "enum": ["fr-par", "nl-ams", "pl-waw", "it-mil"], "default": "fr-par" }
+        },
+        "required": ["region"]
+      }
+    },
+    {
+      "name": "object_bucket_head",
+      "description": "Verify that a Scaleway Object Storage bucket exists without listing or modifying its contents",
+      "method": "HEAD",
+      "path": "https://{bucket}.s3.{region}.scw.cloud/",
+      "omit_auth_headers": ["X-Auth-Token"],
+      "body_none": true,
+      "signing": {
+        "signers": [{
+          "name": "aws_sigv4",
+          "params": {
+            "service": "s3",
+            "region_input": "region",
+            "access_key_field": "access_key",
+            "secret_key_field": "token"
+          }
+        }]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "region": { "type": "string", "enum": ["fr-par", "nl-ams", "pl-waw", "it-mil"], "default": "fr-par" }
+        },
+        "required": ["bucket", "region"]
+      }
+    },
+    {
+      "name": "object_bucket_create",
+      "description": "Create an empty Scaleway Object Storage bucket using the core Scaleway connection credentials",
+      "method": "PUT",
+      "path": "https://{bucket}.s3.{region}.scw.cloud/",
+      "omit_auth_headers": ["X-Auth-Token"],
+      "body_none": true,
+      "signing": {
+        "signers": [{
+          "name": "aws_sigv4",
+          "params": {
+            "service": "s3",
+            "region_input": "region",
+            "access_key_field": "access_key",
+            "secret_key_field": "token"
+          }
+        }]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "region": { "type": "string", "enum": ["fr-par", "nl-ams", "pl-waw", "it-mil"], "default": "fr-par" }
+        },
+        "required": ["bucket", "region"]
+      }
+    },
+    {
+      "name": "object_bucket_delete",
+      "description": "Delete an empty Scaleway Object Storage bucket using the core Scaleway connection credentials",
+      "method": "DELETE",
+      "path": "https://{bucket}.s3.{region}.scw.cloud/",
+      "omit_auth_headers": ["X-Auth-Token"],
+      "signing": {
+        "signers": [{
+          "name": "aws_sigv4",
+          "params": {
+            "service": "s3",
+            "region_input": "region",
+            "access_key_field": "access_key",
+            "secret_key_field": "token"
+          }
+        }]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "region": { "type": "string", "enum": ["fr-par", "nl-ams", "pl-waw", "it-mil"], "default": "fr-par" }
+        },
+        "required": ["bucket", "region"]
+      }
+    }
+  ]
+}

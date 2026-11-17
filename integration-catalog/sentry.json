@@ -1,0 +1,109 @@
+{
+  "slug": "sentry",
+  "name": "Sentry",
+  "description": "MCP server for Sentry - error tracking, issues, events, releases, and projects",
+  "logo": "https://www.google.com/s2/favicons?domain=sentry.io&sz=128",
+  "categories": ["monitoring", "error-tracking", "observability", "devops"],
+  "base_url": "https://sentry.io/api/0",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Auth Token", "description": "Sentry internal integration or user auth token" },
+      { "name": "organizationSlug", "label": "Organization Slug", "description": "Your Sentry organization slug" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List all projects in an organization",
+      "method": "GET",
+      "path": "/organizations/{organization_slug}/projects/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "organization_slug": { "type": "string" } },
+        "required": ["organization_slug"]
+      }
+    },
+    {
+      "name": "list_issues",
+      "description": "List issues for a project",
+      "method": "GET",
+      "path": "/projects/{organization_slug}/{project_slug}/issues/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_slug": { "type": "string" },
+          "project_slug": { "type": "string" },
+          "query": { "type": "string" },
+          "statsPeriod": { "type": "string" }
+        },
+        "required": ["organization_slug", "project_slug"]
+      }
+    },
+    {
+      "name": "get_issue",
+      "description": "Get an issue by ID",
+      "method": "GET",
+      "path": "/issues/{issue_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "issue_id": { "type": "string" } },
+        "required": ["issue_id"]
+      }
+    },
+    {
+      "name": "update_issue",
+      "description": "Update an issue (resolve, ignore, assign)",
+      "method": "PUT",
+      "path": "/issues/{issue_id}/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "issue_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["resolved", "unresolved", "ignored"] },
+          "assignedTo": { "type": "string" }
+        },
+        "required": ["issue_id"]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List events for an issue",
+      "method": "GET",
+      "path": "/issues/{issue_id}/events/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "issue_id": { "type": "string" } },
+        "required": ["issue_id"]
+      }
+    },
+    {
+      "name": "list_releases",
+      "description": "List releases in an organization",
+      "method": "GET",
+      "path": "/organizations/{organization_slug}/releases/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "organization_slug": { "type": "string" } },
+        "required": ["organization_slug"]
+      }
+    },
+    {
+      "name": "create_release",
+      "description": "Create a new release",
+      "method": "POST",
+      "path": "/organizations/{organization_slug}/releases/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "organization_slug": { "type": "string" },
+          "version": { "type": "string" },
+          "projects": { "type": "array", "items": { "type": "string" } },
+          "ref": { "type": "string" }
+        },
+        "required": ["organization_slug", "version", "projects"]
+      }
+    }
+  ]
+}

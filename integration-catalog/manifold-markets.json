@@ -1,0 +1,144 @@
+{
+  "slug": "manifold-markets",
+  "name": "Manifold Markets",
+  "description": "Manifold is a play-money (mana) prediction market with a long tail of weird, niche, and creator-driven markets you won't find on Polymarket or Kalshi. Useful as a third opinion on overlapping topics — when Polymarket, Kalshi, AND Manifold all agree on a probability, that's a strong consensus; when they disagree, the gap is a possibly-tradable signal. No auth needed for read-only access. Trading uses API key auth (deferred to a follow-up — read-only ships first).",
+  "logo": "https://www.google.com/s2/favicons?domain=manifold.markets&sz=128",
+  "categories": [
+    "prediction-markets",
+    "events",
+    "play-money",
+    "community"
+  ],
+  "base_url": "https://api.manifold.markets/v0",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key (optional, for trading)",
+        "description": "From your Manifold account at https://manifold.markets/profile — copy 'API Key'. Optional; only required for placing bets / managing markets. Read-only browsing works without it.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_markets",
+      "description": "Recent markets, paginated. Each row carries id, slug, question, creatorUsername, createdTime, closeTime, isResolved, outcomeType (BINARY / MULTIPLE_CHOICE / NUMERIC), volume, totalLiquidity. For BINARY markets, probability (0-1) is the current implied YES prob — directly comparable to Polymarket YES prices.",
+      "method": "GET",
+      "path": "/markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit":  {"type": "integer", "description": "Max markets (1-1000). Default 500."},
+          "before": {"type": "string", "description": "Pagination — return markets created BEFORE this market id (for older pages)."}
+        }
+      }
+    },
+    {
+      "name": "get_market",
+      "description": "Full detail for one market by id — question, full description (text + JSON), outcomeType, probability, pool sizes, bets count, comments count, resolution (if resolved).",
+      "method": "GET",
+      "path": "/market/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "Manifold market id (alphanumeric)."}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_market_by_slug",
+      "description": "Same as get_market but by slug (the URL-friendly path) instead of id — useful when you have a URL like 'manifold.markets/foo/will-x-happen-by-2026'.",
+      "method": "GET",
+      "path": "/slug/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {"type": "string"}
+        },
+        "required": ["slug"]
+      }
+    },
+    {
+      "name": "search_markets",
+      "description": "Search markets by free-text term. Use to find Manifold's take on topics that Polymarket also lists ('biden 2028', 'fed cut march 2026', 'btc 100k'). Compare the implied probabilities to spot price disagreements.",
+      "method": "GET",
+      "path": "/search-markets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "term":   {"type": "string", "description": "Search query."},
+          "limit":  {"type": "integer", "description": "Max results, default 30."},
+          "filter": {"type": "string", "enum": ["all","open","closed","resolved","closing-this-month","closing-next-month"], "default": "open"},
+          "sort":   {"type": "string", "enum": ["score","newest","liquidity","most-popular","closing-soon","resolve-date","start-time"], "default": "score"}
+        },
+        "required": ["term"]
+      }
+    },
+    {
+      "name": "list_bets",
+      "description": "Recent bets across the platform, optionally filtered by marketId or username. Returns id, userId, marketId, outcome, shares, probBefore, probAfter, createdTime, isFilled. Use to follow a specific user's bet flow or read the recent activity on a market.",
+      "method": "GET",
+      "path": "/bets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username":     {"type": "string", "description": "Filter to one user's bets."},
+          "userId":       {"type": "string", "description": "Filter by userId (alternative to username)."},
+          "contractId":   {"type": "string", "description": "Filter to one market's bets."},
+          "contractSlug": {"type": "string", "description": "Filter to one market's bets by slug."},
+          "limit":        {"type": "integer", "default": 1000},
+          "before":       {"type": "string", "description": "Pagination cursor — bet id."}
+        }
+      }
+    },
+    {
+      "name": "list_comments",
+      "description": "Comments on markets — public discussion. Sometimes carries useful signal (the comment thread of a niche market often surfaces the actual events that resolve it).",
+      "method": "GET",
+      "path": "/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contractId":   {"type": "string"},
+          "contractSlug": {"type": "string"},
+          "userId":       {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "User profile by username — id, balance (mana), totalDeposits, profitCached, creatorVolumeCached. Use to assess a user's track record before following their bets.",
+      "method": "GET",
+      "path": "/user/{username}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {"type": "string"}
+        },
+        "required": ["username"]
+      }
+    },
+    {
+      "name": "get_groups",
+      "description": "Topic groups — Manifold's tag system. Browse groups to find clusters of related markets ('AI', 'Politics', 'Crypto', 'Geopolitics').",
+      "method": "GET",
+      "path": "/groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "availableToUserId": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_markets",
+    "args": {"limit": 1}
+  }
+}

@@ -1,0 +1,214 @@
+{
+  "slug": "tencent-cloud",
+  "name": "Tencent Cloud (CVM)",
+  "description": "MCP server for Tencent Cloud Virtual Machines - instances, regions, instance types, images, security groups, key pairs (covers China + Singapore, Hong Kong, Tokyo, Seoul, Mumbai, São Paulo). NOTE: Tencent uses TC3-HMAC-SHA256 signing not yet implemented in the http-executor; this manifest is published for catalog discoverability — runtime calls will fail until executor adds Tencent TC3 signing support.",
+  "logo": "https://www.google.com/s2/favicons?domain=tencentcloud.com&sz=128",
+  "categories": ["cloud", "servers", "vps", "infrastructure", "china", "asia", "needs-signing-support"],
+  "base_url": "https://cvm.tencentcloudapi.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "credential_fields": [
+      { "name": "secret_id", "label": "Secret ID", "description": "Tencent Cloud SecretId (CAM sub-account recommended)" },
+      { "name": "secret_key", "label": "Secret Key", "description": "Used to compute TC3-HMAC-SHA256 signature" },
+      { "name": "region", "label": "Region", "description": "e.g. ap-singapore, ap-hongkong, ap-tokyo, ap-seoul, ap-mumbai, sa-saopaulo" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "describe_instances",
+      "description": "List CVM instances. Action=DescribeInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeInstances" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "Limit": { "type": "number" },
+          "Offset": { "type": "number" }
+        },
+        "required": ["Action", "Version", "Region"]
+      }
+    },
+    {
+      "name": "run_instances",
+      "description": "Create CVM instances. Action=RunInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "RunInstances" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "Placement": { "type": "object", "description": "{ Zone: 'ap-singapore-1' }" },
+          "ImageId": { "type": "string" },
+          "InstanceType": { "type": "string" },
+          "InstanceCount": { "type": "number" },
+          "InstanceName": { "type": "string" },
+          "LoginSettings": { "type": "object" }
+        },
+        "required": ["Action", "Version", "Region", "Placement", "ImageId"]
+      }
+    },
+    {
+      "name": "terminate_instances",
+      "description": "Terminate CVM instances. Action=TerminateInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "TerminateInstances" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "InstanceIds": { "type": "array" }
+        },
+        "required": ["Action", "Version", "Region", "InstanceIds"]
+      }
+    },
+    {
+      "name": "start_instances",
+      "description": "Start CVM instances. Action=StartInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "StartInstances" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "InstanceIds": { "type": "array" }
+        },
+        "required": ["Action", "Version", "Region", "InstanceIds"]
+      }
+    },
+    {
+      "name": "stop_instances",
+      "description": "Stop CVM instances. Action=StopInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "StopInstances" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "InstanceIds": { "type": "array" },
+          "ForceStop": { "type": "boolean" },
+          "StopType": { "type": "string", "description": "SOFT|HARD|SOFT_FIRST" }
+        },
+        "required": ["Action", "Version", "Region", "InstanceIds"]
+      }
+    },
+    {
+      "name": "reboot_instances",
+      "description": "Reboot CVM instances. Action=RebootInstances",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "RebootInstances" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "InstanceIds": { "type": "array" },
+          "StopType": { "type": "string" }
+        },
+        "required": ["Action", "Version", "Region", "InstanceIds"]
+      }
+    },
+    {
+      "name": "describe_regions",
+      "description": "List available regions. Action=DescribeRegions",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeRegions" },
+          "Version": { "type": "string", "description": "2017-03-12" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "describe_zones",
+      "description": "List availability zones in a region. Action=DescribeZones",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeZones" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" }
+        },
+        "required": ["Action", "Version", "Region"]
+      }
+    },
+    {
+      "name": "describe_instance_types",
+      "description": "List instance type configurations. Action=DescribeInstanceTypeConfigs",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeInstanceTypeConfigs" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" }
+        },
+        "required": ["Action", "Version", "Region"]
+      }
+    },
+    {
+      "name": "describe_images",
+      "description": "List images. Action=DescribeImages",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeImages" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" },
+          "ImageType": { "type": "array", "description": "['PUBLIC_IMAGE','PRIVATE_IMAGE','SHARED_IMAGE','MARKETPLACE']" }
+        },
+        "required": ["Action", "Version", "Region"]
+      }
+    },
+    {
+      "name": "describe_key_pairs",
+      "description": "List SSH key pairs. Action=DescribeKeyPairs",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeKeyPairs" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" }
+        },
+        "required": ["Action", "Version", "Region"]
+      }
+    },
+    {
+      "name": "describe_security_groups",
+      "description": "List security groups. Action=DescribeSecurityGroups (vpc.tencentcloudapi.com)",
+      "method": "POST",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "description": "DescribeSecurityGroups" },
+          "Version": { "type": "string", "description": "2017-03-12" },
+          "Region": { "type": "string" }
+        },
+        "required": ["Action", "Version", "Region"]
+      }
+    }
+  ]
+}

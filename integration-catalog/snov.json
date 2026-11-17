@@ -1,0 +1,467 @@
+{
+  "slug": "snov",
+  "name": "Snov.io",
+  "description": "Snov.io email outreach toolkit - email finder, verifier, prospect management, drip campaigns, LinkedIn enrichment, and domain search",
+  "logo": "https://www.google.com/s2/favicons?domain=snov.io&sz=128",
+  "categories": [
+    "email",
+    "leads",
+    "outreach",
+    "verification",
+    "sales",
+    "prospecting"
+  ],
+  "base_url": "https://api.snov.io/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_access_token",
+      "description": "Exchange client credentials for an OAuth access token. Tokens expire in 1 hour. Call this first before using other Snov.io tools. Returns access_token to use as Bearer token.",
+      "method": "POST",
+      "path": "/oauth/access_token",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "domain_search",
+      "description": "Search all emails associated with a domain. Returns up to 100 emails with owner info (name, position, social links). Costs 2 credits per request.",
+      "method": "GET",
+      "path": "/v2/domain-emails-with-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to search (e.g., 'snov.io')"
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter: 'all', 'personal', or 'generic'"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of emails to return (max 100)",
+            "default": 100
+          },
+          "lastId": {
+            "type": "integer",
+            "description": "Last email ID for pagination (default: 0)",
+            "default": 0
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_count",
+      "description": "Get the count of emails indexed for a domain. FREE - does not consume credits.",
+      "method": "POST",
+      "path": "/get-domain-emails-count",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain to check"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_finder",
+      "description": "Find a person's email address using their name and company domain. Costs 1 credit.",
+      "method": "POST",
+      "path": "/get-emails-from-names",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "description": "Person's first name"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Person's last name"
+          },
+          "domain": {
+            "type": "string",
+            "description": "Company domain"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "email_verify",
+      "description": "Submit emails for verification. Costs 0.5 credits per email. Use snov-email-verify-status to check results.",
+      "method": "POST",
+      "path": "/add-emails-to-verification",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to verify"
+          }
+        },
+        "required": [
+          "emails"
+        ]
+      }
+    },
+    {
+      "name": "email_verify_status",
+      "description": "Check the verification status of previously submitted emails. FREE - no credits consumed.",
+      "method": "POST",
+      "path": "/get-emails-verification-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Email addresses to check"
+          }
+        },
+        "required": [
+          "emails"
+        ]
+      }
+    },
+    {
+      "name": "profile_by_email",
+      "description": "Get a person's profile from their email address. Returns name, social links, current/previous jobs, industry, location. Costs 1 credit.",
+      "method": "POST",
+      "path": "/get-profile-by-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to look up"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "linkedin_enrich",
+      "description": "Start LinkedIn profile enrichment for up to 10 URLs. Returns a task_hash to check results with snov-linkedin-enrich-result. Costs 1 credit per profile found.",
+      "method": "POST",
+      "path": "/v2/li-profiles-by-urls/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "LinkedIn profile URLs (max 10)"
+          }
+        },
+        "required": [
+          "urls"
+        ]
+      }
+    },
+    {
+      "name": "linkedin_enrich_result",
+      "description": "Get results for a LinkedIn profile enrichment task. Returns profile data including name, location, skills, positions.",
+      "method": "GET",
+      "path": "/v2/li-profiles-by-urls/result",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_hash": {
+            "type": "string",
+            "description": "Task hash from linkedin-enrich"
+          }
+        },
+        "required": [
+          "task_hash"
+        ]
+      }
+    },
+    {
+      "name": "prospect_add",
+      "description": "Add a prospect to a specific list. FREE - no credits consumed.",
+      "method": "POST",
+      "path": "/add-prospect-to-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Prospect's email address"
+          },
+          "listId": {
+            "type": "string",
+            "description": "List ID to add the prospect to"
+          },
+          "firstName": {
+            "type": "string",
+            "description": "First name"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Last name"
+          },
+          "fullName": {
+            "type": "string",
+            "description": "Full name (alternative)"
+          },
+          "position": {
+            "type": "string",
+            "description": "Job title"
+          },
+          "companyName": {
+            "type": "string",
+            "description": "Company name"
+          },
+          "companySite": {
+            "type": "string",
+            "description": "Company website URL"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country name"
+          },
+          "locality": {
+            "type": "string",
+            "description": "City/location"
+          },
+          "updateContact": {
+            "type": "boolean",
+            "description": "Update existing prospect if email matches (default: false)"
+          }
+        },
+        "required": [
+          "email",
+          "listId"
+        ]
+      }
+    },
+    {
+      "name": "prospect_get",
+      "description": "Get full prospect details by their ID. FREE.",
+      "method": "POST",
+      "path": "/get-prospect-by-id",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Prospect ID (hash string)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "prospect_find_by_email",
+      "description": "Find all prospects matching an email address. FREE.",
+      "method": "POST",
+      "path": "/get-prospects-by-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Email address to search"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "prospect_list_view",
+      "description": "View all prospects in a specific list. FREE.",
+      "method": "POST",
+      "path": "/prospect-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "string",
+            "description": "List ID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default: 1)",
+            "default": 1
+          },
+          "perPage": {
+            "type": "integer",
+            "description": "Results per page (max 100)",
+            "default": 100
+          }
+        },
+        "required": [
+          "listId"
+        ]
+      }
+    },
+    {
+      "name": "lists_get_all",
+      "description": "Get all prospect lists in your Snov.io account. FREE.",
+      "method": "GET",
+      "path": "/get-user-lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_create",
+      "description": "Create a new prospect list. FREE.",
+      "method": "POST",
+      "path": "/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "List name"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "Get all drip campaigns in your Snov.io account. FREE.",
+      "method": "GET",
+      "path": "/get-user-campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "campaign_recipient_status",
+      "description": "Change a recipient's status in a campaign. Valid statuses: Active, Paused, Finished, Unsubscribed, Auto-replied, Replied.",
+      "method": "POST",
+      "path": "/change-recipient-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Recipient's email address"
+          },
+          "campaign_id": {
+            "type": "integer",
+            "description": "Campaign ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "New status: Active, Paused, Finished, Unsubscribed, Auto-replied, Replied"
+          }
+        },
+        "required": [
+          "email",
+          "campaign_id",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "campaign_replies",
+      "description": "Get all replies for a campaign. FREE.",
+      "method": "GET",
+      "path": "/get-emails-replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "integer",
+            "description": "Campaign ID"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Skip previous results (max 10000)",
+            "default": 0
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_analytics",
+      "description": "Get campaign analytics including email and LinkedIn metrics for a date range. FREE.",
+      "method": "GET",
+      "path": "/v2/statistics/campaign-analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "description": "Campaign ID(s), comma-separated"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (yyyy-mm-dd)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (yyyy-mm-dd)"
+          }
+        },
+        "required": [
+          "date_from",
+          "date_to"
+        ]
+      }
+    },
+    {
+      "name": "balance",
+      "description": "Check your Snov.io credit balance. FREE.",
+      "method": "GET",
+      "path": "/get-balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

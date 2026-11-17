@@ -1,0 +1,3081 @@
+{
+  "slug": "dataforseo",
+  "name": "DataForSEO",
+  "description": "Complete SEO data platform — SERP tracking, keyword research, backlink analysis, on-page audits, competitor intelligence, content analysis, domain insights, and AI optimization",
+  "logo": "https://cdn-icons-png.flaticon.com/512/2103/2103633.png",
+  "categories": [
+    "seo",
+    "serp",
+    "keywords",
+    "backlinks",
+    "competitors",
+    "analytics",
+    "domain-analysis",
+    "rank-tracking",
+    "content-analysis",
+    "ai-optimization"
+  ],
+  "base_url": "https://api.dataforseo.com/v3",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}"
+    },
+    "credential_fields": [
+      {
+        "name": "login",
+        "label": "Login",
+        "description": "Your DataForSEO API login email"
+      },
+      {
+        "name": "password",
+        "label": "Password",
+        "description": "Your DataForSEO API password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "locations_and_languages",
+      "description": "List DataForSEO Labs locations and languages for Google, Bing, and Amazon. Free endpoint used to populate SEO app locales.",
+      "method": "GET",
+      "path": "/dataforseo_labs/locations_and_languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "keyword_search_volume",
+      "description": "Get search volume, competition, CPC data, and monthly trends for keywords via Google Ads API. Max 1000 keywords per request.",
+      "method": "POST",
+      "path": "/keywords_data/google_ads/search_volume/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of keywords to analyze (max 1000)"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Target location name (e.g., 'United States')"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Target location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "search_volume",
+              "competition_index"
+            ],
+            "description": "Sort results by field"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "keyword_suggestions",
+      "description": "Get keyword suggestions and ideas based on seed keywords from Google Ads data, with search volume and competition metrics",
+      "method": "POST",
+      "path": "/keywords_data/google_ads/keywords_for_keywords/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of seed keywords (max 20)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Target location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "relevance",
+              "search_volume",
+              "competition_index"
+            ],
+            "description": "Sort results"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "keyword_ideas",
+      "description": "Get keyword ideas from DataForSEO Labs database with keyword difficulty, search volume, and SERP features",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/keyword_ideas/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Seed keywords"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "include_seed_keyword": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include seed keyword in results"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      },
+      "body_root_param": "tasks"
+    },
+    {
+      "name": "keyword_difficulty",
+      "description": "Get keyword difficulty scores in bulk — indicates how hard it is to rank in the top 10 for each keyword",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/bulk_keyword_difficulty/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to check difficulty for (max 1000)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      },
+      "body_root_param": "tasks"
+    },
+    {
+      "name": "search_intent",
+      "description": "Classify the search intent of keywords (informational, navigational, commercial, transactional)",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/search_intent/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to classify intent for"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "serp_organic",
+      "description": "Get live Google organic search results with rankings, snippets, featured elements, and SERP features",
+      "method": "POST",
+      "path": "/serp/google/organic/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "device": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile"
+            ],
+            "default": "desktop",
+            "description": "Device type"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 700,
+            "default": 100,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      },
+      "body_root_param": "tasks"
+    },
+    {
+      "name": "serp_organic_task_post",
+      "description": "Submit Google organic SERP tasks to the lower-cost DataForSEO Standard Queue. Results are collected later by task ID.",
+      "method": "POST",
+      "path": "/serp/google/organic/task_post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g. 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g. en)"
+          },
+          "device": {
+            "type": "string",
+            "enum": ["desktop", "mobile"],
+            "default": "desktop"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        },
+        "required": ["keyword"]
+      },
+      "body_root_param": "tasks"
+    },
+    {
+      "name": "serp_organic_task_get",
+      "description": "Collect one completed Google organic SERP Standard Queue task in advanced format. Collection is free for retained tasks.",
+      "method": "GET",
+      "path": "/serp/google/organic/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID returned by serp_organic_task_post"
+          }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "serp_maps",
+      "description": "Get Google Maps local search results for a keyword with business listings, ratings, and locations",
+      "method": "POST",
+      "path": "/serp/google/maps/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword (e.g., 'pizza near me')"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "depth": {
+            "type": "integer",
+            "default": 20,
+            "description": "Number of results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "serp_news",
+      "description": "Get Google News search results for a keyword",
+      "method": "POST",
+      "path": "/serp/google/news/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "google_autocomplete",
+      "description": "Get Google autocomplete suggestions for a keyword — useful for content ideas and long-tail keyword discovery",
+      "method": "POST",
+      "path": "/serp/google/autocomplete/live/advanced",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Partial search query"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "ranked_keywords",
+      "description": "Get all keywords a domain ranks for in organic search with positions, search volume, and traffic estimates",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/ranked_keywords/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze (e.g., 'example.com')"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "domain_rank_overview",
+      "description": "Get domain-level SEO overview: organic traffic estimate, total keywords, visibility score, and rank distribution",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/domain_rank_overview/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "traffic_estimation",
+      "description": "Estimate organic traffic for multiple domains in bulk — includes keyword count, traffic cost, and estimated visits",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/bulk_traffic_estimation/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to estimate traffic for (max 1000)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "competitors",
+      "description": "Find organic search competitors for a domain based on shared keyword rankings",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/competitors_domain/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to find competitors for"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max competitors"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Filter conditions (e.g., [\"avg_position\", \"<\", 10])"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "domain_intersection",
+      "description": "Find keyword overlap/gaps between domains for competitive gap analysis. Compare up to 20 domains.",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/domain_intersection/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target1": {
+            "type": "string",
+            "description": "First domain"
+          },
+          "target2": {
+            "type": "string",
+            "description": "Second domain"
+          },
+          "target3": {
+            "type": "string",
+            "description": "Third domain (optional)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code (e.g., 2840 for US)"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code (e.g., 'en')"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target1",
+          "target2"
+        ]
+      }
+    },
+    {
+      "name": "relevant_pages",
+      "description": "Find the most relevant/important pages on a domain based on organic rankings and traffic",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/relevant_pages/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "historical_serps",
+      "description": "Get historical Google SERP snapshots for a keyword — see how rankings changed over time",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/historical_serps/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to get historical SERPs for"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_summary",
+      "description": "Get complete backlink profile summary: rank, referring domains, backlink counts, dofollow/nofollow ratio, and more",
+      "method": "POST",
+      "path": "/backlinks/summary/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze (e.g., 'example.com')"
+          },
+          "include_subdomains": {
+            "type": "boolean",
+            "default": true,
+            "description": "Include subdomains"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_list",
+      "description": "Get detailed list of backlinks with anchor text, source URLs, link type, and attributes",
+      "method": "POST",
+      "path": "/backlinks/backlinks/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "as_is",
+              "one_per_domain",
+              "one_per_anchor"
+            ],
+            "default": "as_is",
+            "description": "Results grouping"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "backlinks_status_type": {
+            "type": "string",
+            "enum": [
+              "all",
+              "live",
+              "lost"
+            ],
+            "default": "live",
+            "description": "Filter by status"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Filter conditions"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "referring_domains",
+      "description": "Get list of domains linking to a target with domain rank, backlink count, and first/last seen dates",
+      "method": "POST",
+      "path": "/backlinks/referring_domains/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "backlinks_status_type": {
+            "type": "string",
+            "enum": [
+              "all",
+              "live",
+              "lost"
+            ],
+            "default": "live",
+            "description": "Filter by status"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Filter conditions"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_anchors",
+      "description": "Get anchor text distribution for a domain's backlink profile",
+      "method": "POST",
+      "path": "/backlinks/anchors/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain or URL to analyze"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_competitors",
+      "description": "Find domains competing for the same backlinks as your target domain",
+      "method": "POST",
+      "path": "/backlinks/competitors/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to find link competitors for"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "backlinks_domain_intersection",
+      "description": "Find domains linking to competitors but not to your target — the backlink gap for link building opportunities",
+      "method": "POST",
+      "path": "/backlinks/domain_intersection/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "object",
+            "description": "Map of targets: {\"1\": \"competitor1.com\", \"2\": \"competitor2.com\"}"
+          },
+          "exclude_targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to exclude (typically your own domain)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "bulk_domain_ranks",
+      "description": "Get domain/page rank scores for multiple targets in bulk — quick authority check",
+      "method": "POST",
+      "path": "/backlinks/bulk_ranks/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains or URLs to check (max 1000)"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "bulk_spam_score",
+      "description": "Check spam scores for multiple domains in bulk",
+      "method": "POST",
+      "path": "/backlinks/bulk_spam_score/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Domains to check spam score for (max 1000)"
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "name": "onpage_instant",
+      "description": "Instant single-page SEO analysis: meta tags, headings, content, images, links, Core Web Vitals, structured data",
+      "method": "POST",
+      "path": "/on_page/instant_pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to analyze"
+          },
+          "browser_preset": {
+            "type": "string",
+            "enum": [
+              "desktop",
+              "mobile",
+              "tablet"
+            ],
+            "default": "desktop",
+            "description": "Device type"
+          },
+          "enable_javascript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Execute JavaScript"
+          },
+          "validate_micromarkup": {
+            "type": "boolean",
+            "default": true,
+            "description": "Validate structured data"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "lighthouse",
+      "description": "Run a Google Lighthouse audit on a page — performance, accessibility, best practices, and SEO scores",
+      "method": "POST",
+      "path": "/on_page/lighthouse/live/json",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to audit"
+          },
+          "for_mobile": {
+            "type": "boolean",
+            "default": false,
+            "description": "Run mobile audit (default is desktop)"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Categories to audit: performance, accessibility, best-practices, seo"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "content_parsing",
+      "description": "Extract and parse structured content from a web page — text, headings, links, images, and metadata",
+      "method": "POST",
+      "path": "/on_page/content_parsing/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Full URL to parse"
+          },
+          "enable_javascript": {
+            "type": "boolean",
+            "default": true,
+            "description": "Execute JavaScript"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "domain_technologies",
+      "description": "Detect all technologies used by a domain: CMS, frameworks, analytics, CDN, hosting, and more",
+      "method": "POST",
+      "path": "/domain_analytics/technologies/domain_technologies/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to analyze (e.g., 'example.com')"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "domains_by_technology",
+      "description": "Find domains using a specific technology (e.g., 'WordPress', 'Shopify', 'React')",
+      "method": "POST",
+      "path": "/domain_analytics/technologies/domains_by_technology/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "technology_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Technology paths to search for (e.g., ['CMS.WordPress'])"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Additional filters"
+          }
+        },
+        "required": [
+          "technology_paths"
+        ]
+      }
+    },
+    {
+      "name": "domain_whois",
+      "description": "Get WHOIS information: registrar, creation/expiry dates, nameservers, and contact details",
+      "method": "POST",
+      "path": "/domain_analytics/whois/overview/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Domain to look up (e.g., 'example.com')"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "google_reviews",
+      "description": "Get Google reviews and ratings for a business location by name, CID, or Place ID",
+      "method": "POST",
+      "path": "/business_data/google/reviews/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Business name to search for"
+          },
+          "cid": {
+            "type": "string",
+            "description": "Google business entity ID"
+          },
+          "place_id": {
+            "type": "string",
+            "description": "Google Maps place ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4490,
+            "default": 10,
+            "description": "Number of reviews"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "newest",
+              "highest_rating",
+              "lowest_rating",
+              "relevant"
+            ],
+            "default": "relevant",
+            "description": "Sort order"
+          }
+        }
+      }
+    },
+    {
+      "name": "google_business_info",
+      "description": "Get Google My Business / Knowledge Graph information for a business",
+      "method": "POST",
+      "path": "/business_data/google/my_business_info/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Business name to search for"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_analysis_search",
+      "description": "Find online mentions and citations for a keyword across the web with sentiment and source data",
+      "method": "POST",
+      "path": "/content_analysis/search/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand to search for"
+          },
+          "keyword_fields": {
+            "type": "object",
+            "description": "Where to search: {\"title\": true, \"main_content\": true}"
+          },
+          "page_type": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by page type (e.g., ['blog', 'news'])"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_analysis_summary",
+      "description": "Get aggregated content analysis summary for a keyword: total mentions, sentiment breakdown, top sources",
+      "method": "POST",
+      "path": "/content_analysis/summary/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand"
+          },
+          "keyword_fields": {
+            "type": "object",
+            "description": "Where to search"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "content_sentiment",
+      "description": "Get sentiment polarity and connotation breakdown for a keyword across web content",
+      "method": "POST",
+      "path": "/content_analysis/sentiment_analysis/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand to analyze sentiment for"
+          },
+          "keyword_fields": {
+            "type": "object",
+            "description": "Where to search"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "google_trends",
+      "description": "Get Google Trends data for keywords — search interest over time with geographic breakdown",
+      "method": "POST",
+      "path": "/keywords_data/google_trends/explore/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Keywords to compare (max 5)"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Location code"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Language code"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "web_searches",
+              "news_searches",
+              "google_shopping",
+              "youtube_searches",
+              "image_searches"
+            ],
+            "default": "web_searches",
+            "description": "Search type"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "ai_mentions",
+      "description": "Track brand or keyword mentions across LLM outputs (ChatGPT, Claude, etc.) — AI visibility monitoring",
+      "method": "POST",
+      "path": "/ai_optimization/llm_mentions/search/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword or brand to track in AI outputs"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "ai_top_domains",
+      "description": "Get top domains mentioned by LLMs for a keyword — see which sites AI models recommend",
+      "method": "POST",
+      "path": "/ai_optimization/llm_mentions/top_domains/live",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Keyword to check top mentioned domains for"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "Max results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "youtube_locations",
+      "description": "List supported YouTube SERP locations for DataForSEO YouTube endpoints.",
+      "method": "GET",
+      "path": "/serp/youtube/locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "youtube_languages",
+      "description": "List supported YouTube SERP languages for DataForSEO YouTube endpoints.",
+      "method": "GET",
+      "path": "/serp/youtube/languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "youtube_organic_serp",
+      "description": "Get live YouTube search results for a keyword, including ranked videos/channels and SERP metadata.",
+      "method": "POST",
+      "path": "/serp/youtube/organic/live/advanced",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "YouTube search query"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device type",
+            "enum": [
+              "desktop",
+              "mobile"
+            ],
+            "default": "desktop"
+          },
+          "os": {
+            "type": "string",
+            "description": "Device operating system, such as windows, macos, android, or ios"
+          },
+          "block_depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 20,
+            "description": "Number of YouTube result blocks to return"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "youtube_video_info",
+      "description": "Get live metadata for a YouTube video by video_id.",
+      "method": "POST",
+      "path": "/serp/youtube/video_info/live/advanced",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device type",
+            "enum": [
+              "desktop"
+            ],
+            "default": "desktop"
+          },
+          "os": {
+            "type": "string",
+            "description": "Desktop operating system, such as windows or macos"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_video_subtitles",
+      "description": "Get live subtitles/transcript data for a YouTube video by video_id.",
+      "method": "POST",
+      "path": "/serp/youtube/video_subtitles/live/advanced",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device type",
+            "enum": [
+              "desktop",
+              "mobile"
+            ],
+            "default": "desktop"
+          },
+          "os": {
+            "type": "string",
+            "description": "Device operating system, such as windows, macos, android, or ios"
+          },
+          "subtitles_language": {
+            "type": "string",
+            "description": "Original subtitles language code to retrieve"
+          },
+          "subtitles_translate_language": {
+            "type": "string",
+            "description": "Optional subtitles translation language code"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "youtube_video_comments",
+      "description": "Get live YouTube video comments for a video by video_id.",
+      "method": "POST",
+      "path": "/serp/youtube/video_comments/live/advanced",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "YouTube video ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of comments to return"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Comment sort order, for example top or newest"
+          },
+          "device": {
+            "type": "string",
+            "description": "Device type",
+            "enum": [
+              "desktop",
+              "mobile"
+            ],
+            "default": "desktop"
+          },
+          "os": {
+            "type": "string",
+            "description": "Device operating system, such as windows, macos, android, or ios"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "amazon_locations",
+      "description": "List supported Amazon Merchant API locations.",
+      "method": "GET",
+      "path": "/merchant/amazon/locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "amazon_languages",
+      "description": "List supported Amazon Merchant API languages.",
+      "method": "GET",
+      "path": "/merchant/amazon/languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "amazon_products_serp",
+      "description": "Get live Amazon product search results for a keyword.",
+      "method": "POST",
+      "path": "/merchant/amazon/products/live/advanced",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["keyword", "asin", "location_code", "location_name", "language_code", "language_name", "se_domain", "depth"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Amazon product search keyword"
+          },
+          "asin": {
+            "type": "string",
+            "description": "Optional ASIN for product context where supported"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "se_domain": {
+            "type": "string",
+            "description": "Amazon search engine domain, e.g. amazon.com"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of product results"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "amazon_asin_info",
+      "description": "Get live Amazon product details by ASIN.",
+      "method": "POST",
+      "path": "/merchant/amazon/asin/live/advanced",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "se_domain"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "se_domain": {
+            "type": "string",
+            "description": "Amazon search engine domain, e.g. amazon.com"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_sellers",
+      "description": "Get live Amazon sellers/offers for a product ASIN.",
+      "method": "POST",
+      "path": "/merchant/amazon/sellers/live/advanced",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "se_domain"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "se_domain": {
+            "type": "string",
+            "description": "Amazon search engine domain, e.g. amazon.com"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_reviews_task_post",
+      "description": "Create a DataForSEO task for Amazon product reviews by ASIN.",
+      "method": "POST",
+      "path": "/merchant/amazon/reviews/task_post",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "se_domain", "depth", "sort_by", "priority", "tag"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "se_domain": {
+            "type": "string",
+            "description": "Amazon search engine domain, e.g. amazon.com"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of reviews to retrieve"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Review sorting mode"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_reviews_task_get",
+      "description": "Get completed Amazon product reviews task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/merchant/amazon/reviews/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "amazon_labs_bulk_search_volume",
+      "description": "Get Amazon keyword search volume in bulk from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/amazon/bulk_search_volume/live",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["keywords", "location_code", "location_name", "language_code", "language_name"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Amazon keywords to analyze"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          }
+        },
+        "required": [
+          "keywords"
+        ]
+      }
+    },
+    {
+      "name": "amazon_labs_related_keywords",
+      "description": "Get related Amazon keywords for a seed keyword from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/amazon/related_keywords/live",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["keyword", "location_code", "location_name", "language_code", "language_name", "include_seed_keyword", "limit", "offset"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Seed Amazon keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "include_seed_keyword": {
+            "type": "boolean",
+            "description": "Include the seed keyword in results"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "amazon_labs_ranked_keywords",
+      "description": "Get Amazon keywords an ASIN ranks for from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/amazon/ranked_keywords/live",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "limit", "offset", "filters", "order_by"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_labs_product_rank_overview",
+      "description": "Get Amazon product ranking overview metrics by ASIN from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/amazon/product_rank_overview/live",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["location_code", "location_name", "language_code", "language_name", "asins"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "asins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Amazon ASINs to analyze"
+          }
+        },
+        "required": [
+          "asins"
+        ]
+      }
+    },
+    {
+      "name": "amazon_labs_product_competitors",
+      "description": "Get competing Amazon products for an ASIN from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/amazon/product_competitors/live",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asin", "location_code", "location_name", "language_code", "language_name", "limit", "offset", "filters", "order_by"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asin": {
+            "type": "string",
+            "description": "Amazon ASIN"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "asin"
+        ]
+      }
+    },
+    {
+      "name": "amazon_labs_product_keyword_intersections",
+      "description": "Find Amazon keyword overlaps/gaps across ASINs from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/amazon/product_keyword_intersections/live",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["asins", "location_code", "location_name", "language_code", "language_name", "limit", "offset", "filters", "order_by"],
+        "as_array": true
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asins": {
+            "type": "object",
+            "description": "Map of comparison slots to Amazon ASINs, e.g. {\"1\":\"B001...\",\"2\":\"B002...\"}",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "asins"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_locations",
+      "description": "List supported Google Play locations for App Data API.",
+      "method": "GET",
+      "path": "/app_data/google/locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_google_languages",
+      "description": "List supported Google Play languages for App Data API.",
+      "method": "GET",
+      "path": "/app_data/google/languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_google_categories",
+      "description": "List Google Play app categories for App Data API.",
+      "method": "GET",
+      "path": "/app_data/google/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_google_app_listings_categories",
+      "description": "List Google Play app listing categories.",
+      "method": "GET",
+      "path": "/app_data/google/app_listings/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_google_app_searches_task_post",
+      "description": "Create a Google Play app search task for apps ranking for a keyword.",
+      "method": "POST",
+      "path": "/app_data/google/app_searches/task_post",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "App search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of app results"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_app_searches_task_get",
+      "description": "Get completed Google Play app search task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/app_data/google/app_searches/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_app_info_task_post",
+      "description": "Create a Google Play app info task by app_id.",
+      "method": "POST",
+      "path": "/app_data/google/app_info/task_post",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Google Play app ID, e.g. org.telegram.messenger"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_app_info_task_get",
+      "description": "Get completed Google Play app info task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/app_data/google/app_info/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_app_reviews_task_post",
+      "description": "Create a Google Play app reviews task by app_id.",
+      "method": "POST",
+      "path": "/app_data/google/app_reviews/task_post",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Google Play app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of reviews"
+          },
+          "rating": {
+            "type": "integer",
+            "description": "Optional rating filter from 1 to 5"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Review sort order, such as newest or most_relevant"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_app_reviews_task_get",
+      "description": "Get completed Google Play app reviews task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/app_data/google/app_reviews/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_google_app_listings_search",
+      "description": "Search Google Play app listings database live by title, description, and category filters.",
+      "method": "POST",
+      "path": "/app_data/google/app_listings/search/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Title search text"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description search text"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Categories to include"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "google_play_labs_bulk_app_metrics",
+      "description": "Get Google Play ranking metrics for up to 1000 apps from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/bulk_app_metrics/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Google Play app IDs"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          }
+        },
+        "required": [
+          "app_ids"
+        ]
+      }
+    },
+    {
+      "name": "google_play_labs_keywords_for_app",
+      "description": "Get keywords a Google Play app ranks for from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/keywords_for_app/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Google Play app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "google_play_labs_app_competitors",
+      "description": "Get Google Play app competitors from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/app_competitors/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Google Play app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "google_play_labs_app_intersection",
+      "description": "Find Google Play keyword overlaps/gaps across apps from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/google/app_intersection/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_ids": {
+            "type": "object",
+            "description": "Map of comparison slots to app IDs, e.g. {\"1\":\"app-a\",\"2\":\"app-b\"}",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "app_ids"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_locations",
+      "description": "List supported Apple App Store locations for App Data API.",
+      "method": "GET",
+      "path": "/app_data/apple/locations",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_apple_languages",
+      "description": "List supported Apple App Store languages for App Data API.",
+      "method": "GET",
+      "path": "/app_data/apple/languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_apple_categories",
+      "description": "List Apple App Store app categories for App Data API.",
+      "method": "GET",
+      "path": "/app_data/apple/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_apple_app_listings_categories",
+      "description": "List Apple App Store app listing categories.",
+      "method": "GET",
+      "path": "/app_data/apple/app_listings/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "app_data_apple_app_searches_task_post",
+      "description": "Create an Apple App Store app search task for apps ranking for a keyword.",
+      "method": "POST",
+      "path": "/app_data/apple/app_searches/task_post",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "App search keyword"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of app results"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_app_searches_task_get",
+      "description": "Get completed Apple App Store app search task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/app_data/apple/app_searches/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_app_info_task_post",
+      "description": "Create an Apple App Store app info task by app_id.",
+      "method": "POST",
+      "path": "/app_data/apple/app_info/task_post",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Apple App Store app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_app_info_task_get",
+      "description": "Get completed Apple App Store app info task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/app_data/apple/app_info/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_app_reviews_task_post",
+      "description": "Create an Apple App Store app reviews task by app_id.",
+      "method": "POST",
+      "path": "/app_data/apple/app_reviews/task_post",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Apple App Store app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Number of reviews"
+          },
+          "rating": {
+            "type": "integer",
+            "description": "Optional rating filter from 1 to 5"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Review sort order"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Task priority: 1 normal, 2 high"
+          },
+          "tag": {
+            "type": "string",
+            "description": "User-defined task tag"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_app_reviews_task_get",
+      "description": "Get completed Apple App Store app reviews task results by DataForSEO task id.",
+      "method": "GET",
+      "path": "/app_data/apple/app_reviews/task_get/advanced/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "DataForSEO task ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "app_data_apple_app_listings_search",
+      "description": "Search Apple App Store app listings database live by title, description, and category filters.",
+      "method": "POST",
+      "path": "/app_data/apple/app_listings/search/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Title search text"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description search text"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Categories to include"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "app_store_labs_bulk_app_metrics",
+      "description": "Get App Store ranking metrics for up to 1000 apps from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/apple/bulk_app_metrics/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Apple App Store app IDs"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          }
+        },
+        "required": [
+          "app_ids"
+        ]
+      }
+    },
+    {
+      "name": "app_store_labs_keywords_for_app",
+      "description": "Get keywords an App Store app ranks for from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/apple/keywords_for_app/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Apple App Store app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "app_store_labs_app_competitors",
+      "description": "Get App Store app competitors from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/apple/app_competitors/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "Apple App Store app ID"
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "app_store_labs_app_intersection",
+      "description": "Find App Store keyword overlaps/gaps across apps from DataForSEO Labs.",
+      "method": "POST",
+      "path": "/dataforseo_labs/apple/app_intersection/live",
+      "body_root_param": "tasks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_ids": {
+            "type": "object",
+            "description": "Map of comparison slots to app IDs, e.g. {\"1\":\"app-a\",\"2\":\"app-b\"}",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "location_code": {
+            "type": "integer",
+            "description": "Provider location code"
+          },
+          "location_name": {
+            "type": "string",
+            "description": "Provider location name"
+          },
+          "language_code": {
+            "type": "string",
+            "description": "Provider language code"
+          },
+          "language_name": {
+            "type": "string",
+            "description": "Provider language name"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset"
+          },
+          "filters": {
+            "type": "array",
+            "description": "Optional DataForSEO filter conditions"
+          },
+          "order_by": {
+            "type": "array",
+            "description": "Optional DataForSEO ordering expressions"
+          }
+        },
+        "required": [
+          "app_ids"
+        ]
+      }
+    },
+    {
+      "name": "account_info",
+      "description": "Get account balance, rate limits, and usage statistics",
+      "method": "GET",
+      "path": "/appendix/user_data",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,504 @@
+{
+  "slug": "smartly",
+  "name": "Smartly.io",
+  "description": "MCP server for Smartly.io - AI-powered advertising platform for cross-channel campaign reporting, performance analytics, and server-to-server data integration. Supports Meta, Google, TikTok, Snapchat, Pinterest, and programmatic DSPs.",
+  "logo": "https://www.google.com/s2/favicons?domain=smartly.io&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "analytics",
+    "reporting",
+    "smartly",
+    "cross-channel",
+    "creative",
+    "optimization"
+  ],
+  "base_url": "https://app.smartly.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_token",
+        "label": "Api_token",
+        "description": "Your Smartly.io API token (found in Settings > API Tokens)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "accounts_list",
+      "description": "List all connected advertising accounts in Smartly.io. Returns accounts across all connected platforms (Meta, Google, TikTok, Snapchat, Pinterest, programmatic DSPs).",
+      "method": "GET",
+      "path": "/api/v1/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "description": "Filter by platform",
+            "enum": [
+              "facebook",
+              "google",
+              "tiktok",
+              "snapchat",
+              "pinterest",
+              "dv360",
+              "amazon_dsp",
+              "thetradedesk"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of accounts to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "campaigns_list",
+      "description": "Retrieve campaign-level performance data from Smartly.io. Returns metrics like impressions, clicks, spend, conversions, CTR, CPC, CPM across all connected platforms. Filter by date range, platform, and account.",
+      "method": "GET",
+      "path": "/api/v1/reporting/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Ad account ID to query"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Platform filter",
+            "enum": [
+              "facebook",
+              "google",
+              "tiktok",
+              "snapchat",
+              "pinterest",
+              "dv360"
+            ]
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to include: impressions, clicks, spent, conversions, ctr, cpm, cpc, cpa, reach, frequency, roi, revenue",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "impressions",
+              "clicks",
+              "spent",
+              "conversions",
+              "ctr",
+              "cpm",
+              "cpc"
+            ]
+          },
+          "dimensions": {
+            "type": "array",
+            "description": "Dimensions to group by: campaign_name, campaign_fb_id, date, platform, objective",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "campaign_name"
+            ]
+          },
+          "granularity": {
+            "type": "string",
+            "description": "Time granularity",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly",
+              "total"
+            ],
+            "default": "total"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum rows",
+            "default": 100
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      }
+    },
+    {
+      "name": "adgroups_list",
+      "description": "Retrieve ad group / ad set level performance data from Smartly.io. Includes targeting details, budget, and performance metrics.",
+      "method": "GET",
+      "path": "/api/v1/reporting/adgroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Ad account ID"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to filter by"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Platform filter",
+            "enum": [
+              "facebook",
+              "google",
+              "tiktok",
+              "snapchat",
+              "pinterest"
+            ]
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to include",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "impressions",
+              "clicks",
+              "spent",
+              "conversions",
+              "ctr",
+              "cpm"
+            ]
+          },
+          "dimensions": {
+            "type": "array",
+            "description": "Dimensions: adgroup_name, adgroup_fb_id, targeting, date",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "adgroup_name"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      }
+    },
+    {
+      "name": "ads_list",
+      "description": "Retrieve ad-level performance data from Smartly.io. Includes creative details, ad name, status, and performance metrics. Useful for creative performance analysis and fatigue detection.",
+      "method": "GET",
+      "path": "/api/v1/reporting/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Ad account ID"
+          },
+          "adgroupId": {
+            "type": "string",
+            "description": "Ad group/set ID to filter by"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign ID to filter by"
+          },
+          "platform": {
+            "type": "string",
+            "description": "Platform filter",
+            "enum": [
+              "facebook",
+              "google",
+              "tiktok",
+              "snapchat",
+              "pinterest"
+            ]
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics to include",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "impressions",
+              "clicks",
+              "spent",
+              "conversions",
+              "ctr",
+              "cpm"
+            ]
+          },
+          "dimensions": {
+            "type": "array",
+            "description": "Dimensions: name, id, creative_name, date",
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "name"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      }
+    },
+    {
+      "name": "report_create",
+      "description": "Create a custom report export from Smartly.io. Specify metrics, dimensions, filters, and date range. Returns an export_id to poll for download.",
+      "method": "POST",
+      "path": "/api/v1/reports/export",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Report name"
+          },
+          "accountIds": {
+            "type": "array",
+            "description": "Ad account IDs to include",
+            "items": {
+              "type": "string"
+            }
+          },
+          "platforms": {
+            "type": "array",
+            "description": "Platforms to include",
+            "items": {
+              "type": "string"
+            }
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "metrics": {
+            "type": "array",
+            "description": "Metrics: impressions, clicks, spent, conversions, ctr, cpm, cpc, cpa, reach, frequency, roi, revenue, roas",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "description": "Breakdown dimensions: campaign_name, adgroup_name, ad_name, date, country, age, gender, platform, placement",
+            "items": {
+              "type": "string"
+            }
+          },
+          "granularity": {
+            "type": "string",
+            "description": "Time granularity",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly",
+              "total"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "description": "Export format",
+            "enum": [
+              "csv",
+              "json",
+              "xlsx"
+            ],
+            "default": "json"
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate",
+          "metrics"
+        ]
+      }
+    },
+    {
+      "name": "report_download",
+      "description": "Download a previously created report export. Use the export_id from the create report response.",
+      "method": "GET",
+      "path": "/api/v1/reports/export/{export_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "export_id": {
+            "type": "string",
+            "description": "Export ID from the report creation"
+          }
+        },
+        "required": [
+          "export_id"
+        ]
+      }
+    },
+    {
+      "name": "s2s_send_data",
+      "description": "Send server-to-server data to Smartly.io for custom attribution, conversion tracking, or enrichment. Push conversions, revenue, LTV, or custom metrics to enhance Smartly's optimization. Data can be used for Predictive Budget Allocation and Triggers.",
+      "method": "POST",
+      "path": "/api/v1/s2s/data",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dataType": {
+            "type": "string",
+            "description": "Type of data being sent",
+            "enum": [
+              "conversion",
+              "revenue",
+              "ltv",
+              "custom"
+            ]
+          },
+          "accountId": {
+            "type": "string",
+            "description": "Ad account ID to associate data with"
+          },
+          "records": {
+            "type": "array",
+            "description": "Array of data records to ingest",
+            "items": {
+              "type": "object",
+              "properties": {
+                "campaignId": {
+                  "type": "string",
+                  "description": "Campaign ID"
+                },
+                "adgroupId": {
+                  "type": "string",
+                  "description": "Ad group/set ID"
+                },
+                "adId": {
+                  "type": "string",
+                  "description": "Ad ID"
+                },
+                "timestamp": {
+                  "type": "string",
+                  "description": "Event timestamp (ISO 8601)"
+                },
+                "value": {
+                  "type": "number",
+                  "description": "Conversion value or revenue amount"
+                },
+                "currency": {
+                  "type": "string",
+                  "description": "Currency code (e.g., USD, EUR)",
+                  "default": "USD"
+                },
+                "eventName": {
+                  "type": "string",
+                  "description": "Custom event name"
+                },
+                "customAttributes": {
+                  "type": "object",
+                  "description": "Additional custom key-value attributes"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "dataType",
+          "records"
+        ]
+      }
+    },
+    {
+      "name": "s2s_delete_data",
+      "description": "Delete previously sent server-to-server data records from Smartly.io. Use to correct or remove incorrect attribution data.",
+      "method": "DELETE",
+      "path": "/api/v1/s2s/data",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Ad account ID"
+          },
+          "recordIds": {
+            "type": "array",
+            "description": "Record IDs to delete",
+            "items": {
+              "type": "string"
+            }
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Delete records from this date (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "Delete records until this date (YYYY-MM-DD)"
+          },
+          "dataType": {
+            "type": "string",
+            "description": "Type of data to delete",
+            "enum": [
+              "conversion",
+              "revenue",
+              "ltv",
+              "custom"
+            ]
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    }
+  ]
+}

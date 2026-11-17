@@ -1,0 +1,356 @@
+{
+  "slug": "stability-ai",
+  "name": "Stability AI",
+  "description": "Stability AI API for Stable Image generation, editing, upscaling, control, account, and balance. Uses the v2beta Stable Image endpoints and returns JSON responses when output_format is set.",
+  "logo": "https://www.google.com/s2/favicons?domain=stability.ai&sz=128",
+  "categories": ["ai", "image-generation", "image-editing", "upscale", "stable-diffusion"],
+  "base_url": "https://api.stability.ai",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "type": "password",
+        "description": "Stability AI API key from https://platform.stability.ai/account/keys."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_balance"
+  },
+  "tools": [
+    {
+      "name": "get_account",
+      "description": "Get Stability account information for the authenticated API key.",
+      "method": "GET",
+      "path": "/v1/user/account",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get Stability credit balance.",
+      "method": "GET",
+      "path": "/v1/user/balance",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "generate_core",
+      "description": "Generate an image with Stable Image Core.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/generate/core",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "aspect_ratio", "seed", "style_preset", "output_format"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string", "description": "Prompt describing the desired image." },
+          "negative_prompt": { "type": "string", "description": "Things to avoid." },
+          "aspect_ratio": { "type": "string", "enum": ["16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"] },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "style_preset": { "type": "string", "description": "Optional style preset such as photographic, cinematic, anime, digital-art, comic-book, or 3d-model." },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "generate_ultra",
+      "description": "Generate a high-quality image with Stable Image Ultra.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/generate/ultra",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "aspect_ratio", "seed", "output_format"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "aspect_ratio": { "type": "string", "enum": ["16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"] },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "generate_sd3",
+      "description": "Generate an image with Stable Diffusion 3/3.5 models.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/generate/sd3",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "aspect_ratio", "seed", "model", "mode", "strength", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "aspect_ratio": { "type": "string", "enum": ["16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"] },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "model": { "type": "string", "description": "SD3 model id, e.g. sd3.5-large, sd3.5-large-turbo, sd3.5-medium, sd3-large, sd3-medium." },
+          "mode": { "type": "string", "enum": ["text-to-image", "image-to-image"], "description": "Use image-to-image when image is provided." },
+          "image": { "type": "string", "description": "Optional image file path/blob for image-to-image mode." },
+          "strength": { "type": "number", "minimum": 0, "maximum": 1, "description": "How strongly the prompt transforms the image in image-to-image mode." },
+          "output_format": { "type": "string", "enum": ["png", "jpeg"], "default": "png" }
+        },
+        "required": ["prompt"]
+      }
+    },
+    {
+      "name": "erase",
+      "description": "Erase masked areas from an image.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/edit/erase",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["output_format"],
+        "file_fields": { "image": "image", "mask": "mask" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "mask": { "type": "string", "description": "Mask image file path/blob." },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image"]
+      }
+    },
+    {
+      "name": "inpaint",
+      "description": "Inpaint masked areas using a prompt.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/edit/inpaint",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "seed", "output_format"],
+        "file_fields": { "image": "image", "mask": "mask" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "mask": { "type": "string", "description": "Mask image file path/blob." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt"]
+      }
+    },
+    {
+      "name": "outpaint",
+      "description": "Extend an image canvas outward.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/edit/outpaint",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "left", "right", "up", "down", "creativity", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "prompt": { "type": "string" },
+          "left": { "type": "integer", "minimum": 0 },
+          "right": { "type": "integer", "minimum": 0 },
+          "up": { "type": "integer", "minimum": 0 },
+          "down": { "type": "integer", "minimum": 0 },
+          "creativity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image"]
+      }
+    },
+    {
+      "name": "search_and_replace",
+      "description": "Replace a searched subject in an image using a prompt.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/edit/search-and-replace",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "search_prompt", "negative_prompt", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "prompt": { "type": "string", "description": "Replacement prompt." },
+          "search_prompt": { "type": "string", "description": "Subject to find and replace." },
+          "negative_prompt": { "type": "string" },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt", "search_prompt"]
+      }
+    },
+    {
+      "name": "remove_background",
+      "description": "Remove the background from an image.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/edit/remove-background",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "output_format": { "type": "string", "enum": ["png", "webp"], "default": "png" }
+        },
+        "required": ["image"]
+      }
+    },
+    {
+      "name": "upscale_fast",
+      "description": "Fast upscale an image.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/upscale/fast",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image"]
+      }
+    },
+    {
+      "name": "upscale_conservative",
+      "description": "Conservative creative upscale guided by a prompt.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/upscale/conservative",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "creativity", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "creativity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt"]
+      }
+    },
+    {
+      "name": "upscale_creative",
+      "description": "Creative upscale guided by a prompt.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/upscale/creative",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "creativity", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Source image file path/blob." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "creativity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt"]
+      }
+    },
+    {
+      "name": "control_sketch",
+      "description": "Generate an image from a sketch/control image and prompt.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/control/sketch",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "control_strength", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Sketch/control image file path/blob." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "control_strength": { "type": "number", "minimum": 0, "maximum": 1 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt"]
+      }
+    },
+    {
+      "name": "control_structure",
+      "description": "Generate an image preserving the structure of a control image.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/control/structure",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "control_strength", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Structure/control image file path/blob." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "control_strength": { "type": "number", "minimum": 0, "maximum": 1 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt"]
+      }
+    },
+    {
+      "name": "control_style",
+      "description": "Generate an image using the style of a reference image.",
+      "method": "POST",
+      "path": "/v2beta/stable-image/control/style",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["prompt", "negative_prompt", "fidelity", "seed", "output_format"],
+        "file_fields": { "image": "image" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "string", "description": "Style reference image file path/blob." },
+          "prompt": { "type": "string" },
+          "negative_prompt": { "type": "string" },
+          "fidelity": { "type": "number", "minimum": 0, "maximum": 1 },
+          "seed": { "type": "integer", "minimum": 0, "maximum": 4294967294 },
+          "output_format": { "type": "string", "enum": ["png", "jpeg", "webp"], "default": "png" }
+        },
+        "required": ["image", "prompt"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+{
+  "slug": "aws-ec2",
+  "name": "AWS EC2",
+  "description": "Amazon EC2 Query API with SigV4 authentication for instances, instance types, images, availability zones, security groups, and Elastic IPs",
+  "logo": "https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=128",
+  "categories": ["aws", "ec2", "compute", "instances", "cloud", "virtual-machines"],
+  "base_url": "https://ec2.{{credential.region}}.amazonaws.com",
+  "auth": {
+    "types": ["aws_sigv4"],
+    "aws_sigv4": { "service": "ec2" },
+    "credential_fields": [
+      { "name": "access_key_id", "label": "Access Key ID", "description": "AWS access key with scoped EC2 permissions" },
+      { "name": "secret_access_key", "label": "Secret Access Key", "description": "AWS secret access key" },
+      { "name": "region", "label": "Region", "description": "AWS region used for the endpoint and SigV4 scope, for example eu-west-1", "type": "text", "exposure": "public" },
+      { "name": "subnet_id", "label": "Subnet ID", "description": "Subnet used for new instances; it must belong to the configured region" },
+      { "name": "security_group_id", "label": "Security Group ID", "description": "Security group used for new instances; it must allow inbound TCP 22 from the Apteva server" },
+      { "name": "session_token", "label": "Session Token", "description": "Optional token for temporary credentials", "required": false }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_instance",
+      "description": "Run one or more EC2 instances using RunInstances Query API parameters",
+      "method": "GET",
+      "path": "/?SubnetId={{credential.subnet_id}}&SecurityGroupId.1={{credential.security_group_id}}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "RunInstances" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "ImageId": { "type": "string" },
+          "InstanceType": { "type": "string" },
+          "MinCount": { "type": "integer", "default": 1 },
+          "MaxCount": { "type": "integer", "default": 1 },
+          "Placement.AvailabilityZone": { "type": "string" },
+          "UserData": { "type": "string", "description": "Base64-encoded cloud-init" },
+          "TagSpecification.1.ResourceType": { "type": "string" },
+          "TagSpecification.1.Tag.1.Key": { "type": "string" },
+          "TagSpecification.1.Tag.1.Value": { "type": "string" },
+          "BlockDeviceMapping.1.DeviceName": { "type": "string", "description": "AMI root device name, for example /dev/sda1" },
+          "BlockDeviceMapping.1.Ebs.VolumeSize": { "type": "integer", "description": "Root EBS size in GiB" },
+          "BlockDeviceMapping.1.Ebs.VolumeType": { "type": "string", "enum": ["gp3", "gp2", "io1", "io2", "st1", "sc1", "standard"] },
+          "BlockDeviceMapping.1.Ebs.Iops": { "type": "integer" },
+          "BlockDeviceMapping.1.Ebs.Throughput": { "type": "integer" },
+          "BlockDeviceMapping.1.Ebs.DeleteOnTermination": { "type": "boolean" },
+          "BlockDeviceMapping.1.Ebs.Encrypted": { "type": "boolean" },
+          "BlockDeviceMapping.1.Ebs.KmsKeyId": { "type": "string" }
+        },
+        "required": ["Action", "Version", "ImageId", "InstanceType", "MinCount", "MaxCount"]
+      }
+    },
+    {
+      "name": "list_instances",
+      "description": "Describe EC2 instances, optionally restricted by InstanceId.N parameters",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeInstances" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "InstanceId.1": { "type": "string" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "list_instance_types",
+      "description": "Describe EC2 instance type capabilities",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeInstanceTypes" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "MaxResults": { "type": "integer", "maximum": 100 },
+          "NextToken": { "type": "string" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "list_availability_zones",
+      "description": "List availability zones in the connection's AWS region",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeAvailabilityZones" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "AllAvailabilityZones": { "type": "boolean" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "Describe EC2 AMIs using Owners.N and Filter.N Query API parameters",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Action": { "type": "string", "default": "DescribeImages" },
+          "Version": { "type": "string", "default": "2016-11-15" },
+          "Owner.1": { "type": "string" },
+          "Filter.1.Name": { "type": "string" },
+          "Filter.1.Value.1": { "type": "string" },
+          "Filter.2.Name": { "type": "string" },
+          "Filter.2.Value.1": { "type": "string" },
+          "Filter.3.Name": { "type": "string" },
+          "Filter.3.Value.1": { "type": "string" }
+        },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "start_instance",
+      "description": "Start an EC2 instance",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Action": { "type": "string", "default": "StartInstances" }, "Version": { "type": "string", "default": "2016-11-15" }, "InstanceId.1": { "type": "string" } },
+        "required": ["Action", "Version", "InstanceId.1"]
+      }
+    },
+    {
+      "name": "stop_instance",
+      "description": "Stop an EC2 instance",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Action": { "type": "string", "default": "StopInstances" }, "Version": { "type": "string", "default": "2016-11-15" }, "InstanceId.1": { "type": "string" } },
+        "required": ["Action", "Version", "InstanceId.1"]
+      }
+    },
+    {
+      "name": "terminate_instance",
+      "description": "Permanently terminate an EC2 instance",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Action": { "type": "string", "default": "TerminateInstances" }, "Version": { "type": "string", "default": "2016-11-15" }, "InstanceId.1": { "type": "string" } },
+        "required": ["Action", "Version", "InstanceId.1"]
+      }
+    },
+    {
+      "name": "create_security_group",
+      "description": "Create an EC2 security group using Query API parameters",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Action": { "type": "string", "default": "CreateSecurityGroup" }, "Version": { "type": "string", "default": "2016-11-15" }, "GroupName": { "type": "string" }, "GroupDescription": { "type": "string" }, "VpcId": { "type": "string" } },
+        "required": ["Action", "Version", "GroupName", "GroupDescription"]
+      }
+    },
+    {
+      "name": "allocate_elastic_ip",
+      "description": "Allocate an EC2 Elastic IP",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": { "Action": { "type": "string", "default": "AllocateAddress" }, "Version": { "type": "string", "default": "2016-11-15" }, "Domain": { "type": "string", "default": "vpc" } },
+        "required": ["Action", "Version"]
+      }
+    },
+    {
+      "name": "volume_list",
+      "description": "Describe EBS volumes, optionally by volume or attachment",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DescribeVolumes" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId.1": { "type": "string" }, "Filter.1.Name": { "type": "string" }, "Filter.1.Value.1": { "type": "string" }, "MaxResults": { "type": "integer" }, "NextToken": { "type": "string" } }, "required": ["Action", "Version"] }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create an EBS volume in an availability zone",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "CreateVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "AvailabilityZone": { "type": "string" }, "Size": { "type": "integer" }, "VolumeType": { "type": "string", "enum": ["gp3", "gp2", "io1", "io2", "st1", "sc1", "standard"], "default": "gp3" }, "Iops": { "type": "integer" }, "Throughput": { "type": "integer" }, "Encrypted": { "type": "boolean" }, "KmsKeyId": { "type": "string" }, "SnapshotId": { "type": "string" }, "TagSpecification.1.ResourceType": { "type": "string", "default": "volume" }, "TagSpecification.1.Tag.1.Key": { "type": "string" }, "TagSpecification.1.Tag.1.Value": { "type": "string" } }, "required": ["Action", "Version", "AvailabilityZone"] }
+    },
+    {
+      "name": "volume_attach",
+      "description": "Attach an EBS volume to an EC2 instance",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "AttachVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "InstanceId": { "type": "string" }, "Device": { "type": "string" } }, "required": ["Action", "Version", "VolumeId", "InstanceId", "Device"] }
+    },
+    {
+      "name": "volume_detach",
+      "description": "Detach an EBS volume without deleting it",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DetachVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "InstanceId": { "type": "string" }, "Device": { "type": "string" }, "Force": { "type": "boolean" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_resize",
+      "description": "Modify EBS volume size or performance; volumes cannot shrink",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "ModifyVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "Size": { "type": "integer" }, "VolumeType": { "type": "string" }, "Iops": { "type": "integer" }, "Throughput": { "type": "integer" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete an available EBS volume",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DeleteVolume" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_snapshot_create",
+      "description": "Create an EBS snapshot",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "CreateSnapshot" }, "Version": { "type": "string", "default": "2016-11-15" }, "VolumeId": { "type": "string" }, "Description": { "type": "string" } }, "required": ["Action", "Version", "VolumeId"] }
+    },
+    {
+      "name": "volume_snapshot_list",
+      "description": "Describe EBS snapshots",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DescribeSnapshots" }, "Version": { "type": "string", "default": "2016-11-15" }, "SnapshotId.1": { "type": "string" }, "Owner.1": { "type": "string", "default": "self" }, "MaxResults": { "type": "integer" }, "NextToken": { "type": "string" } }, "required": ["Action", "Version"] }
+    },
+    {
+      "name": "volume_snapshot_delete",
+      "description": "Delete an EBS snapshot",
+      "method": "GET",
+      "path": "/",
+      "input_schema": { "type": "object", "properties": { "Action": { "type": "string", "default": "DeleteSnapshot" }, "Version": { "type": "string", "default": "2016-11-15" }, "SnapshotId": { "type": "string" } }, "required": ["Action", "Version", "SnapshotId"] }
+    }
+  ]
+}

@@ -43,36 +43,48 @@ import (
 )
 
 // terminateProc kills a captured proc handle without touching any
-// supervisor map. Used by both Stop() (after deleting from procs) and
+// supervisor map. Used by both Stop() and
 // RetireOld() (after deleting from pending). Group-signal — see Stop()
 // for the rationale on -pgid vs single-pid.
-func terminateProc(p *localProc, grace time.Duration) {
-	if p == nil || p.cmd == nil || p.cmd.Process == nil {
-		return
+func terminateProc(p *localProc, grace time.Duration) error {
+	if p == nil {
+		return nil
 	}
-	pid := p.cmd.Process.Pid
-	signalLocalProc(pid, syscall.SIGTERM)
 	select {
 	case <-p.done:
+		return nil
+	default:
+	}
+	if p.cmd == nil || p.cmd.Process == nil || p.done == nil {
+		return errors.New("cannot confirm process exit: missing process or reap handle")
+	}
+	pid := p.cmd.Process.Pid
+	termErr := signalLocalProcHandle(p, syscall.SIGTERM)
+	select {
+	case <-p.done:
+		return nil
 	case <-time.After(grace):
-		signalLocalProc(pid, syscall.SIGKILL)
+		killErr := signalLocalProcHandle(p, syscall.SIGKILL)
 		select {
 		case <-p.done:
+			return nil
 		case <-time.After(2 * time.Second):
-			log.Printf("[APPS-LOCAL] pid=%d did not report exit after SIGKILL", pid)
+			return errors.Join(fmt.Errorf("pid=%d did not report exit after SIGKILL", pid), termErr, killErr)
 		}
 	}
 }
 
-func signalLocalProc(pid int, sig syscall.Signal) {
+func signalLocalProc(pid int, sig syscall.Signal) error {
 	pgid, err := syscall.Getpgid(pid)
 	if err == nil && pgid > 0 {
 		if err := syscall.Kill(-pgid, sig); err == nil {
-			return
+			return nil
 		}
 	}
 	if p, err := os.FindProcess(pid); err == nil {
-		_ = p.Signal(sig)
+		return p.Signal(sig)
+	} else {
+		return err
 	}
 }
 
@@ -97,6 +109,11 @@ func signalLocalProc(pid int, sig syscall.Signal) {
 //     first (retry-on-error, dep recursion, accidental double-call).
 type LocalSupervisor struct {
 	cacheDir string
+	// Configured at construction, before installs can run. Persistence must
+	// succeed before an exclusive cutover makes the old route unavailable.
+	beforeExclusiveStop func(installID int64) error
+	afterExclusiveSpawn func(installID int64, pid int) error
+	onProcessExit       func(installID int64, pid, port int, err error)
 
 	mu    sync.Mutex
 	procs map[int64]*localProc
@@ -134,8 +151,10 @@ type localProc struct {
 	port      int
 	logfile   io.Closer
 	done      chan struct{}
+	ready     bool // guarded by LocalSupervisor.mu
 	stoppedAt time.Time
 	spec      activationSpec
+	identity  *runtimeProcessIdentity // non-child processes owned by the stable host
 }
 
 const appSidecarLogMaxBytes int64 = 16 << 20
@@ -256,6 +275,9 @@ func localPlatform() string { return runtime.GOOS + "-" + runtime.GOARCH }
 // Returns the spawned port + bin path so the caller can persist them
 // in app_installs. On any failure, leaves no orphan child.
 func (sup *LocalSupervisor) Install(installID int64, m *sdk.Manifest, env map[string]string) (port int, binPath string, err error) {
+	if err := validateAppRuntimeCompatibility(m, Version); err != nil {
+		return 0, "", err
+	}
 	if _, ok := m.Runtime.Artifacts[localPlatform()]; ok {
 		binPath, err = sup.fetchAppArtifact(m, nil)
 		if err != nil {
@@ -300,13 +322,18 @@ func (sup *LocalSupervisor) Restart(installID int64, m *sdk.Manifest, port int, 
 		if err := verifyAppArtifact(filepath.Dir(binPath), digest, m); err != nil {
 			return err
 		}
-		applyArtifactResourceEnv(m, binPath, env)
 	}
 	if binPath == "" || port == 0 {
 		return fmt.Errorf("no cached bin/port — re-install needed")
 	}
 	if _, err := os.Stat(binPath); err != nil {
 		return fmt.Errorf("cached binary missing at %s: %w", binPath, err)
+	}
+	if env == nil {
+		env = map[string]string{}
+	}
+	if err := applyAppResourceEnv(installID, m, binPath, "", "", env); err != nil {
+		return err
 	}
 	spec, err := newActivationSpec(installID, m, binPath, port, env)
 	if err != nil {
@@ -317,11 +344,15 @@ func (sup *LocalSupervisor) Restart(installID int64, m *sdk.Manifest, port int, 
 
 // Stop sends SIGTERM, waits up to 5s, then SIGKILL.
 func (sup *LocalSupervisor) Stop(installID int64) error {
+	p := sup.currentProc(installID)
+	if err := terminateProc(p, 5*time.Second); err != nil {
+		return err
+	}
 	sup.mu.Lock()
-	p := sup.procs[installID]
-	delete(sup.procs, installID)
+	if sup.procs[installID] == p {
+		delete(sup.procs, installID)
+	}
 	sup.mu.Unlock()
-	terminateProc(p, 5*time.Second)
 	return nil
 }
 
@@ -339,7 +370,10 @@ func (sup *LocalSupervisor) RetireOld(installID int64, grace time.Duration) {
 			installID, p.cmd.Process.Pid)
 	}
 	drainOldFunctions(p)
-	terminateProc(p, grace)
+	if err := terminateProc(p, grace); err != nil {
+		log.Printf("[APPS-LOCAL] retire install=%d: %v", installID, err)
+		return
+	}
 	sup.pendingMu.Lock()
 	if sup.pending[installID] == p {
 		delete(sup.pending, installID)
@@ -469,6 +503,10 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 		return err
 	}
 	cmd := exec.CommandContext(context.Background(), bin)
+	if pidFile := env["APTEVA_RUNTIME_PID_FILE"]; pidFile != "" {
+		cmd = exec.CommandContext(context.Background(), "/bin/sh", "-c", `umask 077; printf '%s\n' "$$" > "$1" || exit 125; exec "$2"`, "apteva-managed-runtime", pidFile, bin)
+	}
+
 	cmd.Dir = dataDir
 	overrides := make(map[string]string, len(env)+3)
 	overrides["APTEVA_APP_PORT"] = fmt.Sprintf("%d", port)
@@ -483,8 +521,11 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	}
 	overrides["APTEVA_DATA_DIR"] = persistentRoot
 	cmd.Env = childEnvWithOverrides(os.Environ(), overrides)
-	cmd.Stdout = logf
-	cmd.Stderr = logf
+	output := &sidecarLogWriter{sink: logf, report: func(err error) {
+		log.Printf("[APPS-LOCAL] log write failed install=%d path=%s: %v", installID, logPath, err)
+	}}
+	cmd.Stdout = output
+	cmd.Stderr = output
 	// Setpgid puts the child into a new process group with itself as
 	// the leader. Two reasons:
 	//   1. Lets us kill the entire subtree (sidecar + any chromedp
@@ -495,7 +536,13 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	//      every sidecar before our own shutdown handler runs (we
 	//      want to stop apps cleanly, not have them die mid-flush).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	releaseResources, resourceErr := configureLocalProcessResources(cmd, overrides)
+	if resourceErr != nil {
+		logf.Close()
+		return resourceErr
+	}
 	if err := cmd.Start(); err != nil {
+		releaseResources()
 		logf.Close()
 		return fmt.Errorf("spawn %s: %w", appName, err)
 	}
@@ -512,13 +559,20 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	reap := func() {
 		defer close(done)
 		err := cmd.Wait()
+		releaseResources()
 		log.Printf("[APPS-LOCAL] child exited install=%d pid=%d err=%v", installID, cmd.Process.Pid, err)
 		sup.mu.Lock()
 		if p, ok := sup.procs[installID]; ok && p.cmd == cmd {
 			p.stoppedAt = time.Now()
 			delete(sup.procs, installID)
 		}
+		stopping := sup.stopping
 		sup.mu.Unlock()
+		// The old process can still own the published route while the
+		// replacement occupies procs and is warming up.
+		if !stopping && sup.onProcessExit != nil {
+			sup.onProcessExit(installID, cmd.Process.Pid, port, err)
+		}
 		_ = logf.Close()
 	}
 	sup.mu.Lock()
@@ -682,6 +736,9 @@ func freePort() (int, error) {
 // spawn); static apps and dependency-resolution recursion don't pay
 // its cost.
 func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID string, decryptedConfig map[string]string) error {
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeUpgrade(installID, m)
+	}
 	// Drop a duplicate goroutine for the same install_id on the
 	// floor. Returning nil (not error) means: the in-flight call
 	// will write the final state to the DB; we don't need to.
@@ -719,13 +776,14 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	if m.Runtime.Kind == "static" {
 		dir, err := s.resolveStaticInstallDir(m)
 		if err != nil {
-			s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=?, pending_manifest_json='' WHERE id=?`, err.Error(), installID)
+			s.store.dbExec(`UPDATE app_installs SET status='error', error_message=?, pending_manifest_json='' WHERE id=?`, err.Error(), installID)
 			return err
 		}
 		manifestJSON, _ := json.Marshal(m)
-		s.store.db.Exec(
+		if _, err := s.store.dbExec(
 			`UPDATE app_installs SET
 				status='running',
+				mcp_activation_revision=mcp_activation_revision+1,
 				version=?,
 				manifest_json=?,
 				pending_manifest_json='',
@@ -736,7 +794,9 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 				status_message='',
 				error_message=''
 			 WHERE id=?`,
-			m.Version, string(manifestJSON), "static://"+dir, installID)
+			m.Version, string(manifestJSON), "static://"+dir, installID); err != nil {
+			return fmt.Errorf("persist static app activation: %w", err)
+		}
 		s.LoadInstalledApps()
 		s.reconcileAllAppDepBindings()
 		s.RemountStaticApps()
@@ -783,10 +843,10 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 		// activation failures may have restarted OLD. Only preserve the
 		// running state after the previous HTTP and fixed TCP listeners have
 		// actually passed readiness; a pid alone is not a rollback check.
-		if activationRollbackVerified(err) || s.localApps.verifyCurrentProc(installID, 5*time.Second) {
+		if s.localApps.previousVersionStillReady(installID, err) {
 			s.markInstallRunningOnPreviousVersion(installID, err)
 		} else {
-			s.store.db.Exec(
+			s.store.dbExec(
 				`UPDATE app_installs SET status='error', error_message=?, pending_manifest_json='' WHERE id=?`,
 				err.Error(), installID)
 		}
@@ -797,12 +857,13 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			log.Printf("[APP-ARTIFACT] skills install=%d: %v", installID, err)
 		}
 	}
-	pid := s.localApps.PID(installID)
 	url := localSidecarURL(int64(port))
 	manifestJSON, _ := json.Marshal(m)
-	s.store.db.Exec(
-		`UPDATE app_installs SET
+	if err := s.localApps.persistReadyProcess(installID, port, func(pid int) error {
+		_, err := s.store.dbExec(
+			`UPDATE app_installs SET
 			status='running',
+			mcp_activation_revision=mcp_activation_revision+1,
 			version=?,
 			manifest_json=?,
 			pending_manifest_json='',
@@ -813,7 +874,11 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		m.Version, string(manifestJSON), pid, binPath, port, url, installID)
+			m.Version, string(manifestJSON), pid, binPath, port, url, installID)
+		return err
+	}); err != nil {
+		return fmt.Errorf("persist app activation: %w", err)
+	}
 	s.LoadInstalledApps()
 	s.reconcileAllAppDepBindings()
 	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
@@ -834,17 +899,41 @@ func (s *Server) markInstallRunningOnPreviousVersion(installID int64, cause erro
 	if cause != nil {
 		errMsg = cause.Error()
 	}
-	s.store.db.Exec(
-		`UPDATE app_installs
+	// A fixed-port rollback may have restarted the old binary. Treat that as
+	// a new activation too, but leave a still-running old sidecar unchanged.
+	var activationErr *activationError
+	restarted := errors.As(cause, &activationErr) && activationErr.rollbackRestarted
+	persist := func(pid int) error {
+		_, err := s.store.dbExec(
+			`UPDATE app_installs
 		    SET status='running',
+		        mcp_activation_revision=mcp_activation_revision + CASE WHEN ? OR (? > 0 AND local_pid != ?) THEN 1 ELSE 0 END,
+		        local_pid=CASE WHEN ? > 0 THEN ? ELSE local_pid END,
+		        sidecar_url_override=CASE WHEN ? > 0 AND local_port > 0
+		            THEN 'http://127.0.0.1:' || local_port ELSE sidecar_url_override END,
 		        status_message='upgrade failed; previous version still running',
 		        error_message=?,
 		        pending_manifest_json=''
-		  WHERE id=?`,
-		errMsg, installID,
-	)
+		  WHERE id=? AND (? > 0 OR local_bin_path='' OR status='running')`,
+			restarted, pid, pid, pid, pid, pid, errMsg, installID, pid)
+		return err
+	}
+	var err error
+	if s.localApps != nil {
+		if proc := s.localApps.currentProc(installID); proc != nil && proc.cmd != nil {
+			err = s.localApps.persistReadyProcess(installID, 0, persist)
+		} else {
+			err = persist(0)
+		}
+	} else {
+		err = persist(0)
+	}
+	if err != nil {
+		log.Printf("[APPS] persist app rollback install=%d: %v", installID, err)
+		return
+	}
 	s.LoadInstalledApps()
-	if err := s.registerAppMCP(installID); err != nil {
+	if err := s.registerAppMCPAfterActivation(installID, appMCPSurfaceSnapshot{}); err != nil {
 		log.Printf("[APPS] register MCP after upgrade rollback install=%d: %v", installID, err)
 	}
 }
@@ -949,7 +1038,7 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 		return
 	}
 	s.localApps.ResetFixedPortReservations()
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, i.status, i.local_pid, COALESCE(i.local_bin_path,''), a.name,
 				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 				COALESCE(i.pending_manifest_json, '')
@@ -963,13 +1052,34 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 	defer rows.Close()
 	preferLocal := os.Getenv("APTEVA_APPS_REMOTE") == ""
 
-	for rows.Next() {
-		var id, pid int64
-		var status, binPath, appName, currentJSON, pendingJSON string
-		if err := rows.Scan(&id, &status, &pid, &binPath, &appName, &currentJSON, &pendingJSON); err != nil {
-			log.Printf("[APPS-PORTS] scan reservation: %v", err)
-			continue
+	type databaseRecord struct {
+		id          int64
+		pid         int64
+		status      string
+		binPath     string
+		appName     string
+		currentJSON string
+		pendingJSON string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.status, &record.pid, &record.binPath, &record.appName, &record.currentJSON, &record.pendingJSON); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		id := record.id
+		pid := record.pid
+		status := record.status
+		binPath := record.binPath
+		appName := record.appName
+		currentJSON := record.currentJSON
+		pendingJSON := record.pendingJSON
+
 		var current sdk.Manifest
 		if err := json.Unmarshal([]byte(currentJSON), &current); err != nil {
 			log.Printf("[APPS-PORTS] install=%d current manifest: %v", id, err)
@@ -997,7 +1107,7 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 				if pid > 0 && processAlive(int(pid)) {
 					killOrphan(int(pid))
 				}
-				_, _ = s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, msg, id)
+				_, _ = s.store.dbExec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, msg, id)
 				continue
 			}
 		}
@@ -1032,7 +1142,7 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 			// Keep OLD eligible for the normal running-resume path. Its
 			// committed reservations remain intact; only the conflicting
 			// target upgrade is abandoned.
-			_, _ = s.store.db.Exec(
+			_, _ = s.store.dbExec(
 				`UPDATE app_installs SET status='running', status_message='upgrade failed; previous version retained', error_message=?, pending_manifest_json='' WHERE id=?`,
 				msg, id,
 			)
@@ -1041,9 +1151,10 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 			if pid > 0 && processAlive(int(pid)) {
 				killOrphan(int(pid))
 			}
-			_, _ = s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, msg, id)
+			_, _ = s.store.dbExec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, msg, id)
 		}
 	}
+
 }
 
 // ResumeLocalInstalls re-spawns every local install whose status is running.
@@ -1051,6 +1162,7 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 // before dependents start their OnMount callbacks. Independent installs still
 // resume in parallel, preserving the fast common path.
 func (s *Server) ResumeLocalInstalls() {
+	defer s.resumeLiveBindingUpdates()
 	s.rebuildLocalFixedPortReservations()
 	// We pull `i.version` (what was actually installed) separately from
 	// the install's manifest snapshot — they
@@ -1060,13 +1172,13 @@ func (s *Server) ResumeLocalInstalls() {
 	// installedVersion, not from m.Version. Otherwise APTEVA_UI_DIR
 	// points at a not-yet-cached version and every dashboard request
 	// for /api/apps/<name>/ui/<Panel>.mjs returns 404.
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port, a.name,
 				COALESCE(i.project_id,''), i.config_encrypted, i.version,
 				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 				COALESCE(i.integration_bindings, '{}')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status='running' AND i.local_bin_path != ''`)
+		 WHERE i.status='running' AND i.local_bin_path != '' AND i.runtime_managed=0`)
 	if err != nil {
 		return
 	}
@@ -1193,11 +1305,11 @@ func localResumeWaves(rows []localResumeRow) [][]localResumeRow {
 // PrepareCloneLocalRuntimes makes copied source installs portable without
 // starting them. It is only used by explicit clone quarantine boot.
 func (s *Server) PrepareCloneLocalRuntimes() error {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, a.name, COALESCE(i.project_id,''),
 			i.version, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status='running' AND i.local_bin_path != ''`)
+		 WHERE i.status='running' AND i.local_bin_path != '' AND i.runtime_managed=0`)
 	if err != nil {
 		return err
 	}
@@ -1233,14 +1345,14 @@ func (s *Server) PrepareCloneLocalRuntimes() error {
 			}
 			release := s.localApps.acquireRuntimeBuildSlot(m)
 			path, err = s.localApps.BuildFromSourceBinary(m, func(msg string) {
-				s.store.db.Exec(`UPDATE app_installs SET status_message=? WHERE id=?`, "Quarantine: "+msg, r.id)
+				s.store.dbExec(`UPDATE app_installs SET status_message=? WHERE id=?`, "Quarantine: "+msg, r.id)
 			})
 			release()
 			if err != nil {
 				return fmt.Errorf("install %d (%s@%s): reconstruct runtime: %w", r.id, r.appName, r.version, err)
 			}
 		}
-		if _, err := s.store.db.Exec(
+		if _, err := s.store.dbExec(
 			`UPDATE app_installs SET local_bin_path=?, status_message='Quarantined — runtime ready' WHERE id=?`,
 			path, r.id); err != nil {
 			return fmt.Errorf("install %d (%s): persist runtime path: %w", r.id, r.appName, err)
@@ -1274,14 +1386,14 @@ func (s *Server) ResumePendingLocalInstalls() {
 	if s.localApps == nil {
 		return
 	}
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, i.local_pid, i.local_port, i.local_bin_path,
 			COALESCE(i.project_id,''), COALESCE(i.config_encrypted,''),
 			i.version, a.name,
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 			COALESCE(NULLIF(i.pending_manifest_json, ''), NULLIF(i.manifest_json, ''), a.manifest_json)
 		   FROM app_installs i JOIN apps a ON a.id = i.app_id
-		  WHERE i.status='pending'`)
+		  WHERE i.runtime_managed=0 AND (i.status='pending' OR (i.status='running' AND COALESCE(i.pending_manifest_json,'') != ''))`)
 	if err != nil {
 		log.Printf("[APPS-LOCAL] load pending installs: %v", err)
 		return
@@ -1313,14 +1425,14 @@ func (s *Server) ResumePendingLocalInstalls() {
 				_ = json.Unmarshal([]byte(plain), &cfg)
 			}
 		}
-		if r.localPID > 0 && r.localPort > 0 && r.binPath != "" {
+		if s.localApps.currentProc(r.id) == nil && r.localPID > 0 && r.localPort > 0 && r.binPath != "" {
 			// Resume OLD with its committed manifest. The pending target may
 			// declare different fixed ports and must not be used to reconstruct
 			// the still-installed binary before its upgrade is activated.
 			s.resumeOneLocalInstall(r.id, r.localPID, r.localPort, r.binPath, r.appName, r.projectID, r.configEnc, r.version, r.currentManifestJSON)
 		}
 		log.Printf("[APPS-LOCAL] resuming pending install=%d app=%s version=%s", r.id, m.Name, m.Version)
-		s.store.db.Exec(
+		s.store.dbExec(
 			`UPDATE app_installs SET status_message=? WHERE id=?`,
 			runtimeQueuedMessage(&m), r.id,
 		)
@@ -1337,7 +1449,7 @@ func (s *Server) ResumePendingLocalInstalls() {
 				log.Printf("[APPS-LOCAL] resumed pending install=%d app=%s failed: %v", r.id, m.Name, err)
 				return
 			}
-			s.store.db.Exec(`UPDATE app_installs SET version = ? WHERE id = ?`, m.Version, r.id)
+			s.store.dbExec(`UPDATE app_installs SET version = ? WHERE id = ?`, m.Version, r.id)
 		}(r, m, cfg)
 	}
 }
@@ -1361,13 +1473,21 @@ func isRecoverableLocalPending(m *sdk.Manifest) bool {
 // Logging keeps the install id in every line so interleaved output
 // stays attributable.
 func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON string) {
+	var m sdk.Manifest
+	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+		return
+	}
+	if err := validateAppRuntimeCompatibility(&m, Version); err != nil {
+		s.store.dbExec(`UPDATE app_installs SET status='error',error_message=? WHERE id=?`, err.Error(), id)
+		return
+	}
 	resolvedPath, found := portableLocalBinPath(binPath, s.localApps.cacheDir, appName, installedVersion)
 	if !found {
 		s.queueExactRuntimeReconstruction(id, appName, projectID, cfgEnc, installedVersion, manifestJSON)
 		return
 	}
 	if resolvedPath != binPath {
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET local_bin_path=? WHERE id=?`, resolvedPath, id); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET local_bin_path=? WHERE id=?`, resolvedPath, id); err != nil {
 			log.Printf("[APPS-LOCAL] persist rebased path install=%d: %v", id, err)
 			return
 		}
@@ -1382,11 +1502,10 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 	// SIGKILL after a short grace.
 	if pid > 0 && processAlive(int(pid)) {
 		log.Printf("[APPS-LOCAL] orphan install=%d pid=%d from previous server — killing before respawn", id, pid)
-		killOrphan(int(pid))
-	}
-	var m sdk.Manifest
-	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
-		return
+		if err := killOrphan(int(pid)); err != nil {
+			s.store.dbExec(`UPDATE app_installs SET status='error',error_message=? WHERE id=?`, err.Error(), id)
+			return
+		}
 	}
 	var cfg map[string]string
 	if cfgEnc != "" {
@@ -1408,46 +1527,27 @@ func (s *Server) resumeOneLocalInstall(id, pid, port int64, binPath, appName, pr
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
-	// Re-derive APTEVA_UI_DIR + APTEVA_MIGRATIONS_DIR from the
-	// cached clone so the resumed sidecar can serve /ui/*Panel.mjs
-	// and re-run any pending migrations. Without these, dashboard
-	// requests for /api/apps/<name>/ui/<Panel>.mjs come back 404
-	// after every server restart and the operator has to fully
-	// reinstall — see installFromSource for the install-time
-	// counterpart that sets the same env.
-	//
-	// Use the installed version as the cache key. New rows carry a
-	// matching per-install manifest, while the fallback still protects
-	// legacy or partially migrated rows whose manifest version differs.
-	cacheVersion := installedVersion
-	if cacheVersion == "" {
-		cacheVersion = m.Version
+	if err := applyAppResourceEnv(id, &m, binPath, "", "", env); err != nil {
+		s.store.dbExec(`UPDATE app_installs SET status='error',error_message=? WHERE id=?`, err.Error(), id)
+		log.Printf("[APPS-LOCAL] resume install=%d: %v", id, err)
+		return
 	}
-	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
-		srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
-		entryDir := srcDir
-		if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
-			entryDir = filepath.Join(srcDir, e)
-		}
-		env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
-		if m.DB != nil && m.DB.Migrations != "" {
-			migrations := m.DB.Migrations
-			if !filepath.IsAbs(migrations) {
-				migrations = filepath.Join(entryDir, migrations)
-			}
-			env["APTEVA_MIGRATIONS_DIR"] = migrations
-		}
+	if err := s.markLocalSidecarStarting(id); err != nil {
+		log.Printf("[APPS-LOCAL] resume install=%d: %v", id, err)
+		return
 	}
-	applyArtifactResourceEnv(&m, binPath, env)
 	log.Printf("[APPS-LOCAL] resuming install=%d (pid=%d was dead) ui=%s",
 		id, pid, env["APTEVA_UI_DIR"])
 	if err := s.localApps.Restart(id, &m, int(port), binPath, env); err != nil {
 		log.Printf("[APPS-LOCAL] resume failed install=%d: %v", id, err)
-		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
+		s.store.dbExec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
 		return
 	}
-	newPID := s.localApps.PID(id)
-	s.updateLocalInstallRuntime(id, newPID, port)
+	if err := s.localApps.persistReadyProcess(id, int(port), func(pid int) error {
+		return s.updateLocalInstallRuntime(id, pid, port)
+	}); err != nil {
+		log.Printf("[APPS-LOCAL] resume runtime install=%d: %v", id, err)
+	}
 }
 
 func portableLocalBinPath(recorded, cacheDir, appName, version string) (string, bool) {
@@ -1459,9 +1559,9 @@ func portableLocalBinPath(recorded, cacheDir, appName, version string) (string, 
 	if appName == "" || version == "" || filepath.Base(appName) != appName || filepath.Base(version) != version {
 		return "", false
 	}
-	if digest := filepath.Base(filepath.Dir(recorded)); validArtifactDigest(digest) && filepath.Base(filepath.Dir(filepath.Dir(recorded))) == "artifacts" {
-		suffix := filepath.Join(appName, version, "artifacts", digest, "bin")
-		if !strings.HasSuffix(filepath.Clean(recorded), string(filepath.Separator)+suffix) {
+	if digest, layout := filepath.Base(filepath.Dir(recorded)), filepath.Base(filepath.Dir(filepath.Dir(recorded))); validArtifactDigest(digest) && (layout == "artifacts" || layout == "packages") {
+		suffix := filepath.Join(appName, version, layout, digest, "bin")
+		if clean := filepath.Clean(recorded); clean != suffix && !strings.HasSuffix(clean, string(filepath.Separator)+suffix) {
 			return "", false
 		}
 		candidate := filepath.Join(cacheDir, suffix)
@@ -1484,7 +1584,7 @@ func (s *Server) queueExactRuntimeReconstruction(id int64, appName, projectID, c
 	m, err := exactSourceRuntimeManifest(appName, installedVersion, manifestJSON)
 	if err != nil {
 		log.Printf("[APPS-LOCAL] reconstruct install=%d bad manifest: %v", id, err)
-		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
+		s.store.dbExec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), id)
 		return
 	}
 	var cfg map[string]string
@@ -1493,7 +1593,7 @@ func (s *Server) queueExactRuntimeReconstruction(id int64, appName, projectID, c
 			_ = json.Unmarshal([]byte(plain), &cfg)
 		}
 	}
-	s.store.db.Exec(`UPDATE app_installs SET status='pending', status_message='Queued — reconstructing exact installed version', error_message='' WHERE id=?`, id)
+	s.store.dbExec(`UPDATE app_installs SET status='pending', status_message='Queued — reconstructing exact installed version', error_message='' WHERE id=?`, id)
 	go func() {
 		release := s.localApps.acquireRuntimeBuildSlot(m)
 		defer release()
@@ -1506,6 +1606,9 @@ func (s *Server) queueExactRuntimeReconstruction(id int64, appName, projectID, c
 func exactSourceRuntimeManifest(appName, installedVersion, manifestJSON string) (*sdk.Manifest, error) {
 	var m sdk.Manifest
 	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
+		return nil, err
+	}
+	if err := validateAppRuntimeCompatibility(&m, Version); err != nil {
 		return nil, err
 	}
 	if a, ok := m.Runtime.Artifacts[localPlatform()]; ok && a.URL != "" && validArtifactDigest(a.SHA256) && appName != "" && installedVersion != "" {
@@ -1556,16 +1659,19 @@ func envResumeConcurrency() int {
 // cached binary is missing, or the new process fails its health
 // check. Updates app_installs.local_pid + status on success/failure.
 func (s *Server) RespawnLocalInstall(installID int64) error {
-	row := s.store.db.QueryRow(
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeRestart(installID)
+	}
+	row := s.store.dbQueryRow(
 		`SELECT i.local_pid, i.local_bin_path, i.local_port,
-			COALESCE(i.project_id,''), i.config_encrypted, i.version,
+			COALESCE(i.project_id,''), i.config_encrypted,
 			COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
 	)
 	var pid, port int64
-	var binPath, projectID, cfgEnc, installedVersion, manifestJSON string
-	if err := row.Scan(&pid, &binPath, &port, &projectID, &cfgEnc, &installedVersion, &manifestJSON); err != nil {
+	var binPath, projectID, cfgEnc, manifestJSON string
+	if err := row.Scan(&pid, &binPath, &port, &projectID, &cfgEnc, &manifestJSON); err != nil {
 		return fmt.Errorf("install %d not found: %w", installID, err)
 	}
 	if binPath == "" {
@@ -1575,14 +1681,8 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 	if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
 		return fmt.Errorf("install %d: parse manifest: %w", installID, err)
 	}
-
-	// Stop the currently-tracked process. Stop is a no-op when the
-	// supervisor doesn't have a tracked pid, so we also kill the DB-
-	// recorded pid as an orphan if the supervisor lost track of it
-	// (server restart between spawn and respawn, etc).
-	_ = s.localApps.Stop(installID)
-	if pid > 0 && processAlive(int(pid)) {
-		killOrphan(int(pid))
+	if err := validateAppRuntimeCompatibility(&m, Version); err != nil {
+		return err
 	}
 
 	var cfg map[string]string
@@ -1604,37 +1704,48 @@ func (s *Server) RespawnLocalInstall(installID int64) error {
 		"APTEVA_PROJECT_ID":  projectID,
 		"APTEVA_APP_CONFIG":  string(cfgJSON),
 	}
-	cacheVersion := installedVersion
-	if cacheVersion == "" {
-		cacheVersion = m.Version
+	if err := applyAppResourceEnv(installID, &m, binPath, "", "", env); err != nil {
+		return err
 	}
-	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
-		srcDir := filepath.Join(s.localApps.cacheDir, m.Name, cacheVersion, "src")
-		entryDir := srcDir
-		if e := strings.TrimSpace(m.Runtime.Source.Entry); e != "" && e != "." {
-			entryDir = filepath.Join(srcDir, e)
-		}
-		env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
-		if m.DB != nil && m.DB.Migrations != "" {
-			migrations := m.DB.Migrations
-			if !filepath.IsAbs(migrations) {
-				migrations = filepath.Join(entryDir, migrations)
-			}
-			env["APTEVA_MIGRATIONS_DIR"] = migrations
+	// Stop the currently-tracked process. Stop is a no-op when the
+	// supervisor doesn't have a tracked pid, so we also kill the DB-
+	// recorded pid as an orphan if the supervisor lost track of it
+	// (server restart between spawn and respawn, etc).
+	oldMCPSurface := s.snapshotAppMCPSurface(installID)
+	if err := s.localApps.Stop(installID); err != nil {
+		return fmt.Errorf("stop before respawn: %w", err)
+	}
+	if pid > 0 && processAlive(int(pid)) {
+		if err := killOrphan(int(pid)); err != nil {
+			return err
 		}
 	}
 
-	applyArtifactResourceEnv(&m, binPath, env)
-	log.Printf("[APPS-LOCAL] respawning install=%d after bindings/config change", installID)
-	if err := s.localApps.Restart(installID, &m, int(port), binPath, env); err != nil {
-		s.store.db.Exec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)
+	// The reaper may have just marked the old process unavailable.
+	// A starting child needs its callbacks before it can pass readiness.
+	if err := s.markLocalSidecarStarting(installID); err != nil {
 		return err
 	}
-	newPID := s.localApps.PID(installID)
-	s.updateLocalInstallRuntime(installID, newPID, port)
+	log.Printf("[APPS-LOCAL] respawning install=%d after bindings/config change", installID)
+	if err := s.localApps.Restart(installID, &m, int(port), binPath, env); err != nil {
+		s.store.dbExec(`UPDATE app_installs SET status='error', error_message=? WHERE id=?`, err.Error(), installID)
+		return err
+	}
+	if err := s.localApps.persistReadyProcess(installID, int(port), func(pid int) error {
+		return s.updateLocalInstallRuntime(installID, pid, port)
+	}); err != nil {
+		return err
+	}
 	s.LoadInstalledApps()
-	if err := s.registerAppMCP(installID); err != nil {
-		log.Printf("[APPS] register MCP after respawn install=%d: %v", installID, err)
+	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+		return fmt.Errorf("refresh MCP after app respawn: %w", err)
+	}
+	return nil
+}
+
+func (s *Server) markLocalSidecarStarting(installID int64) error {
+	if _, err := s.store.dbExec(`UPDATE app_installs SET status='pending', status_message='Starting local runtime' WHERE id=? AND status='error'`, installID); err != nil {
+		return fmt.Errorf("record local sidecar startup: %w", err)
 	}
 	return nil
 }
@@ -1646,19 +1757,75 @@ func localSidecarURL(port int64) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-func (s *Server) updateLocalInstallRuntime(installID int64, pid int, port int64) {
-	if _, err := s.store.db.Exec(
+// localProcessExited invalidates only the committed route, regardless of
+// whether the reaped process is the supervisor's current startup candidate.
+func (s *Server) localProcessExited(installID int64, pid, port int, exitErr error) {
+	route := localAppRoute{installID, pid, localSidecarURL(int64(port))}
+	registry := s.installedApps
+	registry.loadMu.Lock()
+	defer registry.loadMu.Unlock()
+
+	registry.removeLocalRoute(route, false)
+	message := "Local sidecar exited"
+	if exitErr != nil {
+		message += ": " + exitErr.Error()
+	}
+	committedOwner, err := s.recordLocalProcessExit(route, port, message)
+	if err != nil {
+		if registry.failedExits == nil {
+			registry.failedExits = make(map[localAppRoute]localExitRecord)
+		}
+		registry.failedExits[route] = localExitRecord{port: port, message: message}
+		log.Printf("[APPS-LOCAL] record exit install=%d pid=%d: %v", installID, pid, err)
+	} else if committedOwner {
+		registry.removeLocalRoute(route, true)
+	}
+}
+
+func (s *Server) recordLocalProcessExit(route localAppRoute, port int, message string) (bool, error) {
+	result, err := s.store.dbExec(
+		`UPDATE app_installs
+		    SET status=CASE WHEN COALESCE(pending_manifest_json,'')='' THEN 'error' ELSE 'pending' END,
+		        local_pid=0, sidecar_url_override='', status_message='', error_message=?
+		  WHERE id=? AND runtime_managed=0 AND status='running'
+		    AND local_pid=? AND local_port=? AND sidecar_url_override=?`,
+		message, route.installID, route.pid, port, route.url)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	return changed > 0, err
+}
+
+// persistReadyProcess serializes publishing a ready process with its reaper.
+// The caller has already checked readiness. An exit during the database write
+// is handled after the write, and an already-reaped process cannot be published.
+func (sup *LocalSupervisor) persistReadyProcess(installID int64, port int, persist func(int) error) error {
+	sup.mu.Lock()
+	defer sup.mu.Unlock()
+	p := sup.procs[installID]
+	if sup.stopping || p == nil || !p.ready || (port != 0 && p.port != port) {
+		return fmt.Errorf("local sidecar install=%d has no ready process to commit", installID)
+	}
+	return persist(p.cmd.Process.Pid)
+}
+
+func (s *Server) updateLocalInstallRuntime(installID int64, pid int, port int64) error {
+	if _, err := s.store.dbExec(
 		`UPDATE app_installs SET
 			status='running',
+			mcp_activation_revision=mcp_activation_revision+1,
 			local_pid=?,
+			local_port=?,
 			sidecar_url_override=?,
 			status_message='',
 			error_message=''
 		 WHERE id=?`,
-		pid, localSidecarURL(port), installID,
+		pid, port, localSidecarURL(port), installID,
 	); err != nil {
-		log.Printf("[APPS-LOCAL] update runtime install=%d: %v", installID, err)
+		return fmt.Errorf("update runtime install=%d: %w", installID, err)
 	}
+	return nil
 }
 
 // processAlive — best-effort: kill -0 returns nil if the pid exists and
@@ -1681,7 +1848,7 @@ func processAlive(pid int) bool {
 // Setpgid, so any chromedp Chrome / sub-helpers go too); falls back
 // to a single-pid kill if the group call fails. SIGTERM with a
 // short grace, then SIGKILL.
-func killOrphan(pid int) {
+func killOrphan(pid int) error {
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
 		pgid = 0
@@ -1696,11 +1863,18 @@ func killOrphan(pid int) {
 	signal(pid, syscall.SIGTERM)
 	for i := 0; i < 20; i++ { // ~2s grace
 		if !processAlive(pid) {
-			return
+			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	signal(pid, syscall.SIGKILL)
+	for i := 0; i < 20; i++ {
+		if !processAlive(pid) {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("orphan pid=%d still exists after SIGKILL; refusing overlapping restart", pid)
 }
 
 // StopAll terminates every sidecar this supervisor is currently
@@ -1738,7 +1912,7 @@ func (sup *LocalSupervisor) StopAll(grace time.Duration) {
 	// launched from a terminal or another supervisor.
 	for _, p := range procs {
 		if p != nil && p.cmd != nil && p.cmd.Process != nil {
-			signalLocalProc(p.cmd.Process.Pid, syscall.SIGTERM)
+			signalLocalProcHandle(p, syscall.SIGTERM)
 		}
 	}
 
@@ -1774,7 +1948,7 @@ func (sup *LocalSupervisor) StopAll(grace time.Duration) {
 		case <-p.done:
 		default:
 			remaining++
-			signalLocalProc(p.cmd.Process.Pid, syscall.SIGKILL)
+			signalLocalProcHandle(p, syscall.SIGKILL)
 		}
 	}
 	if remaining == 0 {

@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Store) migrateTelemetryRollups() error {
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return err
 	}

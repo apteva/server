@@ -1,0 +1,239 @@
+{
+  "slug": "playcanvas",
+  "name": "PlayCanvas",
+  "description": "Browser-based game engine and collaboration platform. Manage projects, apps, scenes, assets, branches, checkpoints, exports, and asynchronous jobs through the public REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=playcanvas.com&sz=128",
+  "categories": ["game-development", "game-engine", "web-games", "3d", "collaboration"],
+  "base_url": "https://playcanvas.com/api",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Access Token",
+        "description": "Personal access token generated from your PlayCanvas organization Account page.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_project_apps",
+      "description": "List all published applications belonging to a PlayCanvas project.",
+      "method": "GET",
+      "path": "/projects/{projectId}/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectId": { "type": "integer", "description": "PlayCanvas project ID." } },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "get_primary_app",
+      "description": "Get the primary published application for a PlayCanvas project.",
+      "method": "GET",
+      "path": "/projects/{projectId}/app",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectId": { "type": "integer" } },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "get_app",
+      "description": "Get one published PlayCanvas application by its application ID.",
+      "method": "GET",
+      "path": "/apps/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "integer", "description": "Published application ID." } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "download_app",
+      "description": "Start an asynchronous build that packages selected project scenes as a downloadable static or npm application.",
+      "method": "POST",
+      "path": "/apps/download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "project_id": { "type": "integer" },
+          "name": { "type": "string" },
+          "scenes": { "type": "array", "items": { "type": "integer" }, "minItems": 1 },
+          "branch_id": { "type": "string" },
+          "description": { "type": "string" },
+          "version": { "type": "string" },
+          "release_notes": { "type": "string" },
+          "scripts_concatenate": { "type": "boolean" },
+          "scripts_minify": { "type": "boolean" },
+          "scripts_sourcemaps": { "type": "boolean" },
+          "optimize_scene_format": { "type": "boolean" },
+          "format": { "type": "string", "enum": ["static", "npm"] },
+          "engine_version": { "type": "string" }
+        },
+        "required": ["project_id", "name", "scenes"]
+      }
+    },
+    {
+      "name": "list_scenes",
+      "description": "List scenes in a project branch so they can be selected for publishing or inspection.",
+      "method": "GET",
+      "path": "/projects/{projectId}/scenes",
+      "query_params": ["branchId"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "integer" },
+          "branchId": { "type": "string", "description": "Optional branch ID; defaults to the project primary branch." }
+        },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List project assets from a specific PlayCanvas branch with offset pagination.",
+      "method": "GET",
+      "path": "/projects/{projectId}/assets",
+      "query_params": ["branchId", "skip", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "integer" },
+          "branchId": { "type": "string" },
+          "skip": { "type": "integer", "minimum": 0 },
+          "limit": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["projectId", "branchId"]
+      }
+    },
+    {
+      "name": "create_asset",
+      "description": "Upload a supported text asset such as a script, HTML, CSS, shader, text, or JSON file to a PlayCanvas project branch.",
+      "method": "POST",
+      "path": "/assets",
+      "multipart_form": {
+        "file_fields": { "file": "file" },
+        "field_names": ["name", "projectId", "branchId", "parent", "preload", "pow2"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Asset filename including its supported extension." },
+          "projectId": { "type": "integer" },
+          "branchId": { "type": "string" },
+          "parent": { "type": "integer", "description": "Optional parent folder asset ID." },
+          "preload": { "type": "boolean" },
+          "pow2": { "type": "boolean" },
+          "file": { "type": "string", "description": "File bytes as a blobref:// handle, data URL, or base64 value." }
+        },
+        "required": ["name", "projectId", "branchId", "file"]
+      }
+    },
+    {
+      "name": "update_asset_file",
+      "description": "Replace the file content of an existing supported PlayCanvas text asset.",
+      "method": "PUT",
+      "path": "/assets/{assetId}",
+      "multipart_form": {
+        "file_fields": { "file": "file" },
+        "field_names": ["pow2"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assetId": { "type": "integer" },
+          "file": { "type": "string", "description": "Replacement file bytes as a blobref:// handle, data URL, or base64 value." },
+          "pow2": { "type": "boolean" }
+        },
+        "required": ["assetId", "file"]
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "List the source-control branches for a PlayCanvas project.",
+      "method": "GET",
+      "path": "/projects/{projectId}/branches",
+      "query_params": ["skip"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectId": { "type": "integer" }, "skip": { "type": "integer", "minimum": 0 } },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "create_branch",
+      "description": "Create a PlayCanvas branch from a source branch and optionally a specific checkpoint.",
+      "method": "POST",
+      "path": "/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "projectId": { "type": "integer" },
+          "sourceBranchId": { "type": "string" },
+          "sourceCheckpointId": { "type": "string" }
+        },
+        "required": ["name", "projectId", "sourceBranchId"]
+      }
+    },
+    {
+      "name": "list_checkpoints",
+      "description": "List checkpoints for a PlayCanvas branch, newest first, with cursor pagination.",
+      "method": "GET",
+      "path": "/branches/{branchId}/checkpoints",
+      "query_params": ["limit", "skip"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "branchId": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "skip": { "type": "string", "description": "Checkpoint ID to use as the pagination cursor." }
+        },
+        "required": ["branchId"]
+      }
+    },
+    {
+      "name": "create_checkpoint",
+      "description": "Start an asynchronous job that creates a checkpoint on a PlayCanvas project branch.",
+      "method": "POST",
+      "path": "/checkpoints",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "integer" },
+          "branchId": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["projectId", "branchId", "description"]
+      }
+    },
+    {
+      "name": "export_project",
+      "description": "Start an asynchronous export of a complete PlayCanvas project, optionally from a selected branch.",
+      "method": "POST",
+      "path": "/projects/{projectId}/export",
+      "input_schema": {
+        "type": "object",
+        "properties": { "projectId": { "type": "integer" }, "branch_id": { "type": "string" } },
+        "required": ["projectId"]
+      }
+    },
+    {
+      "name": "get_job",
+      "description": "Poll a PlayCanvas asynchronous download, export, or checkpoint job until it completes.",
+      "method": "GET",
+      "path": "/jobs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "description": "Job ID returned by an asynchronous operation." } },
+        "required": ["id"]
+      }
+    }
+  ]
+}

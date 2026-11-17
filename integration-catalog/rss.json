@@ -1,0 +1,233 @@
+{
+  "slug": "rss",
+  "name": "RSS Feed Reader",
+  "description": "Subscribe to RSS feeds, read articles, and manage read/starred status",
+  "logo": "https://www.google.com/s2/favicons?domain=feedly.com&sz=128",
+  "categories": [
+    "rss",
+    "feeds",
+    "news",
+    "articles",
+    "reader"
+  ],
+  "base_url": "https://rss-to-json-serverless-api.vercel.app",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "feed_list",
+      "description": "List all RSS feed subscriptions with unread counts",
+      "method": "GET",
+      "path": "/feed-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_counts": {
+            "type": "boolean",
+            "description": "Include unread counts",
+            "default": true
+          },
+          "is_active": {
+            "type": "boolean",
+            "description": "Filter by active status"
+          }
+        }
+      }
+    },
+    {
+      "name": "feed_add",
+      "description": "Subscribe to an RSS feed by URL. Fetches feed metadata and initial entries.",
+      "method": "GET",
+      "path": "/feed-add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "RSS feed URL"
+          },
+          "return_entries": {
+            "type": "boolean",
+            "description": "Return initial entries in response",
+            "default": false
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "feed_remove",
+      "description": "Remove a feed subscription and all its entries",
+      "method": "GET",
+      "path": "/feed-remove",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feed_id": {
+            "type": "integer",
+            "description": "Feed ID to remove"
+          }
+        },
+        "required": [
+          "feed_id"
+        ]
+      }
+    },
+    {
+      "name": "feed_refresh",
+      "description": "Fetch new entries from a feed. Can specify by feed_id or url.",
+      "method": "GET",
+      "path": "/feed-refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feed_id": {
+            "type": "integer",
+            "description": "Feed ID to refresh"
+          },
+          "url": {
+            "type": "string",
+            "description": "Feed URL to refresh (alternative to feed_id)"
+          }
+        }
+      }
+    },
+    {
+      "name": "entry_list",
+      "description": "List RSS entries/articles with filtering by feed, read status, starred status, or search",
+      "method": "GET",
+      "path": "/entry-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "feed_id": {
+            "type": "integer",
+            "description": "Filter by feed ID"
+          },
+          "url": {
+            "type": "string",
+            "description": "Filter by feed URL"
+          },
+          "is_read": {
+            "type": "boolean",
+            "description": "Filter by read status"
+          },
+          "is_starred": {
+            "type": "boolean",
+            "description": "Filter by starred status"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search in title/summary/content"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort field:direction (e.g., published_at:desc)",
+            "default": "published_at:desc"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max entries to return",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset for pagination",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "entry_get",
+      "description": "Get a single RSS entry with full content",
+      "method": "GET",
+      "path": "/entry-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "description": "Entry ID"
+          },
+          "mark_read": {
+            "type": "boolean",
+            "description": "Mark as read when fetched",
+            "default": false
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    },
+    {
+      "name": "entry_mark_read",
+      "description": "Mark entries as read or unread. Can mark specific entries, all entries in a feed, or by feed URL.",
+      "method": "GET",
+      "path": "/entry-mark-read",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Array of entry IDs to mark"
+          },
+          "feed_id": {
+            "type": "integer",
+            "description": "Mark all entries in this feed"
+          },
+          "url": {
+            "type": "string",
+            "description": "Mark all entries by feed URL"
+          },
+          "is_read": {
+            "type": "boolean",
+            "description": "Read status to set (true=read, false=unread)",
+            "default": true
+          }
+        }
+      }
+    },
+    {
+      "name": "entry_star",
+      "description": "Star or unstar an RSS entry",
+      "method": "GET",
+      "path": "/entry-star",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "integer",
+            "description": "Entry ID"
+          },
+          "is_starred": {
+            "type": "boolean",
+            "description": "Star status to set",
+            "default": true
+          }
+        },
+        "required": [
+          "entry_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "slug": "the-sports-db",
+  "name": "TheSportsDB",
+  "description": "Open sports database — schedules, results, lineups, team info, league data, player histories across every major sport (NFL, NBA, MLB, NHL, EPL + every soccer league, F1, MMA, tennis, NCAA, AFL, CFL, rugby, cricket, esports). Complements The Odds API: that one gives you bookmaker prices, this one gives you the underlying game schedule + outcome. Use to confirm a Polymarket sports market is about to resolve, look up final scores, or build a lookahead calendar. Free dev tier with api_key='3' (rate-limited); paid Patreon tier ($3+/month) gets a personal key with no limits. Sign up at https://www.thesportsdb.com/api.php. Note: api_key is in the URL path, not headers — that's their convention.",
+  "logo": "https://www.google.com/s2/favicons?domain=thesportsdb.com&sz=128",
+  "categories": [
+    "sports",
+    "schedules",
+    "scores",
+    "teams",
+    "prediction-markets"
+  ],
+  "base_url": "https://www.thesportsdb.com/api/v1/json",
+  "auth": {
+    "types": ["api_key"],
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Use '3' for the free dev tier (rate-limited, recent data only). Patreon-tier supporters get a personal key with no limits — register at https://www.thesportsdb.com/api.php.",
+        "default": "3"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_teams",
+      "description": "Find teams by name. Returns id (idTeam), full name (strTeam), short name, sport, league, country, manager, founded year, stadium, badge URL. Use to resolve a team mentioned in a Polymarket market to a stable id for further lookups.",
+      "method": "GET",
+      "path": "/{api_key}/searchteams.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "t": {"type": "string", "description": "Team name — 'Manchester United', 'Lakers', 'Patriots'."},
+          "s": {"type": "string", "description": "Optional sport filter — 'Soccer', 'Basketball', 'American Football'."}
+        },
+        "required": ["t"]
+      }
+    },
+    {
+      "name": "lookup_team",
+      "description": "Get full details for one team by id. Returns everything search_teams returns plus stadium description, social media handles, country, jersey colors.",
+      "method": "GET",
+      "path": "/{api_key}/lookupteam.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "idTeam."}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "all_leagues",
+      "description": "Browse every league across every sport. Returns idLeague + strLeague + strSport + strCurrentSeason. Use to discover the league ids needed for next_events_league + events_round.",
+      "method": "GET",
+      "path": "/{api_key}/all_leagues.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "next_events_league",
+      "description": "Next 15 upcoming events for a league. Returns idEvent, dateEvent, strEvent (home vs away), strLeague, strSeason, intRound. Use as the lookahead calendar for sports betting markets.",
+      "method": "GET",
+      "path": "/{api_key}/eventsnextleague.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "idLeague — e.g. 4328 for English Premier League, 4387 for NBA."}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "next_events_team",
+      "description": "Next 15 upcoming events for a specific team. Useful for tracking a single team's schedule.",
+      "method": "GET",
+      "path": "/{api_key}/eventsnext.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "idTeam."}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "last_events_team",
+      "description": "Last 15 completed events for a team — final scores + venue + season. Use to verify a Polymarket sports market should already be resolved and check the outcome.",
+      "method": "GET",
+      "path": "/{api_key}/eventslast.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "idTeam."}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "events_day",
+      "description": "All events on a specific date across a sport (or league). Useful for daily betting calendars + 'is today X major event day?' checks.",
+      "method": "GET",
+      "path": "/{api_key}/eventsday.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "d": {"type": "string", "description": "YYYY-MM-DD."},
+          "s": {"type": "string", "description": "Sport name — 'Soccer', 'Basketball', etc."},
+          "l": {"type": "string", "description": "Optional strLeague (URL-encoded) — narrows to one league."}
+        },
+        "required": ["d"]
+      }
+    },
+    {
+      "name": "lookup_event",
+      "description": "Full detail for one event — final score, attendance, weather, lineups (when available), commentary URL.",
+      "method": "GET",
+      "path": "/{api_key}/lookupevent.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "idEvent."}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "events_round",
+      "description": "Every event in a specific round of a season. Useful for full-round bracket scans (playoffs, tournament rounds).",
+      "method": "GET",
+      "path": "/{api_key}/eventsround.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "description": "idLeague."},
+          "r":  {"type": "string", "description": "Round number — '1', '2', '125' (knockout phases), 'Group A'."},
+          "s":  {"type": "string", "description": "Season — '2025-2026'."}
+        },
+        "required": ["id","r"]
+      }
+    },
+    {
+      "name": "league_table",
+      "description": "Current standings table for a league season. Returns rank, team, wins, losses, draws, points, goals for/against. Use to assess team strength when reasoning about future fixtures.",
+      "method": "GET",
+      "path": "/{api_key}/lookuptable.php",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "l": {"type": "string", "description": "idLeague."},
+          "s": {"type": "string", "description": "Season — '2025-2026'."}
+        },
+        "required": ["l","s"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "all_leagues"
+  }
+}

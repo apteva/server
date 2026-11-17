@@ -10,10 +10,12 @@ import (
 )
 
 type dashboardWidgetInstance struct {
-	ID        string         `json:"id"`
-	Component string         `json:"component"`
-	Size      string         `json:"size"`
-	Settings  map[string]any `json:"settings,omitempty"`
+	AgentID   int64                     `json:"agent_id,omitempty"`
+	Setup     []ProjectPresetConnection `json:"setup,omitempty"`
+	ID        string                    `json:"id"`
+	Component string                    `json:"component"`
+	Size      string                    `json:"size"`
+	Settings  map[string]any            `json:"settings,omitempty"`
 }
 
 type dashboardWidgetNativeRenderer struct {
@@ -22,6 +24,7 @@ type dashboardWidgetNativeRenderer struct {
 }
 
 type dashboardWidgetDefinition struct {
+	HostUI          *sdk.HostUI                    `json:"host_ui,omitempty"`
 	Component       string                         `json:"component"`
 	Kind            string                         `json:"kind"`
 	App             string                         `json:"app,omitempty"`
@@ -33,6 +36,7 @@ type dashboardWidgetDefinition struct {
 	SupportedSizes  []string                       `json:"supported_sizes"`
 	DefaultSize     string                         `json:"default_size"`
 	DefaultSettings map[string]any                 `json:"default_settings,omitempty"`
+	SettingsUI      *sdk.WidgetSettingsUI          `json:"settings_ui,omitempty"`
 	SettingsSchema  map[string]any                 `json:"settings_schema,omitempty"`
 	RefreshTopics   []string                       `json:"refresh_topics,omitempty"`
 	Suggested       bool                           `json:"suggested,omitempty"`
@@ -41,8 +45,20 @@ type dashboardWidgetDefinition struct {
 }
 
 var dashboardHomeBuiltins = []dashboardWidgetDefinition{
+	{Component: "native:helper", Kind: "builtin", Label: "Apteva Helper", Description: "Build through the existing Conversations chat widget.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
+	{Component: "native:system-map", Kind: "builtin", Label: "System map", Description: "Explore agents and their configured capabilities.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
+	{Component: "native:result-preview", Kind: "builtin", Label: "Result / preview", Description: "Inspect selected activity and app outputs.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
+	{Component: "native:workspace-summary", Kind: "builtin", Label: "Workspace overview", Description: "A compact view of the resources and state in this workspace.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
+	{Component: "native:quick-actions", Kind: "builtin", Label: "Quick actions", Description: "Start common workspace actions without leaving the page.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
+	{Component: "native:context-inspector", Kind: "builtin", Label: "Inspector", Description: "Inspect and act on the item selected in another widget.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
+	{Component: "native:readiness", Kind: "builtin", Label: "Needs attention", Description: "Reported resource issues in this scope.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half"},
+	{Component: "native:agents", Kind: "builtin", Label: "Agents", Description: "Your agents and their current state.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:apps", Kind: "builtin", Label: "Apps", Description: "Installed apps available in this workspace.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:integrations", Kind: "builtin", Label: "Integrations", Description: "Connected services and the tools they provide.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:skills", Kind: "builtin", Label: "Skills", Description: "Reusable instructions available to your agents.", SupportedSizes: []string{"half", "full"}, DefaultSize: "half", DefaultSettings: map[string]any{"max_rows": 6}, SettingsSchema: map[string]any{"type": "object", "properties": map[string]any{"max_rows": map[string]any{"type": "integer", "title": "Rows", "minimum": 3, "maximum": 12, "default": 6}}}},
+	{Component: "native:agent-activity", Kind: "builtin", Label: "Agent activity", Description: "Current work, progress, blockers, and next steps across your agents.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
 	{Component: "native:usage", Kind: "builtin", Label: "Usage summary", Description: "Agents, calls, tokens, errors, and cost for the last 24 hours.", SupportedSizes: []string{"full"}, DefaultSize: "full"},
-	{Component: "native:activity", Kind: "builtin", Label: "Recent activity", Description: "Significant agent actions and tool events.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
+	{Component: "native:activity", Kind: "builtin", Label: "Live activity", Description: "Thoughts, tools, events, and results across this scope.", SupportedSizes: []string{"half", "full"}, DefaultSize: "full"},
 }
 
 // GET /api/ui/surfaces/dashboard.home resolves the user's portable layout and
@@ -93,27 +109,19 @@ func (s *Server) nativeDashboardWidgetDefinitions(projectID string) []dashboardW
 // the native surface endpoint requests only definitions with a declarative
 // native renderer.
 func (s *Server) installedDashboardWidgetDefinitions(projectID string, nativeOnly bool) []dashboardWidgetDefinition {
+	return s.installedWidgetDefinitionsForSlot(projectID, sdk.UIComponentSlotDashboardHome, nativeOnly)
+}
+
+func (s *Server) installedWidgetDefinitionsForSlot(projectID, slot string, nativeOnly bool) []dashboardWidgetDefinition {
 	if s.installedApps == nil {
 		return nil
 	}
-	// A project-local install shadows a global install with the same name.
-	visible := map[string]*InstalledApp{}
-	for _, app := range s.installedApps.ListForProject(projectID) {
-		current := visible[app.AppName]
-		if current == nil || (current.ProjectID == "" && app.ProjectID == projectID) {
-			visible[app.AppName] = app
-		}
-	}
-	apps := make([]*InstalledApp, 0, len(visible))
-	for _, app := range visible {
-		apps = append(apps, app)
-	}
-	sort.Slice(apps, func(i, j int) bool { return apps[i].AppName < apps[j].AppName })
+	apps := s.visibleWidgetInstallations(projectID)
 
 	definitions := make([]dashboardWidgetDefinition, 0)
 	for _, app := range apps {
 		for _, component := range app.Manifest.Provides.UIComponents {
-			if !containsString(component.Slots, sdk.UIComponentSlotDashboardHome) || (nativeOnly && component.Native == nil) {
+			if !containsString(component.Slots, slot) || (nativeOnly && component.Native == nil) {
 				continue
 			}
 			sizes := normalizedDashboardWidgetSizes(component)
@@ -122,15 +130,16 @@ func (s *Server) installedDashboardWidgetDefinitions(projectID string, nativeOnl
 				label = component.Name
 			}
 			definition := dashboardWidgetDefinition{
-				Component: app.AppName + ":" + component.Name,
+				HostUI:    component.HostUI,
+				Component: widgetAppNamespace(app) + ":" + component.Name,
 				Kind:      "app", App: app.AppName, InstallID: app.InstallID,
 				Label: label, Description: component.Description,
 				Icon:           resolveInstalledAppIcon(app.AppName, app.Manifest.Icon, app.Manifest.Version, app.InstallID, projectID),
 				IconStyle:      app.Manifest.IconStyle,
 				SupportedSizes: sizes, DefaultSize: normalizedDashboardWidgetDefaultSize(component, sizes),
 				DefaultSettings: dashboardWidgetDefaultSettings(component.SettingsSchema),
-				SettingsSchema:  component.SettingsSchema,
-				RefreshTopics:   component.RefreshTopics, Suggested: component.Suggested,
+				SettingsSchema:  component.SettingsSchema, SettingsUI: component.SettingsUI,
+				RefreshTopics: component.RefreshTopics, Suggested: component.Suggested,
 				ProjectSurfaces: app.Manifest.Provides.UISurfaces,
 			}
 			if component.Native != nil {
@@ -185,6 +194,10 @@ func dashboardWidgetDefaultSettings(schema map[string]any) map[string]any {
 }
 
 func resolvedDashboardHomeLayout(document json.RawMessage, projectID string) []dashboardWidgetInstance {
+	return resolvedWidgetLayout(document, projectID, sdk.UIComponentSlotDashboardHome)
+}
+
+func resolvedWidgetLayout(document json.RawMessage, projectID, slot string) []dashboardWidgetInstance {
 	var parsed struct {
 		Projects map[string]struct {
 			Slots map[string]json.RawMessage `json:"slots"`
@@ -197,7 +210,7 @@ func resolvedDashboardHomeLayout(document json.RawMessage, projectID string) []d
 	if !ok {
 		return []dashboardWidgetInstance{}
 	}
-	raw, explicit := project.Slots[sdk.UIComponentSlotDashboardHome]
+	raw, explicit := project.Slots[slot]
 	if !explicit {
 		return []dashboardWidgetInstance{}
 	}
@@ -230,9 +243,99 @@ func resolvedDashboardHomeLayout(document json.RawMessage, projectID string) []d
 		}
 		layout = append(layout, widget)
 	}
-	return layout
+	return migrateStarterWidgets(layout)
+}
+
+// Retired starter cards now use the app-owned Tasks overview. Existing Tasks
+// widgets take precedence, preserving their configuration and position.
+func migrateStarterWidgets(widgets []dashboardWidgetInstance) []dashboardWidgetInstance {
+	hasTasks := false
+	for _, widget := range widgets {
+		hasTasks = hasTasks || widget.Component == "tasks:task-overview"
+	}
+	result := make([]dashboardWidgetInstance, 0, len(widgets))
+	for _, widget := range widgets {
+		if widget.Component == "native:starter-assignments" {
+			if hasTasks {
+				continue
+			}
+			widget.Component = "tasks:task-overview"
+			hasTasks = true
+		}
+		result = append(result, widget)
+	}
+	return result
 }
 
 func retiredDashboardHomeWidget(component string) bool {
 	return component == "native:inbox"
+}
+
+// The permanent installation namespace keeps candidate widget schemas and UI
+// modules separate. Legacy project installs still shadow globals by app name.
+func widgetAppNamespace(app *InstalledApp) string {
+	if app.MCPName != "" {
+		return app.MCPName
+	}
+	return app.AppName
+}
+
+func (s *Server) visibleWidgetInstallations(projectID string) []*InstalledApp {
+	if s.installedApps == nil {
+		return nil
+	}
+	visible := map[string]*InstalledApp{}
+	for _, app := range s.installedApps.ListForProject(projectID) {
+		key := widgetAppNamespace(app)
+		old := visible[key]
+		if old == nil || (old.ProjectID == "" && app.ProjectID == projectID) {
+			visible[key] = app
+		}
+	}
+	apps := make([]*InstalledApp, 0, len(visible))
+	for _, app := range visible {
+		apps = append(apps, app)
+	}
+	sort.Slice(apps, func(i, j int) bool { return widgetAppNamespace(apps[i]) < widgetAppNamespace(apps[j]) })
+	return apps
+}
+
+func (s *Server) pageWidgetDefinitions(projectID, surface string, global bool) []dashboardWidgetDefinition {
+	definitions := append([]dashboardWidgetDefinition{}, dashboardHomeBuiltins...)
+	for _, app := range s.visibleWidgetInstallations(projectID) {
+		metadata, err := s.appMetadata(app.InstallID)
+		if err != nil || metadata.status != "running" || metadata.project != app.ProjectID || metadata.name != app.AppName {
+			continue
+		}
+
+		if global && app.ProjectID != "" {
+			continue
+		}
+		for _, component := range app.Manifest.Provides.UIComponents {
+			embeddable := containsString(component.Slots, surface)
+			if strings.HasPrefix(surface, "page.") {
+				embeddable = embeddable || containsString(component.Slots, "dashboard.home") || containsString(component.Slots, "project.page")
+			}
+			if !embeddable || component.Entry == "" || component.Name == "" {
+				continue
+			}
+			if global && !containsString(component.DashboardScopes, "global") {
+				continue
+			}
+			if !global && len(component.DashboardScopes) > 0 && !containsString(component.DashboardScopes, "project") {
+				continue
+			}
+			sizes := normalizedDashboardWidgetSizes(component)
+			label := component.Label
+			if label == "" {
+				label = component.Name
+			}
+			definitions = append(definitions, dashboardWidgetDefinition{
+				Component: widgetAppNamespace(app) + ":" + component.Name, Kind: "app", App: app.AppName, InstallID: app.InstallID,
+				Label: label, Description: component.Description, SupportedSizes: sizes, DefaultSize: normalizedDashboardWidgetDefaultSize(component, sizes),
+				DefaultSettings: dashboardWidgetDefaultSettings(component.SettingsSchema), SettingsSchema: component.SettingsSchema, Suggested: component.Suggested,
+			})
+		}
+	}
+	return definitions
 }

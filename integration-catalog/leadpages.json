@@ -1,0 +1,243 @@
+{
+  "slug": "leadpages",
+  "name": "Leadpages",
+  "description": "Leadpages landing page builder — create and manage high-converting landing pages, pop-ups, alert bars, and lead capture forms with built-in analytics and A/B testing.",
+  "logo": "https://www.google.com/s2/favicons?domain=leadpages.com&sz=128",
+  "categories": [
+    "landing-pages",
+    "lead-generation",
+    "lead-magnets",
+    "forms",
+    "popups",
+    "conversion",
+    "marketing",
+    "ab-testing"
+  ],
+  "base_url": "https://api.leadpages.io/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_pages",
+      "description": "List all landing pages in your Leadpages account with their status, URL, and metadata.",
+      "method": "GET",
+      "path": "/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Get details of a specific landing page by ID, including its configuration, publish status, and URL.",
+      "method": "GET",
+      "path": "/pages/{pageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Landing page ID"
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "create_page",
+      "description": "Create a new landing page from a template.",
+      "method": "POST",
+      "path": "/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Page name"
+          },
+          "template_id": {
+            "type": "string",
+            "description": "Template ID to use as base"
+          }
+        },
+        "required": [
+          "name",
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "update_page",
+      "description": "Update a landing page's name or settings.",
+      "method": "PUT",
+      "path": "/pages/{pageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Page ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New page name"
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "delete_page",
+      "description": "Delete a landing page.",
+      "method": "DELETE",
+      "path": "/pages/{pageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Page ID to delete"
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "list_leads",
+      "description": "Retrieve leads/subscribers collected through Leadpages forms, pop-ups, and landing pages.",
+      "method": "GET",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Filter leads by page ID (optional)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_forms",
+      "description": "List all lead capture forms in your Leadpages account.",
+      "method": "GET",
+      "path": "/forms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_sites",
+      "description": "List all Leadpages sites in your account.",
+      "method": "GET",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Number of results"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_page_analytics",
+      "description": "Get conversion analytics for a landing page — views, unique visitors, conversions, and conversion rate.",
+      "method": "GET",
+      "path": "/pages/{pageId}/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "Page ID to get analytics for"
+          },
+          "startDate": {
+            "type": "string",
+            "description": "Start date (ISO 8601, e.g. 2025-01-01)"
+          },
+          "endDate": {
+            "type": "string",
+            "description": "End date (ISO 8601, e.g. 2025-12-31)"
+          }
+        },
+        "required": [
+          "pageId"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "Browse available Leadpages templates that can be used to create new landing pages.",
+      "method": "GET",
+      "path": "/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 25,
+            "description": "Number of results"
+          },
+          "category": {
+            "type": "string",
+            "description": "Filter by template category (optional)"
+          }
+        }
+      }
+    }
+  ]
+}

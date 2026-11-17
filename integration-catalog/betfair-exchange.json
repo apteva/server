@@ -1,0 +1,513 @@
+{
+  "slug": "betfair-exchange",
+  "name": "Betfair Exchange Market Data",
+  "description": "Official Betfair Exchange REST API for market discovery and back/lay prices. Requires a Betfair application key and valid session token. Delayed development, live access and commercial data rights differ. Read-only operations use HTTP POST; no orders or wagering tools are included. Docs: https://developer.betfair.com/ and https://betfair-developer-docs.atlassian.net/",
+  "logo": "https://www.google.com/s2/favicons?domain=betfair.com&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "exchange",
+    "odds"
+  ],
+  "base_url": "https://api.betfair.com/exchange/betting/rest/v1.0",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "headers": {
+      "X-Application": "{{app_key}}",
+      "X-Authentication": "{{session_token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "app_key",
+        "label": "Application key",
+        "description": "Betfair delayed or live application key. Live/commercial access requires the appropriate approval.",
+        "required": true
+      },
+      {
+        "name": "session_token",
+        "label": "Session token",
+        "description": "Current Betfair session token obtained through the official login API. Replace when it expires. This integration only reads market data.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_event_types",
+      "description": "List sports/event types matching the filter. An empty filter lists all available event types.",
+      "method": "POST",
+      "path": "/listEventTypes/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "properties": {
+              "textQuery": {
+                "type": "string"
+              },
+              "eventTypeIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eventIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "competitionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketTypeCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketCountries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "venues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inPlayOnly": {
+                "type": "boolean"
+              },
+              "marketStartTime": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC start."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC end."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filter"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_competitions",
+      "description": "List competitions matching an event-type/date filter.",
+      "method": "POST",
+      "path": "/listCompetitions/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "properties": {
+              "textQuery": {
+                "type": "string"
+              },
+              "eventTypeIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eventIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "competitionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketTypeCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketCountries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "venues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inPlayOnly": {
+                "type": "boolean"
+              },
+              "marketStartTime": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC start."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC end."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filter"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List events matching the filter.",
+      "method": "POST",
+      "path": "/listEvents/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "properties": {
+              "textQuery": {
+                "type": "string"
+              },
+              "eventTypeIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eventIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "competitionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketTypeCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketCountries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "venues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inPlayOnly": {
+                "type": "boolean"
+              },
+              "marketStartTime": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC start."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC end."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filter"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_market_catalogue",
+      "description": "List market definitions and runners. Use a narrow filter; maximum 1,000 rows.",
+      "method": "POST",
+      "path": "/listMarketCatalogue/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "object",
+            "properties": {
+              "textQuery": {
+                "type": "string"
+              },
+              "eventTypeIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eventIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "competitionIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketTypeCodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "marketCountries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "venues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "inPlayOnly": {
+                "type": "boolean"
+              },
+              "marketStartTime": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC start."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "ISO 8601 UTC end."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "maxResults": {
+            "type": "string",
+            "description": "Required maximum result count, a string integer from 1 to 1000."
+          },
+          "marketProjection": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "COMPETITION",
+                "EVENT",
+                "EVENT_TYPE",
+                "MARKET_START_TIME",
+                "MARKET_DESCRIPTION",
+                "RUNNER_DESCRIPTION",
+                "RUNNER_METADATA"
+              ]
+            }
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "MINIMUM_TRADED",
+              "MAXIMUM_TRADED",
+              "MINIMUM_AVAILABLE",
+              "MAXIMUM_AVAILABLE",
+              "FIRST_TO_START",
+              "LAST_TO_START"
+            ]
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filter",
+          "maxResults"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_market_book",
+      "description": "Get prices and market status. Keep price ladders and available sizes; respect Betfair market-data request weights.",
+      "method": "POST",
+      "path": "/listMarketBook/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Market ID."
+            }
+          },
+          "priceProjection": {
+            "type": "object",
+            "properties": {
+              "priceData": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "SP_AVAILABLE",
+                    "SP_TRADED",
+                    "EX_BEST_OFFERS",
+                    "EX_ALL_OFFERS",
+                    "EX_TRADED"
+                  ]
+                }
+              },
+              "virtualise": {
+                "type": "boolean"
+              },
+              "rolloverStakes": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "priceData"
+            ]
+          },
+          "currencyCode": {
+            "type": "string",
+            "description": "ISO currency code."
+          },
+          "locale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "marketIds",
+          "priceProjection"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_event_types",
+    "input": {
+      "filter": {}
+    }
+  }
+}

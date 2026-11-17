@@ -74,7 +74,7 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		installProject string
 		ownerID        int64
 	)
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(r.Context(),
 		`SELECT a.name, COALESCE(i.project_id, ''), COALESCE(i.installed_by, 0)
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
@@ -89,7 +89,7 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		resolvedProject = strings.TrimSpace(body.ProjectID)
 		if resolvedProject != "" && ownerID > 0 {
 			var ok int
-			s.store.db.QueryRow(
+			s.store.dbQueryRowContext(r.Context(),
 				`SELECT 1 FROM projects WHERE id=? AND user_id=?`,
 				resolvedProject, ownerID,
 			).Scan(&ok)
@@ -230,7 +230,7 @@ func (s *Server) checkFirehoseAccess(r *http.Request) error {
 		return fmt.Errorf("invalid install id")
 	}
 	var installProject string
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRowContext(r.Context(),
 		`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID,
 	).Scan(&installProject); err != nil {
 		return fmt.Errorf("install not found")
@@ -270,7 +270,7 @@ func (s *Server) checkProjectAccess(r *http.Request, projectID string) error {
 			return fmt.Errorf("invalid install id")
 		}
 		var installProject string
-		if err := s.store.db.QueryRow(
+		if err := s.store.dbQueryRowContext(r.Context(),
 			`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID,
 		).Scan(&installProject); err != nil {
 			return fmt.Errorf("install not found")
@@ -291,7 +291,7 @@ func (s *Server) checkProjectAccess(r *http.Request, projectID string) error {
 	// Verify the project actually exists. Membership refinement is a
 	// follow-up — for now any authenticated user can attach.
 	var exists int
-	err := s.store.db.QueryRow(`SELECT 1 FROM projects WHERE id = ?`, projectID).Scan(&exists)
+	err := s.store.dbQueryRowContext(r.Context(), `SELECT 1 FROM projects WHERE id = ?`, projectID).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("project not found")
 	}

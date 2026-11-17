@@ -1,0 +1,49 @@
+{
+  "slug": "screenshotlayer",
+  "name": "Screenshotlayer",
+  "description": "Lightweight REST API by APILayer for high-quality PNG/JPEG/GIF screenshots. Simple GET request with access_key + URL returns the rendered image binary. Best $/screenshot at 10K volume (~$0.002). Supports full-page, custom viewports, thumbnails, delays, caching.",
+  "logo": "https://www.google.com/s2/favicons?domain=screenshotlayer.com&sz=128",
+  "categories": ["screenshots", "rendering", "automation"],
+  "base_url": "https://api.screenshotlayer.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "access_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      { "name": "api_key", "label": "Screenshotlayer access key" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "capture",
+      "description": "Capture a screenshot of a URL. Returns the rendered image as binary. `fullpage=1` for full-page; `width` resizes to a thumbnail while preserving aspect.",
+      "method": "GET",
+      "path": "/api/capture",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "The URL to screenshot" },
+          "fullpage": { "type": "integer", "enum": [0, 1], "default": 0, "description": "1 = capture full page height" },
+          "width": { "type": "integer", "description": "Resize output to this width in px (thumbnail)" },
+          "viewport": { "type": "string", "description": "Viewport size, e.g. '1440x900'" },
+          "format": { "type": "string", "enum": ["PNG", "JPG", "GIF"], "default": "PNG" },
+          "css_url": { "type": "string", "description": "URL of a CSS file to inject" },
+          "delay": { "type": "integer", "description": "Seconds to wait before capturing" },
+          "ttl": { "type": "integer", "description": "Cache TTL in seconds (default 2592000 = 30 days)" },
+          "force": { "type": "integer", "enum": [0, 1], "default": 0, "description": "1 = bypass cache and re-render" },
+          "placeholder": { "type": "integer", "enum": [0, 1], "description": "Return a placeholder image on failure" },
+          "user_agent": { "type": "string", "description": "Override the user agent string" },
+          "accept_lang": { "type": "string", "description": "Accept-Language header" },
+          "export": { "type": "string", "description": "FTP/S3 URL to export the screenshot to" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "fullpage", "width", "viewport", "format", "css_url", "delay",
+        "ttl", "force", "placeholder", "user_agent", "accept_lang", "export"
+      ]
+    }
+  ]
+}

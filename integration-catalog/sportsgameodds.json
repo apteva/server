@@ -1,0 +1,375 @@
+{
+  "slug": "sportsgameodds",
+  "name": "SportsGameOdds",
+  "description": "Sports events, bookmaker odds, teams, players and market metadata. API key required. Free Amateur plan: 2,500 returned objects/month, 10 requests/minute and 10-minute updates; books, leagues and markets depend on plan. Keep response pagination and event status alongside odds. Read-only REST tools; no streaming or wagering. Docs: https://sportsgameodds.com/docs/",
+  "logo": "https://www.google.com/s2/favicons?domain=sportsgameodds.com&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "odds",
+    "scores"
+  ],
+  "base_url": "https://api.sportsgameodds.com/v2",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Api-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Personal API key from the provider account. Endpoint access depends on the subscribed plan.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_sports",
+      "description": "List sports supported by the API.",
+      "method": "GET",
+      "path": "/sports/",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_leagues",
+      "description": "List supported leagues, optionally filtered by sport.",
+      "method": "GET",
+      "path": "/leagues/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sportID": {
+            "type": "string",
+            "description": "The sport to get leagues for"
+          },
+          "leagueID": {
+            "type": "string",
+            "description": "The league to get data for"
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "Get events with odds/results and a nextCursor when available. Use eventID or league/date filters; every returned event consumes an object.",
+      "method": "GET",
+      "path": "/events/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "eventID": {
+            "type": "string",
+            "description": "An eventID to get Event data for"
+          },
+          "eventIDs": {
+            "type": "string",
+            "description": "A comma separated list of eventIDs to get Event data for"
+          },
+          "sportID": {
+            "type": "string",
+            "description": "A sportID or comma-separated list of sportIDs to get Events for"
+          },
+          "leagueID": {
+            "type": "string",
+            "description": "A leagueID or comma-separated list of leagueIDs to get Events for"
+          },
+          "type": {
+            "type": "string",
+            "description": "Only include Events of the specified type"
+          },
+          "oddsAvailable": {
+            "type": "boolean",
+            "description": "Whether you want only Events which do (true) or do not (false) have odds markets which are currently available (open for wagering)"
+          },
+          "oddsPresent": {
+            "type": "boolean",
+            "description": "Whether you want only Events which do (true) or do not (false) have any associated odds markets regardless of whether those odds markets are currently available (open for wagering)"
+          },
+          "oddID": {
+            "type": "string",
+            "description": "An oddID or comma-separated list of oddIDs to include odds for"
+          },
+          "includeOpposingOdds": {
+            "type": "boolean",
+            "description": "Whether to include opposing odds for each included oddID"
+          },
+          "includeAltLines": {
+            "type": "boolean",
+            "description": "Whether to include alternate lines in the odds byBookmaker data"
+          },
+          "expandResults": {
+            "type": "boolean",
+            "description": "Whether to expand the results object to include all stat values rather than just the base set"
+          },
+          "includeOpenCloseOdds": {
+            "type": "boolean",
+            "description": "Whether to include open and close odds values (openOdds, closeOdds, openSpread, closeSpread, openOverUnder, closeOverUnder) in the odds byBookmaker data"
+          },
+          "bookmakerID": {
+            "type": "string",
+            "description": "A bookmakerID or comma-separated list of bookmakerIDs to include odds for"
+          },
+          "teamID": {
+            "type": "string",
+            "description": "A teamID or comma-separated list of teamIDs to include Events for"
+          },
+          "playerID": {
+            "type": "string",
+            "description": "A playerID or comma-separated list of playerIDs to include Events (and associated odds) for"
+          },
+          "finalized": {
+            "type": "boolean",
+            "description": "Only include finalized Events (true), exclude unfinalized Events (false) or all Events (omit)"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Only include live Events (true), only non-live Events (false) or all Events (omit)"
+          },
+          "started": {
+            "type": "boolean",
+            "description": "Only include Events which have have previously started (true), only Events which have not previously started (false) or all Events (omit)"
+          },
+          "ended": {
+            "type": "boolean",
+            "description": "Only include Events which have have ended (true), only Events which have not ended (false) or all Events (omit)"
+          },
+          "cancelled": {
+            "type": "boolean",
+            "description": "Only include cancelled Events (true), only non-cancelled Events (false) or all Events (omit)"
+          },
+          "startsAfter": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Get Events that start after this date"
+          },
+          "startsBefore": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Get Events that start before this date"
+          },
+          "limit": {
+            "type": "number",
+            "description": "The maximum number of Events to return"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The cursor for the request. Used to get the next group of Events. This is an opaque token — pass the nextCursor value from the prior response unchanged."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "Get team metadata with cursor pagination.",
+      "method": "GET",
+      "path": "/teams/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sportID": {
+            "type": "string",
+            "description": "A single sportID or comma-separated list of sportIDs to get Teams for"
+          },
+          "leagueID": {
+            "type": "string",
+            "description": "A single leagueID or comma-separated list of leagueIDs to get Teams for"
+          },
+          "teamID": {
+            "type": "string",
+            "description": "A single teamID or comma-separated list of teamIDs to get data for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "The maximum number of Teams to return"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The cursor for the request. Used to get the next group of Teams. This is an opaque token — pass the nextCursor value from the prior response unchanged."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_players",
+      "description": "Get player metadata with cursor pagination.",
+      "method": "GET",
+      "path": "/players/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "teamID": {
+            "type": "string",
+            "description": "TeamID to get Players data for"
+          },
+          "eventID": {
+            "type": "string",
+            "description": "EventID to get Players data for"
+          },
+          "playerID": {
+            "type": "string",
+            "description": "PlayerID to get data for"
+          },
+          "limit": {
+            "type": "number",
+            "description": "The maximum number of Players to return"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The cursor for the request. Used to get the next group of Players. This is an opaque token — pass the nextCursor value from the prior response unchanged."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_markets",
+      "description": "Discover market identifiers and their periods, bet types and statistics.",
+      "method": "GET",
+      "path": "/markets/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "oddID": {
+            "type": "string",
+            "description": "A single oddID or comma-separated list of oddIDs. Used to specify specific Markets to return."
+          },
+          "sportID": {
+            "type": "string",
+            "description": "A single sportID or comma-separated list of sportIDs to filter Markets by"
+          },
+          "leagueID": {
+            "type": "string",
+            "description": "A single leagueID or comma-separated list of leagueIDs to filter Markets by"
+          },
+          "bookmakerID": {
+            "type": "string",
+            "description": "A single bookmakerID or comma-separated list of bookmakerIDs to filter Markets by"
+          },
+          "statID": {
+            "type": "string",
+            "description": "A single statID or comma-separated list of statIDs to filter Markets by"
+          },
+          "statEntityID": {
+            "type": "string",
+            "description": "A single statEntityID or comma-separated list of statEntityIDs to filter Markets by"
+          },
+          "periodID": {
+            "type": "string",
+            "description": "A single periodID or comma-separated list of periodIDs to filter Markets by"
+          },
+          "betTypeID": {
+            "type": "string",
+            "description": "A single betTypeID or comma-separated list of betTypeIDs to filter Markets by"
+          },
+          "sideID": {
+            "type": "string",
+            "description": "A single sideID or comma-separated list of sideIDs to filter Markets by"
+          },
+          "isMainMarket": {
+            "type": "boolean",
+            "description": "Filter to only include main markets (main period moneyline, spread, and over/under)"
+          },
+          "isProp": {
+            "type": "boolean",
+            "description": "Filter by whether it is any type of prop bet market"
+          },
+          "isSubPeriod": {
+            "type": "boolean",
+            "description": "Filter by whether it tracks a sub/non-main period"
+          },
+          "propType": {
+            "type": "string",
+            "description": "Filter by prop type (game_prop, team_prop, player_prop, other_prop)"
+          },
+          "isSupported": {
+            "type": "boolean",
+            "description": "Filter whether this market is fully supported by at least 1 bookmaker in at least 1 league. Defaults to true if not specified."
+          },
+          "limit": {
+            "type": "number",
+            "description": "The maximum number of Markets to return (default: 100, max: 10000)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The cursor for pagination. Use nextCursor from prior response."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get account quotas and current usage.",
+      "method": "GET",
+      "path": "/account/usage",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 6000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_usage"
+  }
+}

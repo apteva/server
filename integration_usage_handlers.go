@@ -111,7 +111,7 @@ func (s *Server) listIntegrationUsageRows(userID int64, projectID string, since 
 			e.caller_install_id, e.caller_app_name
 		ORDER BY MAX(e.created_at) DESC
 		LIMIT 200`
-	rows, err := s.store.db.Query(query, args...)
+	rows, err := s.store.dbQuery(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +157,7 @@ func (s *Server) listIntegrationUsageTotals(userID int64, projectID string, sinc
 		GROUP BY e.app_slug, e.unit
 		ORDER BY SUM(e.quantity) DESC, COUNT(*) DESC
 		LIMIT 100`
-	rows, err := s.store.db.Query(query, args...)
+	rows, err := s.store.dbQuery(query, args...)
 	if err != nil {
 		return nil, err
 	}

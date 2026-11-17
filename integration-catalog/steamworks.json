@@ -1,0 +1,101 @@
+{
+  "slug": "steamworks",
+  "name": "Steamworks",
+  "description": "Steam publisher API for listing owned games, build history, beta branches and depot versions, and requesting build promotion. Requires a Steamworks publisher Web API key. Game file uploads use SteamPipe/SteamCMD separately; store setup, Valve review and first release use the Steamworks dashboard. HTTP 201 from build promotion means Steam Mobile confirmation is pending, not that the build is live.",
+  "logo": "https://www.google.com/s2/favicons?domain=steampowered.com&sz=128",
+  "categories": ["gaming", "development", "publishing", "steam", "builds"],
+  "base_url": "https://partner.steam-api.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "Accept": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "query_params": { "key": "{{api_key}}" },
+    "body_params": { "key": "{{api_key}}" },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Publisher Web API Key",
+        "type": "password",
+        "required": true,
+        "description": "Steamworks publisher Web API key with access to the target apps. Use a publisher key, not a personal Steam community API key. Requests must run on a trusted server."
+      }
+    ]
+  },
+  "health_check": { "tool": "list_apps", "input": {} },
+  "tools": [
+    {
+      "name": "list_apps",
+      "description": "List app IDs, names and types associated with this publisher key. Optionally filter by comma-separated types: game, application, tool, demo, dlc, music.",
+      "method": "GET",
+      "path": "/ISteamApps/GetPartnerAppListForWebAPIKey/v2/",
+      "query_params": ["type_filter"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "type_filter": { "type": "string", "description": "Optional comma-separated app types, for example game,demo." } },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_builds",
+      "description": "Get build history for an app owned by the publisher key. Use the returned BuildID when requesting a build promotion after uploading through SteamPipe.",
+      "method": "GET",
+      "path": "/ISteamApps/GetAppBuilds/v1/",
+      "query_params": ["appid", "count"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+          "count": { "type": "integer", "minimum": 1, "maximum": 4294967295, "description": "Number of builds to retrieve. Steam defaults to 10 when omitted." }
+        },
+        "required": ["appid"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "list_branches",
+      "description": "Get all beta branches for an app owned by the publisher key. Re-read branches after build promotion or mobile confirmation to verify the active build.",
+      "method": "GET",
+      "path": "/ISteamApps/GetAppBetas/v1/",
+      "query_params": ["appid"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "appid": { "type": "integer", "minimum": 1, "maximum": 4294967295 } },
+        "required": ["appid"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_depot_versions",
+      "description": "Get all versions of all content depots for an app owned by the publisher key. Useful for inspecting uploaded game content and deployment state.",
+      "method": "GET",
+      "path": "/ISteamApps/GetAppDepotVersions/v1/",
+      "query_params": ["appid"],
+      "input_schema": {
+        "type": "object",
+        "properties": { "appid": { "type": "integer", "minimum": 1, "maximum": 4294967295 } },
+        "required": ["appid"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "set_build_live",
+      "description": "Request promotion of an existing uploaded build to an explicitly selected branch. Use betakey=public for the default branch. For a released app's public branch, steamid is required and that account must confirm in Steam Mobile with Edit App and Publish permissions. HTTP 201 means confirmation is pending: success of the HTTP request does not mean the build is live. Preserve and inspect the response status/body, then verify with list_branches. This does not perform a game's first store release.",
+      "method": "POST",
+      "path": "/ISteamApps/SetAppBuildLive/v2/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+          "buildid": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+          "betakey": { "type": "string", "minLength": 1, "description": "Explicit target branch name. Use public for the default branch; no default is selected automatically." },
+          "steamid": { "type": "string", "pattern": "^[0-9]{1,20}$", "description": "SteamID64 of the account confirming the change. Required for a released app's public branch. Pass as a decimal string to preserve 64-bit precision." },
+          "description": { "type": "string", "description": "Optional build description." }
+        },
+        "required": ["appid", "buildid", "betakey"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

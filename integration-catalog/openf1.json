@@ -1,0 +1,377 @@
+{
+  "slug": "openf1",
+  "name": "OpenF1",
+  "description": "Formula 1 session data via JSON HTTP requests: meetings, sessions, drivers, laps, positions, intervals, stints, weather and race control. Historical data since 2023 is public without a key (3 requests/second, 30/minute across all tools). Live REST access requires sponsor authentication. Personal/noncommercial use; contact the provider for other uses. No CSV or streaming tools. Docs: https://openf1.org/docs/",
+  "logo": "https://www.google.com/s2/favicons?domain=openf1.org&sz=128",
+  "categories": [
+    "sports",
+    "formula1",
+    "motorsport",
+    "timing",
+    "weather"
+  ],
+  "base_url": "https://api.openf1.org/v1",
+  "auth": {
+    "types": [
+      "none"
+    ],
+    "headers": {
+      "Accept": "application/json",
+      "Authorization": "{{authorization}}"
+    },
+    "credential_fields": [
+      {
+        "name": "authorization",
+        "label": "Live access Authorization header (optional)",
+        "description": "Leave empty for free historical requests. Sponsors may supply Bearer followed by a current access token obtained through OpenF1 authentication. Refresh expired tokens through the provider.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_meetings",
+      "description": "List meetings for a year; optionally filter country or circuit.",
+      "method": "GET",
+      "path": "/meetings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 2023,
+            "description": "Year, 2023 onwards."
+          },
+          "country_name": {
+            "type": "string"
+          },
+          "circuit_short_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "year"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_sessions",
+      "description": "Discover session keys for a meeting.",
+      "method": "GET",
+      "path": "/sessions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Meeting key from list_meetings."
+          },
+          "session_name": {
+            "type": "string",
+            "description": "E.g. Race, Qualifying, Practice 1."
+          }
+        },
+        "required": [
+          "meeting_key"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_drivers",
+      "description": "Get participating drivers for a session.",
+      "method": "GET",
+      "path": "/drivers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "driver_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Car/driver number."
+          }
+        },
+        "required": [
+          "session_key"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_laps",
+      "description": "Get lap times for one driver/session; optionally filter lap number.",
+      "method": "GET",
+      "path": "/laps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "driver_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Car/driver number."
+          },
+          "lap_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Lap number."
+          }
+        },
+        "required": [
+          "session_key",
+          "driver_number"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_positions",
+      "description": "Get race positions for one driver within a bounded time window.",
+      "method": "GET",
+      "path": "/position",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "driver_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Car/driver number."
+          },
+          "date_from": {
+            "type": "string",
+            "description": "ISO 8601 inclusive start."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "ISO 8601 inclusive end."
+          }
+        },
+        "required": [
+          "session_key",
+          "driver_number",
+          "date_from",
+          "date_to"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "date_from": "date>=",
+        "date_to": "date<="
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_intervals",
+      "description": "Get gaps for one driver within a bounded time window.",
+      "method": "GET",
+      "path": "/intervals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "driver_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Car/driver number."
+          },
+          "date_from": {
+            "type": "string",
+            "description": "ISO 8601 inclusive start."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "ISO 8601 inclusive end."
+          }
+        },
+        "required": [
+          "session_key",
+          "driver_number",
+          "date_from",
+          "date_to"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "date_from": "date>=",
+        "date_to": "date<="
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_stints",
+      "description": "Get tyre stints for one driver/session.",
+      "method": "GET",
+      "path": "/stints",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "driver_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Car/driver number."
+          }
+        },
+        "required": [
+          "session_key",
+          "driver_number"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_weather",
+      "description": "Get session weather measurements; narrow by date when needed.",
+      "method": "GET",
+      "path": "/weather",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "date_from": {
+            "type": "string",
+            "description": "ISO 8601 inclusive start."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "ISO 8601 inclusive end."
+          }
+        },
+        "required": [
+          "session_key"
+        ],
+        "additionalProperties": false
+      },
+      "query_param_aliases": {
+        "date_from": "date>=",
+        "date_to": "date<="
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_race_control",
+      "description": "Get flags and race-control messages for a session.",
+      "method": "GET",
+      "path": "/race_control",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_key": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Session key returned by list_sessions."
+          },
+          "driver_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Car/driver number."
+          },
+          "flag": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_key"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 2000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_meetings",
+    "input": {
+      "year": 2025
+    }
+  }
+}

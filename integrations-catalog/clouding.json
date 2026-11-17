@@ -1,0 +1,1777 @@
+{
+  "slug": "clouding",
+  "name": "Clouding",
+  "description": "Cloud servers in Barcelona: server lifecycle, CPU/RAM and disk catalogs, images, SSH keys, firewalls, backups, snapshots and VPCs.",
+  "logo": "https://www.google.com/s2/favicons?domain=clouding.io&sz=128",
+  "categories": [
+    "cloud",
+    "servers",
+    "vps",
+    "infrastructure"
+  ],
+  "base_url": "https://api.clouding.io/v1",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-KEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "required": true
+      },
+      {
+        "name": "firewall_id",
+        "label": "Default public firewall ID",
+        "description": "Optional existing firewall that permits SSH. Otherwise Instances discovers an existing SSH-enabled firewall. Never changes shared firewall rules.",
+        "required": false,
+        "exposure": "public"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_vpcs",
+      "description": "List all VPCs",
+      "method": "GET",
+      "path": "/vpcs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "create_vpc",
+      "description": "Create VPC",
+      "method": "POST",
+      "path": "/vpcs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "subnetCidr": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "dnsNameservers": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gatewayIp": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "name",
+          "subnetCidr"
+        ]
+      }
+    },
+    {
+      "name": "get_vpc",
+      "description": "Get VPC by id",
+      "method": "GET",
+      "path": "/vpcs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_vpc",
+      "description": "Update VPC",
+      "method": "PATCH",
+      "path": "/vpcs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "dnsNameservers": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gateway": {
+            "type": "object",
+            "properties": {
+              "ip": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_vpc",
+      "description": "Delete VPC",
+      "method": "DELETE",
+      "path": "/vpcs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "set_default_vpc",
+      "description": "Set VPC as default",
+      "method": "POST",
+      "path": "/vpcs/{id}/set-default",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_all_backups",
+      "description": "List all backups",
+      "method": "GET",
+      "path": "/backups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "serverId": {
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize",
+        "serverId"
+      ]
+    },
+    {
+      "name": "get_backup_by_id",
+      "description": "Get backup by id",
+      "method": "GET",
+      "path": "/backups/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_all_actions",
+      "description": "List all actions",
+      "method": "GET",
+      "path": "/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "get_action_by_id",
+      "description": "Get action by id",
+      "method": "GET",
+      "path": "/actions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_all_snapshots",
+      "description": "List all snapshots",
+      "method": "GET",
+      "path": "/snapshots",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "get_snapshot_by_id",
+      "description": "Get snapshot by id",
+      "method": "GET",
+      "path": "/snapshots/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_snapshot",
+      "description": "Update snapshot",
+      "method": "PATCH",
+      "path": "/snapshots/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_snapshot",
+      "description": "Delete snapshot",
+      "method": "DELETE",
+      "path": "/snapshots/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_flavors",
+      "description": "List all flavors",
+      "method": "GET",
+      "path": "/sizes/flavors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "list_volume_sizes",
+      "description": "List all volume sizes",
+      "method": "GET",
+      "path": "/sizes/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "list_servers",
+      "description": "List all servers",
+      "method": "GET",
+      "path": "/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "create_server",
+      "description": "Create server",
+      "method": "POST",
+      "path": "/servers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "hostname": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "flavorId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "firewallId": {
+            "type": "string"
+          },
+          "accessConfiguration": {
+            "type": "object",
+            "properties": {
+              "sshKeyId": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "savePassword": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "volume": {
+            "required": [
+              "id",
+              "source",
+              "ssdGb"
+            ],
+            "type": "object",
+            "properties": {
+              "source": {
+                "minLength": 1,
+                "enum": [
+                  "image",
+                  "backup",
+                  "snapshot",
+                  "server"
+                ],
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "ssdGb": {
+                "minimum": 5,
+                "type": "integer"
+              },
+              "shutDownSource": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "enablePrivateNetwork": {
+            "type": "boolean"
+          },
+          "enableStrictAntiDDoSFiltering": {
+            "type": "boolean"
+          },
+          "userData": {
+            "type": "string"
+          },
+          "backupPreferences": {
+            "type": "object",
+            "properties": {
+              "slots": {
+                "maximum": 30,
+                "minimum": 2,
+                "type": "integer"
+              },
+              "frequency": {
+                "enum": [
+                  "oneDay",
+                  "twoDays",
+                  "threeDays",
+                  "fourDays",
+                  "fiveDays",
+                  "sixDays",
+                  "oneWeek"
+                ],
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "vpcs": {
+            "maxItems": 4,
+            "type": "array",
+            "items": {
+              "required": [
+                "firewallIds",
+                "id"
+              ],
+              "type": "object",
+              "properties": {
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "firewallIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "ipAddress": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "publicPortFirewallIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "accessConfiguration",
+          "flavorId",
+          "hostname",
+          "name",
+          "volume"
+        ]
+      }
+    },
+    {
+      "name": "get_server",
+      "description": "Get server by id",
+      "method": "GET",
+      "path": "/servers/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_server",
+      "description": "Delete server",
+      "method": "DELETE",
+      "path": "/servers/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "reinstall_server",
+      "description": "Reinstall server",
+      "method": "POST",
+      "path": "/servers/{id}/reinstall",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "hostname": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "flavorId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "accessConfiguration": {
+            "type": "object",
+            "properties": {
+              "sshKeyId": {
+                "type": "string"
+              },
+              "password": {
+                "type": "string"
+              },
+              "savePassword": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "volume": {
+            "required": [
+              "id",
+              "source",
+              "ssdGb"
+            ],
+            "type": "object",
+            "properties": {
+              "source": {
+                "minLength": 1,
+                "enum": [
+                  "image",
+                  "backup",
+                  "snapshot"
+                ],
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "ssdGb": {
+                "minimum": 5,
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "userData": {
+            "type": "string"
+          },
+          "backupPreferences": {
+            "type": "object",
+            "properties": {
+              "slots": {
+                "maximum": 30,
+                "minimum": 2,
+                "type": "integer"
+              },
+              "frequency": {
+                "enum": [
+                  "oneDay",
+                  "twoDays",
+                  "threeDays",
+                  "fourDays",
+                  "fiveDays",
+                  "sixDays",
+                  "oneWeek"
+                ],
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "accessConfiguration",
+          "flavorId",
+          "hostname",
+          "name",
+          "volume"
+        ]
+      }
+    },
+    {
+      "name": "calculate_server_cost",
+      "description": "Calculate server cost",
+      "method": "POST",
+      "path": "/servers/cost",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "flavorId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "volume": {
+            "required": [
+              "id",
+              "source",
+              "ssdGb"
+            ],
+            "type": "object",
+            "properties": {
+              "source": {
+                "minLength": 1,
+                "enum": [
+                  "Image",
+                  "Backup",
+                  "Snapshot",
+                  "Server"
+                ],
+                "type": "string"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "ssdGb": {
+                "minimum": 0,
+                "exclusiveMinimum": true,
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "backupPreferences": {
+            "type": "object",
+            "properties": {
+              "slots": {
+                "maximum": 30,
+                "minimum": 2,
+                "type": "integer"
+              },
+              "frequency": {
+                "enum": [
+                  "oneDay",
+                  "twoDays",
+                  "threeDays",
+                  "fourDays",
+                  "fiveDays",
+                  "sixDays",
+                  "oneWeek"
+                ],
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "isArchived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "flavorId",
+          "volume"
+        ]
+      }
+    },
+    {
+      "name": "rename_server",
+      "description": "Rename server",
+      "method": "PATCH",
+      "path": "/servers/{id}/rename",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "newServerName": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "newServerName"
+        ]
+      }
+    },
+    {
+      "name": "resize_server",
+      "description": "Resize server",
+      "method": "POST",
+      "path": "/servers/{id}/resize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "flavorId": {
+            "type": "string"
+          },
+          "volumeSizeGb": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "start_server",
+      "description": "Start server",
+      "method": "POST",
+      "path": "/servers/{id}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "stop_server",
+      "description": "Stop server",
+      "method": "POST",
+      "path": "/servers/{id}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "reboot_server",
+      "description": "Reboot server",
+      "method": "POST",
+      "path": "/servers/{id}/reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "hard_reboot_server",
+      "description": "Hard reboot server",
+      "method": "POST",
+      "path": "/servers/{id}/hard-reboot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "archive_server",
+      "description": "Archive server",
+      "method": "POST",
+      "path": "/servers/{id}/archive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "unarchive_server",
+      "description": "Unarchive server",
+      "method": "POST",
+      "path": "/servers/{id}/unarchive",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "allow_server_smtp_out",
+      "description": "Allow server SMTP out",
+      "method": "POST",
+      "path": "/servers/{id}/allow-smtp-out",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "block_server_smtp_out",
+      "description": "Block server SMTP out",
+      "method": "POST",
+      "path": "/servers/{id}/block-smtp-out",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "enable_server_private_network",
+      "description": "Enable server private network",
+      "method": "POST",
+      "path": "/servers/{id}/enable-private-network",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "disable_server_private_network",
+      "description": "Disable server private network",
+      "method": "POST",
+      "path": "/servers/{id}/disable-private-network",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "retrieve_server_password",
+      "description": "Retrieve server password",
+      "method": "GET",
+      "path": "/servers/{id}/password",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "reset_server_password",
+      "description": "Reset server password",
+      "method": "POST",
+      "path": "/servers/{id}/password",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "savePassword": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "configure_server_backups",
+      "description": "Configure server backups",
+      "method": "POST",
+      "path": "/servers/{id}/backups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slots": {
+            "maximum": 30,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "frequency": {
+            "minLength": 1,
+            "enum": [
+              "oneDay",
+              "twoDays",
+              "threeDays",
+              "fourDays",
+              "fiveDays",
+              "sixDays",
+              "oneWeek"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "frequency",
+          "slots"
+        ]
+      }
+    },
+    {
+      "name": "disable_server_backups",
+      "description": "Disable server backups",
+      "method": "DELETE",
+      "path": "/servers/{id}/backups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "restore_server_backup",
+      "description": "Restore server backup",
+      "method": "POST",
+      "path": "/servers/{id}/backup/{backupId}/restore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "backupId": {
+            "type": "string"
+          },
+          "startServerAfterRestore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "backupId"
+        ]
+      }
+    },
+    {
+      "name": "snapshot_server",
+      "description": "Snapshot server",
+      "method": "POST",
+      "path": "/servers/{id}/snapshot",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "shutdownServer": {
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "restore_server_snapshot",
+      "description": "Restore server snapshot",
+      "method": "POST",
+      "path": "/servers/{id}/snapshot/{snapshotId}/restore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "snapshotId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "snapshotId"
+        ]
+      }
+    },
+    {
+      "name": "get_novnc_console_url",
+      "description": "Get noVNC console url",
+      "method": "GET",
+      "path": "/servers/{id}/novnc",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_all_server_actions",
+      "description": "List all server actions",
+      "method": "GET",
+      "path": "/servers/{id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "get_server_action_by_id",
+      "description": "Get server action by id",
+      "method": "GET",
+      "path": "/servers/{id}/actions/{actionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "actionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "actionId"
+        ]
+      }
+    },
+    {
+      "name": "attach_firewall",
+      "description": "Attach firewall",
+      "method": "POST",
+      "path": "/servers/{id}/firewall/{firewallId}/attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "firewallId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "firewallId"
+        ]
+      }
+    },
+    {
+      "name": "detach_firewall",
+      "description": "Detach firewall",
+      "method": "POST",
+      "path": "/servers/{id}/firewall/{firewallId}/detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "firewallId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "firewallId"
+        ]
+      }
+    },
+    {
+      "name": "connect_vpc_to_server",
+      "description": "Connect VPC to server",
+      "method": "POST",
+      "path": "/servers/{id}/vpc",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "vpcId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "ipAddress": {
+            "type": "string"
+          },
+          "firewallIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "firewallIds",
+          "vpcId"
+        ]
+      }
+    },
+    {
+      "name": "update_server_vpc_port",
+      "description": "Update server VPC port",
+      "method": "PATCH",
+      "path": "/servers/{id}/vpc-ports/{portId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "portId": {
+            "type": "string"
+          },
+          "firewallIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "portId",
+          "firewallIds"
+        ]
+      }
+    },
+    {
+      "name": "delete_server_vpc_port",
+      "description": "Delete server VPC port",
+      "method": "DELETE",
+      "path": "/servers/{id}/vpc-ports/{portId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "portId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "portId"
+        ]
+      }
+    },
+    {
+      "name": "update_server_public_port",
+      "description": "Update server public port",
+      "method": "PATCH",
+      "path": "/servers/{id}/public-ports/{portId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "portId": {
+            "type": "string"
+          },
+          "firewallIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "portId",
+          "firewallIds"
+        ]
+      }
+    },
+    {
+      "name": "list_ssh_keys",
+      "description": "List all SSH keys",
+      "method": "GET",
+      "path": "/keypairs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "create_ssh_key",
+      "description": "Create SSH key",
+      "method": "POST",
+      "path": "/keypairs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string"
+          },
+          "publicKey": {
+            "minLength": 1,
+            "pattern": "^ssh-rsa AAAAB3NzaC1yc2E[0-9A-Za-z+\\/]+[=]{0,3}(?:$|\\s.+)$",
+            "type": "string"
+          },
+          "privateKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "publicKey"
+        ]
+      }
+    },
+    {
+      "name": "get_ssh_key",
+      "description": "Get SSH key by id",
+      "method": "GET",
+      "path": "/keypairs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_ssh_key",
+      "description": "Delete SSH key",
+      "method": "DELETE",
+      "path": "/keypairs/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "generate_ssh_key",
+      "description": "Generate SSH key on the server",
+      "method": "POST",
+      "path": "/keypairs/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9-_]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List all images",
+      "method": "GET",
+      "path": "/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "get_image_by_id",
+      "description": "Get image by id",
+      "method": "GET",
+      "path": "/images/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_firewalls",
+      "description": "List all firewalls",
+      "method": "GET",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "create_firewall",
+      "description": "Create firewall",
+      "method": "POST",
+      "path": "/firewalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9 -]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_firewall",
+      "description": "Get firewall by id",
+      "method": "GET",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_firewall",
+      "description": "Update firewall",
+      "method": "PATCH",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "newName": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9 -]+$",
+            "type": "string"
+          },
+          "newDescription": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "newDescription",
+          "newName"
+        ]
+      }
+    },
+    {
+      "name": "delete_firewall",
+      "description": "Delete firewall",
+      "method": "DELETE",
+      "path": "/firewalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_firewall_rule_by_id",
+      "description": "Get firewall rule by id",
+      "method": "GET",
+      "path": "/firewalls/rules/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_firewall_rule",
+      "description": "Create firewall rule",
+      "method": "POST",
+      "path": "/firewalls/{id}/rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sourceIp": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "portRangeMin": {
+            "type": "integer"
+          },
+          "portRangeMax": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "protocol",
+          "sourceIp"
+        ]
+      }
+    },
+    {
+      "name": "enable_firewall_rule",
+      "description": "Enable firewall rule",
+      "method": "POST",
+      "path": "/firewalls/rules/{ruleId}/enable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ruleId"
+        ]
+      }
+    },
+    {
+      "name": "disable_firewall_rule",
+      "description": "Disable firewall rule",
+      "method": "POST",
+      "path": "/firewalls/rules/{ruleId}/disable",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ruleId"
+        ]
+      }
+    },
+    {
+      "name": "delete_firewall_rule",
+      "description": "Delete firewall rule",
+      "method": "DELETE",
+      "path": "/firewalls/rules/{ruleId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ruleId"
+        ]
+      }
+    },
+    {
+      "name": "list_all_account_limits",
+      "description": "List all limits",
+      "method": "GET",
+      "path": "/account/limits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "pageSize": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          }
+        }
+      },
+      "query_params": [
+        "page",
+        "pageSize"
+      ]
+    },
+    {
+      "name": "get_account_limit_by_name",
+      "description": "Get limit by name",
+      "method": "GET",
+      "path": "/account/limits/{name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    }
+  ]
+}

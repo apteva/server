@@ -60,7 +60,7 @@ func (s *Server) resolveAgentPluginManifestDocument(sourceURL string, document [
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := sdk.ParseManifest(manifestDocument)
+	manifest, err := parseServerAppManifest(manifestDocument)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Apteva manifest selected by plugin: %w", err)
 	}

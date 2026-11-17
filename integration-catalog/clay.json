@@ -1,0 +1,211 @@
+{
+  "slug": "clay",
+  "name": "Clay",
+  "description": "Official Clay Public API for GTM people and company searches, enrichment routines, asynchronous batch runs, and Enterprise table queries.",
+  "logo": "https://www.google.com/s2/favicons?domain=clay.com&sz=128",
+  "categories": ["sales", "leads", "enrichment", "prospecting", "automation", "gtm"],
+  "base_url": "https://api.clay.com/public/v0",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "clay-api-key": "{{api_key}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Clay API key",
+        "description": "Personal API key created under Settings > Account in Clay.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": { "tool": "get_current_user" },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Return the Clay user and workspace associated with the API key. Use this to verify credentials.",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_search_fields",
+      "description": "List every supported structured search filter for people or companies, including types, allowed values, and guidance. Call this before creating a structured search.",
+      "method": "GET",
+      "path": "/search/filters-mode/fields",
+      "query_params": ["source_type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_type": { "type": "string", "enum": ["people", "companies"] }
+        },
+        "required": ["source_type"]
+      }
+    },
+    {
+      "name": "create_structured_search",
+      "description": "Create a stateful people or company search using Clay's documented structured filters. Returns a search_id; pass it to run_structured_search to retrieve results.",
+      "method": "POST",
+      "path": "/search/filters-mode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_type": { "type": "string", "enum": ["people", "companies"] },
+          "filters": { "type": "object", "description": "Filter object built from list_search_fields metadata." }
+        },
+        "required": ["source_type", "filters"]
+      }
+    },
+    {
+      "name": "run_structured_search",
+      "description": "Return the next page from a structured Clay search. The search is a stateful iterator, so repeat this call with the same search_id for subsequent pages.",
+      "method": "POST",
+      "path": "/search/filters-mode/{search_id}/run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search_id": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 20 }
+        },
+        "required": ["search_id"]
+      }
+    },
+    {
+      "name": "get_search_query_reference",
+      "description": "Return Clay's current advanced-search query language reference in Markdown. Use it before composing a beta query-mode search.",
+      "method": "GET",
+      "path": "/search/query-mode/reference",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_query_search",
+      "description": "Create a people or company search from Clay's advanced search query language (beta). Returns a search_id.",
+      "method": "POST",
+      "path": "/search/query-mode",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "description": "Clay search query written using get_search_query_reference." }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "run_query_search",
+      "description": "Return the next page from a beta query-mode Clay search. Repeat with the same search_id to advance the iterator.",
+      "method": "POST",
+      "path": "/search/query-mode/{search_id}/run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search_id": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 20 }
+        },
+        "required": ["search_id"]
+      }
+    },
+    {
+      "name": "run_routine",
+      "description": "Execute a Clay-managed or custom routine against 1-100 records. Returns a routine_run_id for asynchronous result polling.",
+      "method": "POST",
+      "path": "/routines/{routine_id}/run",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "routine_id": { "type": "string" },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "description": "Caller-chosen stable item ID." },
+                "inputs": { "type": "object", "description": "Inputs expected by the routine." }
+              },
+              "required": ["id", "inputs"]
+            }
+          },
+          "webhook_id": { "type": "string", "description": "Optional registered Clay webhook notified on completion." }
+        },
+        "required": ["routine_id", "items"]
+      }
+    },
+    {
+      "name": "get_routine_results",
+      "description": "Fetch status and a page of results for an asynchronous routine run.",
+      "method": "GET",
+      "path": "/routines/run/{routine_run_id}/results",
+      "query_params": ["cursor", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "routine_run_id": { "type": "string" },
+          "cursor": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+        },
+        "required": ["routine_run_id"]
+      }
+    },
+    {
+      "name": "create_batch_upload_url",
+      "description": "Issue a presigned PUT URL and file_id for uploading a JSONL input file for a large routine batch.",
+      "method": "POST",
+      "path": "/routines/{routine_id}/run-batch/upload-url",
+      "input_schema": {
+        "type": "object",
+        "properties": { "routine_id": { "type": "string" } },
+        "required": ["routine_id"]
+      }
+    },
+    {
+      "name": "start_batch_routine",
+      "description": "Start an asynchronous routine batch after uploading JSONL to the presigned URL returned by create_batch_upload_url.",
+      "method": "POST",
+      "path": "/routines/{routine_id}/run-batch/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "routine_id": { "type": "string" },
+          "file_id": { "type": "string" },
+          "webhook_id": { "type": "string" }
+        },
+        "required": ["routine_id", "file_id"]
+      }
+    },
+    {
+      "name": "get_batch_results",
+      "description": "Fetch progress and results for an asynchronous routine batch.",
+      "method": "GET",
+      "path": "/routines/run-batch/{routine_run_id}/results",
+      "query_params": ["cursor", "limit"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "routine_run_id": { "type": "string" },
+          "cursor": { "type": "string" },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+        },
+        "required": ["routine_run_id"]
+      }
+    },
+    {
+      "name": "query_tables",
+      "description": "Run a structured query across known Clay tables (Enterprise only). Supports selected fields, filters, joins, grouping, ordering, and cursor pagination.",
+      "method": "POST",
+      "path": "/tables/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "object", "description": "Structured query containing tables and optional select, filter, join, group_by, order_by, and field_mode." },
+          "cursor": { "type": "string", "description": "Opaque cursor returned by the previous response." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

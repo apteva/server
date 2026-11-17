@@ -1,0 +1,169 @@
+{
+  "slug": "instantly",
+  "name": "Instantly",
+  "description": "Cold-email outreach platform — multi-inbox sending with built-in warmup, sequencing, A/B testing, and unibox reply management. Modern Apollo-killer for the actual sending step.",
+  "logo": "https://www.google.com/s2/favicons?domain=instantly.ai&sz=128",
+  "categories": ["email", "outreach", "sequencing", "campaigns", "sales", "cold-email"],
+  "base_url": "https://api.instantly.ai/api/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Instantly v2 API key from app.instantly.ai → Settings → Integrations → API Keys"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_campaigns",
+      "description": "List all email campaigns.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 25 },
+          "starting_after": { "type": "string", "description": "Cursor for pagination" },
+          "search": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a new email campaign.",
+      "method": "POST",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "campaign_schedule": { "type": "object", "description": "{ schedules: [{ name, timing: { from, to }, days: { 0..6 }, timezone }] }" },
+          "sequences": { "type": "array", "items": { "type": "object" }, "description": "Array of step objects: { steps: [{ type:'email', delay, variants:[{ subject, body }] }] }" },
+          "email_list": { "type": "array", "items": { "type": "string" }, "description": "Sending mailbox emails to use" },
+          "daily_limit": { "type": "integer" },
+          "stop_on_reply": { "type": "boolean", "default": true },
+          "stop_on_auto_reply": { "type": "boolean", "default": true },
+          "link_tracking": { "type": "boolean", "default": false },
+          "open_tracking": { "type": "boolean", "default": false },
+          "text_only": { "type": "boolean", "default": true }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Get a single campaign by id.",
+      "method": "GET",
+      "path": "/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "activate_campaign",
+      "description": "Activate (start) a campaign.",
+      "method": "POST",
+      "path": "/campaigns/{id}/activate",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "pause_campaign",
+      "description": "Pause a running campaign.",
+      "method": "POST",
+      "path": "/campaigns/{id}/pause",
+      "input_schema": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "list_leads",
+      "description": "List leads, optionally filtered by campaign or list.",
+      "method": "POST",
+      "path": "/leads/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign": { "type": "string" },
+          "list_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 25 },
+          "starting_after": { "type": "string" },
+          "search": { "type": "string" },
+          "filter": { "type": "string", "description": "Status filter" }
+        }
+      }
+    },
+    {
+      "name": "add_leads",
+      "description": "Add leads to a campaign or list. Bulk-friendly.",
+      "method": "POST",
+      "path": "/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign": { "type": "string", "description": "Campaign id" },
+          "list_id": { "type": "string", "description": "Or list id (alternative to campaign)" },
+          "skip_if_in_workspace": { "type": "boolean", "default": true },
+          "skip_if_in_campaign": { "type": "boolean", "default": false },
+          "leads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": { "type": "string" },
+                "first_name": { "type": "string" },
+                "last_name": { "type": "string" },
+                "company_name": { "type": "string" },
+                "personalization": { "type": "string", "description": "Custom intro line" },
+                "phone": { "type": "string" },
+                "website": { "type": "string" },
+                "custom_variables": { "type": "object" }
+              },
+              "required": ["email"]
+            }
+          }
+        },
+        "required": ["leads"]
+      }
+    },
+    {
+      "name": "campaign_analytics",
+      "description": "Get analytics (sent, opened, replied, etc.) for a campaign or all campaigns.",
+      "method": "GET",
+      "path": "/campaigns/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Campaign id (omit for all campaigns)" },
+          "start_date": { "type": "string", "description": "YYYY-MM-DD" },
+          "end_date": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "list_email_accounts",
+      "description": "List connected sending mailboxes (and their warmup state).",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 25 },
+          "starting_after": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

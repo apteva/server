@@ -58,15 +58,70 @@ func TestWorkspaceSetupDraftResumesAndEnforcesProjectAccess(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSetupConfirmActivatesOnlyStagedAgents(t *testing.T) {
+	s := newTestServer(t)
+	owner, _ := s.store.CreateUser("confirm-owner@test.local", "hash")
+	project, _ := s.store.CreateProject(owner.ID, "Workspace", "", "")
+	stagedConfig := `{"onboarding_staged":true}`
+	staged, err := s.store.CreateAgent(owner.ID, "Staged assistant", "Help with the workspace.", "cautious", stagedConfig, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := s.store.CreateAgent(owner.ID, "Existing assistant", "Already active.", "cautious", `{}`, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active.Status = "running"
+	if err := s.store.UpdateAgent(active); err != nil {
+		t.Fatal(err)
+	}
+	if !workspaceSetupStagedAgent(*staged) {
+		t.Fatalf("fixture agent was not marked staged: %q", staged.Config)
+	}
+	req := helperLifecycleRequest(http.MethodPost, "/projects/"+project.ID+"/setup/confirm", owner.ID, "")
+	rec := httptest.NewRecorder()
+	s.handleProject(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirm status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Status   string   `json:"status"`
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "needs_attention" || len(body.Warnings) == 0 {
+		t.Fatalf("confirm body=%s", rec.Body.String())
+	}
+	got, err := s.store.GetAgentByID(staged.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workspaceSetupStagedAgent(*got) {
+		t.Fatalf("staged agent was finalized despite failed activation: %+v", got)
+	}
+	untouched, err := s.store.GetAgentByID(active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspaceSetupStagedAgent(*untouched) {
+		t.Fatal("unrelated agent was treated as staged")
+	}
+}
+
 func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	s := newTestServer(t)
 	seedPresetProject(t, s, "setup-project")
+	sidecar, _ := presetEvalsFixture(t)
+	seedPresetEvalsApp(t, s, "setup-project", sidecar.URL)
 	catalog, _ := s.projectPresetCatalog(1)
 	preset := catalog.ByID["business-lead-generation"]
 	key := preset.Agents[0].Key
 	body := map[string]any{"preset_id": preset.ID, "description": "Qualify clinic leads", "agent_overrides": []ProjectPresetAgentOverride{{Key: key, Name: "My lead assistant", Directive: "Research leads. Ask before sending outreach.", Mode: "cautious"}}}
 	call := func(suffix string) *httptest.ResponseRecorder {
 		r := authedRequest(t, http.MethodPost, "/projects/setup-project/setup/"+suffix, "", body)
+		r.Header.Set("X-Apteva-Operator-ID", "1")
 		w := httptest.NewRecorder()
 		s.handleProject(w, r)
 		return w
@@ -74,6 +129,12 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	w := call("preview")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "My lead assistant") {
 		t.Fatalf("preview %d %s", w.Code, w.Body.String())
+	}
+	proposalRequest := authedRequest(t, http.MethodGet, "/projects/setup-project/setup/proposal", "", nil)
+	proposalResponse := httptest.NewRecorder()
+	s.handleProject(proposalResponse, proposalRequest)
+	if proposalResponse.Code != http.StatusOK || !strings.Contains(proposalResponse.Body.String(), `"status":"proposed"`) || !strings.Contains(proposalResponse.Body.String(), "My lead assistant") {
+		t.Fatalf("proposal %d %s", proposalResponse.Code, proposalResponse.Body.String())
 	}
 	agents, _ := s.store.ListAgentsInProject("setup-project")
 	if len(agents) != 0 {
@@ -83,19 +144,51 @@ func TestWorkspaceSetupOverridesAndRetryPreserveRenamedAgent(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("apply %d %s", w.Code, w.Body.String())
 	}
-	agents, _ = s.store.ListAgentsInProject("setup-project")
-	if len(agents) != 1 || agents[0].Name != "My lead assistant" || agents[0].Mode != "cautious" {
-		t.Fatalf("agents %+v", agents)
+	proposalResponse = httptest.NewRecorder()
+	s.handleProject(proposalResponse, proposalRequest)
+	if proposalResponse.Code != http.StatusOK || strings.Contains(proposalResponse.Body.String(), `"status":"proposed"`) || !strings.Contains(proposalResponse.Body.String(), `"agents":[`) {
+		t.Fatalf("applied proposal %d %s", proposalResponse.Code, proposalResponse.Body.String())
 	}
-	s.store.RenameAgent(agents[0].ID, "Renamed later")
+	agents, _ = s.store.ListAgentsInProject("setup-project")
+	if len(agents) != len(preset.Agents) {
+		t.Fatalf("created %d agents, want %d", len(agents), len(preset.Agents))
+	}
+	var overriddenID int64
+	expectedNames := map[int64]string{}
+	for _, agent := range agents {
+		expectedNames[agent.ID] = agent.Name
+		if agent.Name == "My lead assistant" {
+			overriddenID = agent.ID
+			if agent.Mode != "cautious" || agent.Directive != "Research leads. Ask before sending outreach." {
+				t.Fatalf("override lost: %+v", agent)
+			}
+		}
+	}
+	if overriddenID == 0 {
+		t.Fatal("overridden preset role missing")
+	}
+	if err := s.store.RenameAgent(overriddenID, "Renamed later"); err != nil {
+		t.Fatal(err)
+	}
+	expectedNames[overriddenID] = "Renamed later"
 	w = call("apply")
 	var result struct {
 		Created  []Agent `json:"created_agents"`
 		Existing []Agent `json:"existing_agents"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &result)
-	if len(result.Created) != 0 || len(result.Existing) != 1 || result.Existing[0].Name != "Renamed later" {
-		t.Fatalf("retry: %s", w.Body.String())
+	if w.Code != http.StatusOK || len(result.Created) != 0 || len(result.Existing) != len(preset.Agents) {
+		t.Fatalf("retry: %d %s", w.Code, w.Body.String())
+	}
+	for _, agent := range result.Existing {
+		name, ok := expectedNames[agent.ID]
+		if !ok || agent.Name != name {
+			t.Fatalf("retry replaced or renamed an existing role: %+v", agent)
+		}
+		delete(expectedNames, agent.ID)
+	}
+	if len(expectedNames) != 0 {
+		t.Fatal("retry dropped existing preset roles")
 	}
 	body["agent_overrides"] = []ProjectPresetAgentOverride{{Key: "unknown", Name: "Invalid", Directive: "Do work", Mode: "cautious"}}
 	if w := call("apply"); w.Code != 400 {

@@ -1,0 +1,4932 @@
+{
+  "slug": "appcircle",
+  "name": "Appcircle",
+  "description": "Mobile CI/CD and release automation for iOS, Android, Flutter, React Native, and enterprise applications. Trigger and monitor builds, retrieve logs and artifacts, manage environment variables and signing identities, distribute builds to testers, and automate App Store and Google Play publishing and rollout workflows.",
+  "logo": "https://www.google.com/s2/favicons?domain=appcircle.io&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "android",
+    "macos",
+    "xcode",
+    "deployment"
+  ],
+  "base_url": "https://api.appcircle.io/build",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "token_exchange": {
+      "url": "https://auth.appcircle.io/auth/v1/api-key/token",
+      "method": "POST",
+      "content_type": "application/x-www-form-urlencoded",
+      "body_params": {
+        "name": "{{credential.api_key_name}}",
+        "secret": "{{credential.api_key_secret}}",
+        "organizationId": "{{credential.organization_id}}"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 120
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key_name",
+        "label": "Organization API Key Name",
+        "description": "API key name created in Appcircle Organization > Security. Organization API keys are intended for service-to-service automation.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "api_key_secret",
+        "label": "Organization API Key Secret",
+        "description": "Secret belonging to the Appcircle organization API key.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "organization_id",
+        "label": "Organization ID",
+        "description": "Optional organization ID when the API key is scoped to a specific Appcircle organization.",
+        "required": false,
+        "type": "text"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_build_profiles",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "list_build_profiles",
+      "description": "Gets all build profiles",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "search": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "integer",
+            "description": "\"[ 0=None,1=Name,2=CreateDate,3=LastBuildDate ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3
+            ]
+          },
+          "sortDirection": {
+            "type": "integer",
+            "description": "\"[ 0=None,1=ASC,2=DESC ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          },
+          "platform": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+              "format": "int32",
+              "enum": [
+                0,
+                1,
+                2,
+                9
+              ]
+            }
+          },
+          "lastBuildStatus": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "\"[ 0=Success,1=Failed,2=Canceled,3=Timeout,90=Waiting,91=Running,92=Completing,99=Unknown ]\"",
+              "format": "int32",
+              "enum": [
+                0,
+                1,
+                2,
+                3,
+                90,
+                91,
+                92,
+                99
+              ]
+            }
+          },
+          "repositorySource": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "\"[ 0=None,1=Github,2=Bitbucket,3=Gitlab,4=AzureDevops,5=AWS,6=PublicRepository,7=PrivateRepository,8=SSH ]\"",
+              "format": "int32",
+              "enum": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8
+              ]
+            }
+          },
+          "suborg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "search",
+        "sort",
+        "sortDirection",
+        "platform",
+        "lastBuildStatus",
+        "repositorySource",
+        "suborg"
+      ]
+    },
+    {
+      "name": "get_build_profile",
+      "description": "Gets profile detail by Id. v3 replacement for GET /api/v2/profiles/{profileId} (default).",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "list_profile_repositories",
+      "description": "Get repositories for a profile. v3 replacement for GET /api/v2/profiles/{profileId}?action=getRepositories.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/profiles/{profileId}/repositories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "instanceUrl": {
+            "type": "string"
+          },
+          "connectionId": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "timestamp": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "machine": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "pid": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "increment": {
+                "type": "integer",
+                "format": "int32"
+              },
+              "creationTime": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "instanceUrl",
+        "connectionId"
+      ]
+    },
+    {
+      "name": "list_commits",
+      "description": "Gets all commits by branchId",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/commits",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branchId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "query_params": [
+        "profileId",
+        "branchId",
+        "Sort",
+        "Page",
+        "Size"
+      ]
+    },
+    {
+      "name": "get_commit",
+      "description": "Gets detail of commit by CommitId",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/commits/{commitId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId"
+        ]
+      }
+    },
+    {
+      "name": "start_build",
+      "description": "Start an Appcircle build for a commit using the profile last-used or default workflow. The response returns a task ID; poll get_build_queue_item, then use get_build_status, logs, and artifacts.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/commits/{commitId}/build",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configurationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId"
+        ]
+      },
+      "query_params": [
+        "configurationId"
+      ]
+    },
+    {
+      "name": "start_build_with_workflow",
+      "description": "Start a build for a commit with an explicit Appcircle workflow. Poll the returned task ID with get_build_queue_item.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/commits/{commitId}/build/by-workflow",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workflowId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configurationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId"
+        ]
+      },
+      "query_params": [
+        "workflowId",
+        "configurationId"
+      ]
+    },
+    {
+      "name": "start_build_with_environment",
+      "description": "Start new build manually with specified workflow and environments",
+      "method": "PUT",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/commits/{commitId}/build/by-workflow/with-environment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workflowId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configurationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId"
+        ]
+      },
+      "query_params": [
+        "workflowId",
+        "configurationId"
+      ]
+    },
+    {
+      "name": "get_build_queue_item",
+      "description": "Gets queue item by taskId. v3 replacement for GET /api/v1/queue/{taskId} (default). Same payload, unique path.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/queue/{taskId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "cancel_build",
+      "description": "Cancels queue by taskId. v3 replacement for GET /api/v1/queue/{taskId}?action=cancel — action moved to a path segment and the verb changed to POST, since a cancel is a state-changing operation.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v3/queue/{taskId}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "taskId"
+        ]
+      }
+    },
+    {
+      "name": "get_build_status",
+      "description": "Gets build status",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/commits/{commitId}/builds/{buildId}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "buildId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId",
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "download_build_logs",
+      "description": "Download build log This route returns downloadable build output and may produce a binary response.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/commits/{commitId}/builds/{buildId}/logs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "buildId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId",
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "download_build_artifacts",
+      "description": "Download build artifacts of build This route returns downloadable build output and may produce a binary response.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/commits/{commitId}/builds/{buildId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "commitId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "buildId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "commitId",
+          "buildId"
+        ]
+      }
+    },
+    {
+      "name": "list_build_workflows",
+      "description": "Get workflows of build profile",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/profiles/{profileId}/workflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "get_build_workflow",
+      "description": "Get a single workflow definition. Returns the workflow definition (steps and metadata) for the given workflowId on the build profile.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/profiles/{profileId}/workflows/{workflowId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workflowId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId",
+          "workflowId"
+        ]
+      }
+    },
+    {
+      "name": "list_build_configurations",
+      "description": "Get configurations of a profile",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/profiles/{profileId}/configurations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "branchId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "branchId"
+      ]
+    },
+    {
+      "name": "get_build_configuration",
+      "description": "Get details of a specific configuration of a profile",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/profiles/{profileId}/configurations/{configurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configurationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId",
+          "configurationId"
+        ]
+      }
+    },
+    {
+      "name": "list_build_variable_groups",
+      "description": "Gets all variable groups",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size"
+      ]
+    },
+    {
+      "name": "create_build_variable_group",
+      "description": "Creates new environment group",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "sharedSubOrganizationIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "sharedToAllSubs": {
+            "type": "boolean"
+          },
+          "variables": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "value": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "isSecret": {
+                  "type": "boolean"
+                },
+                "isFile": {
+                  "type": "boolean"
+                },
+                "fileId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "rename_build_variable_group",
+      "description": "Renames environment group",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups/{variableGroupId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "variableGroupId"
+        ]
+      },
+      "query_params": [
+        "name"
+      ]
+    },
+    {
+      "name": "delete_build_variable_group",
+      "description": "Deletes environment group",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups/{variableGroupId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableGroupId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "variableGroupId"
+        ]
+      }
+    },
+    {
+      "name": "list_build_variables",
+      "description": "Get environment variables by group Id",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups/{variableGroupId}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableGroupId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "variableGroupId"
+        ]
+      }
+    },
+    {
+      "name": "add_build_variables",
+      "description": "Add new environment variables by group Id",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups/{variableGroupId}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "nullable": true
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          },
+          "isSecret": {
+            "type": "boolean"
+          },
+          "isFile": {
+            "type": "boolean"
+          },
+          "fileId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "variableGroupId"
+        ]
+      }
+    },
+    {
+      "name": "update_build_variables",
+      "description": "Update non-secret environment variable values by group Id",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups/{variableGroupId}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 3
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "variableGroupId",
+          "key",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "delete_build_variables",
+      "description": "Remove exist environment variable/variables from exist group.",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/build",
+      "path": "/v2/variable-groups/{variableGroupId}/variables",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "variableGroupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "variableGroupId",
+          "body"
+        ]
+      },
+      "body_root_param": "body"
+    },
+    {
+      "name": "list_distribution_profiles",
+      "description": "Gets all distribute profile list of current organization",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "search": {
+            "type": "string"
+          },
+          "sort": {
+            "type": "integer",
+            "description": "\"[ 0=None,1=Name,2=CreateDate,3=LastUploadDate,4=LatestVersion ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "sortDirection": {
+            "type": "integer",
+            "description": "\"[ 0=None,1=ASC,2=DESC ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          },
+          "platform": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+              "format": "int32",
+              "enum": [
+                0,
+                1,
+                2,
+                9
+              ]
+            }
+          },
+          "authenticationType": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "\"[ 0=Undefined,1=None,3=Static,4=LDAP,5=SSO ]\"",
+              "format": "int32",
+              "enum": [
+                0,
+                1,
+                3,
+                4,
+                5
+              ]
+            }
+          },
+          "suborg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "search",
+        "sort",
+        "sortDirection",
+        "platform",
+        "authenticationType",
+        "suborg"
+      ]
+    },
+    {
+      "name": "create_distribution_profile",
+      "description": "Creates distribute profile",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationName": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "pinned": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "appVersions": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "profileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "appResourceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "secondAppResourceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "appIconResourceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "uniqueName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "version": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "versionCode": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "platformType": {
+                  "type": "integer",
+                  "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+                  "format": "int32",
+                  "enum": [
+                    0,
+                    1,
+                    2,
+                    9
+                  ]
+                },
+                "fileType": {
+                  "type": "integer",
+                  "description": "\"[ 0=Unknown,1=Ipa,2=Apk,3=Aab,4=xcArchive ]\"",
+                  "format": "int32",
+                  "enum": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4
+                  ]
+                },
+                "fileName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "fileSize": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "message": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "customTag": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "appVersionTestings": {
+                  "type": "array",
+                  "nullable": true,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "appVersionId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "tester": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "device": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "hasDistributionTest": {
+                        "type": "boolean"
+                      },
+                      "hasEmulatorTest": {
+                        "type": "boolean"
+                      },
+                      "testLinkDetails": {
+                        "type": "object",
+                        "additionalProperties": false
+                      },
+                      "expireTime": {
+                        "type": "number",
+                        "format": "double"
+                      },
+                      "status": {
+                        "type": "integer",
+                        "description": "\"[ 0=None,1=Pending,2=Clicked,3=ClickedNotEnrolled,4=ClickedNotLoggedIn,5=LoggedIn,6=Downloaded,7=SentFailed ]\"",
+                        "format": "int32",
+                        "enum": [
+                          0,
+                          1,
+                          2,
+                          3,
+                          4,
+                          5,
+                          6,
+                          7
+                        ]
+                      },
+                      "sendingDate": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "createDate": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      },
+                      "updateDate": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                      }
+                    }
+                  }
+                },
+                "createDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "updateDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "expirationDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "expired": {
+                  "type": "boolean"
+                },
+                "notificationState": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "oneMonth": {
+                      "type": "boolean"
+                    },
+                    "twoWeeks": {
+                      "type": "boolean"
+                    },
+                    "oneWeek": {
+                      "type": "boolean"
+                    },
+                    "oneDay": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "lastSharedDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "nullable": true
+                },
+                "tags": {
+                  "type": "array",
+                  "nullable": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "versionTags": {
+                  "type": "array",
+                  "nullable": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "buildId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "resignId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "buildProfileId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "commitId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "commitHash": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "commitMessage": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "commitAuthor": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "branchName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "branchId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "triggerType": {
+                  "type": "integer",
+                  "description": "\"[ 0=User,1=Commit,2=Tag,3=PullRequest ]\"",
+                  "format": "int32",
+                  "enum": [
+                    0,
+                    1,
+                    2,
+                    3
+                  ]
+                },
+                "targetBranch": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "gitTag": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "triggeredInternalUser": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "workflowName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "configName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "appSimulatorResourceId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "appPlayerUrl": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "simulatorAppItem": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "publicKey": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "appCreateDate": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "appUpdateDate": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "appLastPreviewDate": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "embedUrl": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "reportSession": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    }
+                  }
+                },
+                "simulatorReportItem": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "publicKey": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "lastReportMonth": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "numSessions": {
+                      "type": "integer",
+                      "format": "int32"
+                    },
+                    "minutes": {
+                      "type": "number",
+                      "format": "double"
+                    }
+                  }
+                },
+                "provisionProfileType": {
+                  "type": "integer",
+                  "description": "\"[ 0=UnKnown,1=AdHoc,1=AdHoc,1=AdHoc,2=Distribution,3=Enterprise,4=AndroidCert,5=PushNotification,6=Development,7=ApplePay,8=PassTypeID,10=IOS_APP_DEVELOPMENT,12=IOS_APP_STORE,14=IOS_APP_INHOUSE,15=MAC_APP_DEVELOPMENT,16=MAC_APP_STORE,17=MAC_APP_DIRECT,18=TVOS_APP_DEVELOPMENT,19=TVOS_APP_STORE,20=TVOS_APP_INHOUSE,21=MAC_CATALYST_APP_DEVELOPMENT,22=MAC_CATALYST_APP_STORE,23=MAC_CATALYST_APP_DIRECT,24=AppStore,25=InHouse ]\"",
+                  "format": "int32",
+                  "enum": [
+                    0,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    10,
+                    12,
+                    14,
+                    15,
+                    16,
+                    17,
+                    18,
+                    19,
+                    20,
+                    21,
+                    22,
+                    23,
+                    24,
+                    25
+                  ]
+                },
+                "provisionedDevices": {
+                  "type": "array",
+                  "nullable": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "certThumbPrints": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "signedCertName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "entitlements": {
+                  "type": "array",
+                  "nullable": true,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "value": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  }
+                },
+                "targets": {
+                  "type": "array",
+                  "nullable": true,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "uniqueName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "version": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "versionCode": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "provisionProfileType": {
+                        "type": "integer",
+                        "description": "\"[ 0=UnKnown,1=AdHoc,1=AdHoc,1=AdHoc,2=Distribution,3=Enterprise,4=AndroidCert,5=PushNotification,6=Development,7=ApplePay,8=PassTypeID,10=IOS_APP_DEVELOPMENT,12=IOS_APP_STORE,14=IOS_APP_INHOUSE,15=MAC_APP_DEVELOPMENT,16=MAC_APP_STORE,17=MAC_APP_DIRECT,18=TVOS_APP_DEVELOPMENT,19=TVOS_APP_STORE,20=TVOS_APP_INHOUSE,21=MAC_CATALYST_APP_DEVELOPMENT,22=MAC_CATALYST_APP_STORE,23=MAC_CATALYST_APP_DIRECT,24=AppStore,25=InHouse ]\"",
+                        "format": "int32",
+                        "enum": [
+                          0,
+                          1,
+                          2,
+                          3,
+                          4,
+                          5,
+                          6,
+                          7,
+                          8,
+                          10,
+                          12,
+                          14,
+                          15,
+                          16,
+                          17,
+                          18,
+                          19,
+                          20,
+                          21,
+                          22,
+                          23,
+                          24,
+                          25
+                        ]
+                      },
+                      "provisionedDevices": {
+                        "type": "array",
+                        "nullable": true,
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "certThumbPrints": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "signedCertName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "entitlements": {
+                        "type": "array",
+                        "nullable": true,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "value": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "resignedFromAppVersion": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "resignedFromAppVersionCode": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "resignedFromAppVersionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "iconUrl": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "releaseNotesResourceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "downloadCount": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              }
+            }
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "androidAppIconResourceId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "iOSAppIconResourceId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "androidIconUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "iOSIconUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "androidVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "iOSVersion": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastAppVersionId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "lastAppVersionCreateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastIOSAppVersionCreateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastAndroidAppVersionCreateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastAppVersionSharedDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastAppVersionDownloadedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastAppVersionTestingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "authenticationType": {
+                "type": "integer",
+                "description": "\"[ 0=Undefined,1=None,3=Static,4=LDAP,5=SSO ]\"",
+                "format": "int32",
+                "enum": [
+                  0,
+                  1,
+                  3,
+                  4,
+                  5
+                ]
+              },
+              "username": {
+                "type": "string",
+                "nullable": true
+              },
+              "password": {
+                "type": "string",
+                "nullable": true
+              },
+              "enableStaticPage": {
+                "type": "boolean"
+              },
+              "visibleCustomTags": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "integer",
+                  "description": "\"[ 1=AC_COMMIT_ID,2=AC_COMMIT_HASH,3=AC_COMMIT_MESSAGE,4=AC_COMMIT_AUTHOR,5=AC_GIT_BRANCH,6=AC_TRIGGER_REASON,7=AC_GIT_TARGET_BRANCH,8=AC_GIT_TAG,9=AC_INTERNAL_TRIGGER_USER,10=AC_BUILD_PROFILE_ID,11=AC_WORKFLOW_NAME,12=AC_INTERNAL_CONFIGURATION_NAME ]\"",
+                  "format": "int32",
+                  "enum": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12
+                  ]
+                }
+              },
+              "validateBundleId": {
+                "type": "boolean"
+              },
+              "validBundleId": {
+                "type": "string",
+                "nullable": true
+              },
+              "validatePackageId": {
+                "type": "boolean"
+              },
+              "validPackageId": {
+                "type": "string",
+                "nullable": true
+              },
+              "autoSignEnabledForiOS": {
+                "type": "boolean"
+              },
+              "autoSignEnabledForAndroid": {
+                "type": "boolean"
+              },
+              "singleSessionEnabled": {
+                "type": "boolean"
+              }
+            }
+          },
+          "isDemo": {
+            "type": "boolean"
+          },
+          "isHidden": {
+            "type": "boolean"
+          },
+          "testingGroupIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "previewOnDeviceTestingGroupIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "autoAddRegisteredDevicesToAppStore": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "connectApiKeyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "provisioningProfileIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "publisherName": {
+            "type": "string",
+            "nullable": true
+          },
+          "contactName": {
+            "type": "string",
+            "nullable": true
+          },
+          "buildProfileIdForAutoProvision": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "buildBranchIdForAutoProvision": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "buildConfigurationIdForAutoProvision": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "privacyUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "termsUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "totalDownloadCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "showSingleBinaryOnTesting": {
+            "type": "boolean"
+          },
+          "hideFromProfileListOnTesting": {
+            "type": "boolean"
+          },
+          "hideSwitchingToOtherProfiles": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_distribution_profile",
+      "description": "Gets distribute profile detail by profileId with app versions, pagination supported. pass addAppVersions=false to ignore app versions to only get the profile",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "addAppVersions": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "addAppVersions"
+      ]
+    },
+    {
+      "name": "update_distribution_profile",
+      "description": "Updates distribute profile detail by profileId",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "pinned": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "authenticationType": {
+                "type": "integer",
+                "description": "\"[ 0=Undefined,1=None,3=Static,4=LDAP,5=SSO ]\"",
+                "format": "int32",
+                "enum": [
+                  0,
+                  1,
+                  3,
+                  4,
+                  5
+                ]
+              },
+              "username": {
+                "type": "string",
+                "nullable": true
+              },
+              "password": {
+                "type": "string",
+                "nullable": true
+              },
+              "enableStaticPage": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "visibleCustomTags": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "integer",
+                  "description": "\"[ 1=AC_COMMIT_ID,2=AC_COMMIT_HASH,3=AC_COMMIT_MESSAGE,4=AC_COMMIT_AUTHOR,5=AC_GIT_BRANCH,6=AC_TRIGGER_REASON,7=AC_GIT_TARGET_BRANCH,8=AC_GIT_TAG,9=AC_INTERNAL_TRIGGER_USER,10=AC_BUILD_PROFILE_ID,11=AC_WORKFLOW_NAME,12=AC_INTERNAL_CONFIGURATION_NAME ]\"",
+                  "format": "int32",
+                  "enum": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12
+                  ]
+                }
+              },
+              "validateBundleId": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "validBundleId": {
+                "type": "string",
+                "nullable": true
+              },
+              "validatePackageId": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "validPackageId": {
+                "type": "string",
+                "nullable": true
+              },
+              "autoSignEnabledForiOS": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "autoSignEnabledForAndroid": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "singleSessionEnabled": {
+                "type": "boolean",
+                "nullable": true
+              }
+            }
+          },
+          "testingGroupIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "showSingleBinaryOnTesting": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "hideFromProfileListOnTesting": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "hideSwitchingToOtherProfiles": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "publisherName": {
+            "type": "string",
+            "nullable": true
+          },
+          "contactName": {
+            "type": "string",
+            "nullable": true
+          },
+          "previewOnDeviceTestingGroupIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "autoAddRegisteredDevicesToAppStore": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "connectApiKeyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "provisioningProfileIds": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "buildProfileIdForAutoProvision": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "buildBranchIdForAutoProvision": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "buildConfigurationIdForAutoProvision": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "privacyUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "termsUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "delete_distribution_profile",
+      "description": "Removes distribute profile detail by profileId",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "list_distribution_app_versions",
+      "description": "Gets app-versions of a profile for given params",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}/app-versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "platform": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "searchTerm": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "platform",
+        "Sort",
+        "Page",
+        "Size",
+        "searchTerm"
+      ]
+    },
+    {
+      "name": "get_distribution_app_version",
+      "description": "To get detail of the App version, which is uploaded or distributed by the build module.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}/app-versions/{appVersionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "get_distribution_download_url",
+      "description": "Get download link for an app version, which is uploaded or distributed by the build module.. Doesn't directly download, instead returns a temporary link to download, link must be followed in order to download the app",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}/app-versions/{appVersionId}/download",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "original": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "profileId",
+          "appVersionId"
+        ]
+      },
+      "query_params": [
+        "original"
+      ]
+    },
+    {
+      "name": "get_distribution_qr_code",
+      "description": "Gets QRCode of public profile link",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/profiles/{profileId}/qr-code",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "baseB4EncodedUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "baseB4EncodedUrl"
+      ]
+    },
+    {
+      "name": "list_testing_groups",
+      "description": "Gets all testing group list of current organization",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/testing-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "suborg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "suborg"
+      ]
+    },
+    {
+      "name": "create_testing_group",
+      "description": "Creates new testing group",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/testing-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "testers": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupType": {
+            "type": "integer",
+            "description": "\"[ 0=UserGroup,1=LdapGroup ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "externalGroupName": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "get_testing_group",
+      "description": "Gets testing group detail by Id",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/testing-groups/{groupId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "groupId"
+        ]
+      }
+    },
+    {
+      "name": "delete_testing_group",
+      "description": "Removes testing group by Id",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/testing-groups/{groupId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "groupId"
+        ]
+      }
+    },
+    {
+      "name": "list_distribution_testers",
+      "description": "Gets all testers of current organization",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/testing-groups/testers",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_testers_to_testing_group",
+      "description": "Adds new tester/testers to test group which is created before.. v3 replacement for POST /api/v2/testing-groups/{groupId}/testers (default).",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v3/testing-groups/{groupId}/testers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "groupId",
+          "body"
+        ]
+      },
+      "body_root_param": "body"
+    },
+    {
+      "name": "remove_testers_from_testing_group",
+      "description": "Removes tester/testers from test group.",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/distribution",
+      "path": "/v2/testing-groups/{groupId}/testers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "body": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "groupId",
+          "body"
+        ]
+      },
+      "body_root_param": "body"
+    },
+    {
+      "name": "list_ios_certificates",
+      "description": "Get list of uploaded/installed certificates",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/certificates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thumbPrints": {
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "thumbPrints"
+      ]
+    },
+    {
+      "name": "create_ios_certificate",
+      "description": "Create a P12 certificate",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/certificates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Password": {
+            "type": "string"
+          },
+          "Binary": {
+            "type": "string",
+            "format": "binary"
+          },
+          "AppleStoreCertificateId": {
+            "type": "string"
+          },
+          "AppStoreCertificateType": {
+            "type": "integer",
+            "description": "\"[ 0=Unspecified,1=IOS_DEVELOPMENT,2=IOS_DISTRIBUTION,3=MAC_APP_DISTRIBUTION,4=MAC_INSTALLER_DISTRIBUTION,5=MAC_APP_DEVELOPMENT,6=DEVELOPER_ID_KEXT,7=DEVELOPER_ID_KEXT_G2,8=DEVELOPER_ID_APPLICATION,9=DEVELOPER_ID_APPLICATION_G2,10=DEVELOPMENT,11=DISTRIBUTION,12=PASS_TYPE_ID,13=PASS_TYPE_ID_WITH_NFC,14=APPLE_DEVELOPMENT,15=APPLE_DISTRIBUTION ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ]
+          }
+        }
+      },
+      "multipart_form": {
+        "file_fields": {
+          "Binary": "Binary"
+        },
+        "field_names": [
+          "Password",
+          "AppleStoreCertificateId",
+          "AppStoreCertificateType"
+        ]
+      }
+    },
+    {
+      "name": "get_ios_certificate",
+      "description": "Get details of a certificate",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/certificates/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_ios_certificate",
+      "description": "Delete a certificate",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/certificates/{certificateId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "certificateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revoke": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "certificateId"
+        ]
+      },
+      "query_params": [
+        "revoke"
+      ]
+    },
+    {
+      "name": "list_android_keystores",
+      "description": "Get list of all installed/uploaded keystores",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/keystores",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_android_keystore",
+      "description": "Create/Generate a keystore",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/keystores",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "friendlyName": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 1
+          },
+          "alias": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aliasPassword": {
+            "type": "string",
+            "format": "password",
+            "minLength": 1
+          },
+          "validity": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "alias",
+          "aliasPassword",
+          "name",
+          "password",
+          "validity"
+        ]
+      }
+    },
+    {
+      "name": "get_android_keystore",
+      "description": "Get details of a keystore",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/keystores/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_android_keystore",
+      "description": "Update a keystore friendly name",
+      "method": "PUT",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/keystores/{keystoreId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keystoreId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "friendlyName": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "keystoreId"
+        ]
+      }
+    },
+    {
+      "name": "delete_android_keystore",
+      "description": "Delete a keystore",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/keystores/{keystoreId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "keystoreId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "keystoreId"
+        ]
+      }
+    },
+    {
+      "name": "list_provisioning_profiles",
+      "description": "Get list of all installed/uploaded provisioning profiles",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/provisioning-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string"
+          },
+          "withBinary": {
+            "type": "boolean"
+          }
+        }
+      },
+      "query_params": [
+        "appId",
+        "withBinary"
+      ]
+    },
+    {
+      "name": "create_provisioning_profile",
+      "description": "Create a provisioning profile",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/provisioning-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Binary": {
+            "type": "string",
+            "format": "binary"
+          },
+          "AppleStoreMobileProvisionId": {
+            "type": "string"
+          }
+        }
+      },
+      "multipart_form": {
+        "file_fields": {
+          "Binary": "Binary"
+        },
+        "field_names": [
+          "AppleStoreMobileProvisionId"
+        ]
+      }
+    },
+    {
+      "name": "get_provisioning_profile",
+      "description": "Get details of a provisioning profile",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/provisioning-profiles/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_bundle_identifiers",
+      "description": "Lists bundle identifiers in Appcircle",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/bundle-identifier",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_bundle_identifier",
+      "description": "Creates bundle identifier in appcircle and appstore",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/bundle-identifier",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "appStoreId": {
+            "type": "string",
+            "nullable": true
+          },
+          "identifier": {
+            "type": "string",
+            "nullable": true
+          },
+          "platform": {
+            "type": "string",
+            "nullable": true
+          },
+          "storeCredentialId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "capabilities": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "attributes": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "capabilityType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "settings": {
+                      "type": "array",
+                      "nullable": true,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "allowedInstances": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "description": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "enabledByDefault": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "key": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "name": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "options": {
+                            "type": "array",
+                            "nullable": true,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "description": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "enabledByDefault": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "key": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "supportsWildcard": {
+                                  "type": "boolean"
+                                }
+                              }
+                            }
+                          },
+                          "visible": {
+                            "type": "boolean"
+                          },
+                          "minInstances": {
+                            "type": "integer",
+                            "format": "int32"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "get_bundle_identifier",
+      "description": "Get bundle identifiers in Appcircle",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/bundle-identifier/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "delete_bundle_identifier",
+      "description": "Deletes bundle identifier with given id",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/bundle-identifier/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_app_store_certificates",
+      "description": "Get all Appstore Connect certificates for provided credential",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/apple-store-connect-api/{storeCredentialId}/certificates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storeCredentialId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "storeCredentialId"
+        ]
+      }
+    },
+    {
+      "name": "list_app_store_devices",
+      "description": "Get all Appstore Connect devices for provided credential",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/apple-store-connect-api/{storeCredentialId}/devices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storeCredentialId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "storeCredentialId"
+        ]
+      }
+    },
+    {
+      "name": "list_app_store_bundles",
+      "description": "Get bundles from Appstore Connect for provided credential",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/apple-store-connect-api/{storeCredentialId}/bundles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storeCredentialId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "storeCredentialId"
+        ]
+      }
+    },
+    {
+      "name": "list_app_store_profiles",
+      "description": "Get list of provisioning profiles from Appstore Connect for provided credential",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/signing-identity",
+      "path": "/v2/apple-store-connect-api/{storeCredentialId}/profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "storeCredentialId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "storeCredentialId"
+        ]
+      }
+    },
+    {
+      "name": "list_store_connections",
+      "description": "Get list of all credentials for Google Play, Appstore Connect, Intune or Huawei App Gallery. Credentials are defined in Integrations module by uploading api keys",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/store-submit",
+      "path": "/v2/credential/connection-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_app_store_connections",
+      "description": "Get list of Appstore Connect connections",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/store-submit",
+      "path": "/v2/credential/apple-store-connect-api/saved-settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_google_play_connections",
+      "description": "Get list of Google Play connections. Credentials are defined in Integrations module by uploading api keys",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/store-submit",
+      "path": "/v2/credential/playstore/saved-settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_publish_profiles",
+      "description": "Gets all publish profile list of current organization",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "suborg": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "flowStatuses": {
+            "type": "string"
+          },
+          "storeStatus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sort": {
+            "type": "integer",
+            "description": "\"[ 0=None,1=Name,2=CreateDate ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          },
+          "sortDirection": {
+            "type": "integer",
+            "description": "\"[ 0=None,1=ASC,2=DESC ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2
+            ]
+          },
+          "search": {
+            "type": "string"
+          },
+          "marketPlaceType": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "description": "\"[ 0=Unknown,1=AppleAppStore,2=GooglePlayStore,3=HuaweiAppGallery,4=MicrosoftIntune ]\"",
+              "format": "int32",
+              "enum": [
+                0,
+                1,
+                2,
+                3,
+                4
+              ]
+            }
+          },
+          "hasRcBinary": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "platformType"
+        ]
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "suborg",
+        "flowStatuses",
+        "storeStatus",
+        "sort",
+        "sortDirection",
+        "search",
+        "marketPlaceType",
+        "hasRcBinary"
+      ]
+    },
+    {
+      "name": "create_publish_profile",
+      "description": "Creates a publish profile",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "bundleId": {
+            "type": "string",
+            "nullable": true
+          },
+          "storeAppId": {
+            "type": "string",
+            "nullable": true
+          },
+          "storeCredentialId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "marketPlaceType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=AppleAppStore,2=GooglePlayStore,3=HuaweiAppGallery,4=MicrosoftIntune ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        },
+        "required": [
+          "platformType"
+        ]
+      }
+    },
+    {
+      "name": "get_publish_profile",
+      "description": "Gets publish profile detail for given profileId including app versions of current organization",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size"
+      ]
+    },
+    {
+      "name": "update_publish_profile",
+      "description": "Updates publish profile's settings",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "pinned": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "profileSettings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "whenNewVersionRecieved": {
+                "type": "integer",
+                "description": "\"[ 0=DoNothing,1=AutoStartPublish,2=CancelOldPublishesAndStartNewPublish,2=CancelOldPublishesAndStartNewPublish ]\"",
+                "format": "int32",
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              "organizationPoolId": {
+                "type": "string",
+                "format": "uuid",
+                "nullable": true
+              },
+              "storeCredentialId": {
+                "type": "string",
+                "format": "uuid",
+                "nullable": true
+              },
+              "publishPriority": {
+                "type": "integer",
+                "description": "\"[ 0=Low,5=Medium,10=High ]\"",
+                "format": "int32",
+                "enum": [
+                  0,
+                  5,
+                  10
+                ]
+              },
+              "autoSign": {
+                "type": "boolean"
+              },
+              "environmentVariables": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "profileId",
+          "platformType"
+        ]
+      }
+    },
+    {
+      "name": "delete_publish_profile",
+      "description": "Deletes a publish profile and its app versions & publishes",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "list_publish_app_versions",
+      "description": "Gets publish app version list for given profileId of current organization",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "suborg": {
+            "type": "string"
+          },
+          "releaseCandidate": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId"
+        ]
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "suborg",
+        "releaseCandidate"
+      ]
+    },
+    {
+      "name": "get_publish_app_version",
+      "description": "get download link for an app version",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "suborg": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "download"
+            ]
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId",
+          "action"
+        ]
+      },
+      "query_params": [
+        "suborg",
+        "action"
+      ]
+    },
+    {
+      "name": "set_release_candidate",
+      "description": "Marks/Unmarks an app version as Release Candidate. v3 replacement for PATCH .../app-versions/{appversionId}?action=releaseCandidate.",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v3/profiles/{platformType}/{profileId}/app-versions/{appversionId}/release-candidate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appversionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "releaseCandidate": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "remoteStoreAppVersionId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appversionId"
+        ]
+      }
+    },
+    {
+      "name": "get_app_version_publish",
+      "description": "Gets publish details for an app version",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/publish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "get_publish",
+      "description": "Gets details of a publish by Id",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/publish/{publishId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "publishId"
+        ]
+      }
+    },
+    {
+      "name": "start_publish",
+      "description": "Starts a publish, if stepId is specified starts from related step. v3 replacement for POST .../publish/{publishId}?action=start.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v3/profiles/{platformType}/{profileId}/publish/{publishId}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationPoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stepId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "publishId"
+        ]
+      },
+      "query_params": [
+        "organizationPoolId",
+        "stepId"
+      ]
+    },
+    {
+      "name": "stop_publish",
+      "description": "Stops a publish and all its steps. v3 replacement for POST .../publish/{publishId}?action=stop.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v3/profiles/{platformType}/{profileId}/publish/{publishId}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationPoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stepId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "publishId"
+        ]
+      },
+      "query_params": [
+        "organizationPoolId",
+        "stepId"
+      ]
+    },
+    {
+      "name": "cancel_publish",
+      "description": "Cancels a publish and all its steps. v3 replacement for POST .../publish/{publishId}?action=cancel.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v3/profiles/{platformType}/{profileId}/publish/{publishId}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationPoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stepId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "publishId"
+        ]
+      },
+      "query_params": [
+        "organizationPoolId",
+        "stepId"
+      ]
+    },
+    {
+      "name": "restart_publish",
+      "description": "Restarts a publish with the latest flow changes. v3 replacement for POST .../publish/{publishId}?action=restart.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v3/profiles/{platformType}/{profileId}/publish/{publishId}/restart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationPoolId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stepId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "publishId"
+        ]
+      },
+      "query_params": [
+        "organizationPoolId",
+        "stepId"
+      ]
+    },
+    {
+      "name": "list_publish_flows",
+      "description": "Gets all publish flow definitions for a profile. Currently only one item must return per profile, even if this is an array, multiple flows are not supported",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/publishflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "get_publish_flow",
+      "description": "Gets details of a flow definitions",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/publishflows/{publishflowId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishflowId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "publishflowId"
+        ]
+      }
+    },
+    {
+      "name": "submit_beta_testing",
+      "description": "Submits an app version for beta testing. Sends an app version into the App Store Connect beta review queue with the provided submission details.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/submit-beta-testing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appInfo": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "nullable": true
+              },
+              "bundleId": {
+                "type": "string",
+                "nullable": true
+              },
+              "version": {
+                "type": "string",
+                "nullable": true
+              },
+              "buildNumber": {
+                "type": "string",
+                "nullable": true
+              },
+              "iconUrl": {
+                "type": "string",
+                "nullable": true
+              },
+              "appleBuildId": {
+                "type": "string",
+                "nullable": true
+              },
+              "automaticallyNotifyTesters": {
+                "type": "boolean"
+              },
+              "releaseNotes": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "language": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "text": {
+                      "type": "string",
+                      "maxLength": 4000,
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "groups": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "groupId": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "isInternalGroup": {
+                  "type": "boolean"
+                },
+                "isEnabled": {
+                  "type": "boolean"
+                },
+                "isNotificationSupported": {
+                  "type": "boolean"
+                },
+                "selectedLanguage": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "autoDistributionEnabled": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "get_app_store_metadata",
+      "description": "Get saved/imported metadata on Appcircle. It will not retrieve from App Store Connect, use importFromStore feature to do",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "update_app_store_metadata",
+      "description": "Updates app version's metadata on Appcircle . Doesn't update on App Store Connect directly, use component to do",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "localizations": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "lang": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "promotionalText": {
+                  "type": "string",
+                  "maxLength": 170,
+                  "nullable": true
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "nullable": true
+                },
+                "whatsNew": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "nullable": true
+                },
+                "keywords": {
+                  "type": "string",
+                  "maxLength": 100,
+                  "nullable": true
+                },
+                "supportUrl": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "marketingUrl": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "isPrimary": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "lang"
+              ]
+            }
+          },
+          "appReviewInformation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "firstName": {
+                "type": "string",
+                "maxLength": 50,
+                "nullable": true
+              },
+              "lastName": {
+                "type": "string",
+                "maxLength": 50,
+                "nullable": true
+              },
+              "phoneNumber": {
+                "type": "string",
+                "maxLength": 20,
+                "nullable": true
+              },
+              "emailAddress": {
+                "type": "string",
+                "maxLength": 100,
+                "nullable": true
+              },
+              "demoUser": {
+                "type": "string",
+                "maxLength": 50,
+                "nullable": true
+              },
+              "demoPassword": {
+                "type": "string",
+                "maxLength": 50,
+                "nullable": true
+              },
+              "notes": {
+                "type": "string",
+                "maxLength": 4000,
+                "nullable": true
+              }
+            }
+          },
+          "appVersionInformation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "type": "string",
+                "maxLength": 64,
+                "nullable": true
+              },
+              "copyright": {
+                "type": "string",
+                "maxLength": 200,
+                "nullable": true
+              }
+            }
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "import_app_store_metadata",
+      "description": "Retrieves and imports metadata and screenshoots from App Store Connect. v3 replacement for PUT .../metadata?action=importFromStore.",
+      "method": "PUT",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v3/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/metadata/import-from-store",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "string",
+            "description": "\"[ 1=ios,2=android ]\"",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "get_google_play_metadata",
+      "description": "Gets Play Store metadata for an app version. Returns the locally-persisted Play Store metadata for the given app version, syncing app-level info from store when missing.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/playstore-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "update_google_play_metadata",
+      "description": "Updates Play Store metadata for an app version. Persists Play Store metadata (localized texts) for an app version that has been marked as a Release Candidate.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/playstore-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "localizations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "lang": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 50,
+                  "nullable": true
+                },
+                "shortDescription": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "nullable": true
+                },
+                "fullDescription": {
+                  "type": "string",
+                  "maxLength": 4000,
+                  "nullable": true
+                },
+                "video": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "eTag": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "isPrimary": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "lang"
+              ]
+            }
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId",
+          "localizations"
+        ]
+      }
+    },
+    {
+      "name": "import_google_play_metadata",
+      "description": "Imports Play Store metadata from store. Pulls the current Play Store metadata for the given app version from Google Play. The app version must be a Release Candidate and the profile must have store credentials configured.",
+      "method": "PUT",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/profiles/{platformType}/{profileId}/app-versions/{appVersionId}/playstore-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "importFromStore"
+            ]
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId",
+          "action"
+        ]
+      },
+      "query_params": [
+        "action"
+      ]
+    },
+    {
+      "name": "get_rollout",
+      "description": "Gets rollout info for a specific track. Returns the current rollout state (status, user fraction, last updated) for the given track of an Android app version.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/rollout/{platformType}/{profileId}/{appVersionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trackValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      },
+      "query_params": [
+        "trackValue"
+      ]
+    },
+    {
+      "name": "update_rollout",
+      "description": "Updates rollout info for an Android app version. Updates the rollout configuration (track, user fraction, release notes) for the given Android app version.",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/rollout/{platformType}/{profileId}/{appVersionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trackValue": {
+            "type": "string",
+            "nullable": true
+          },
+          "mode": {
+            "type": "integer",
+            "description": "\"[ 0=Manual,1=Automatic ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1
+            ]
+          },
+          "manualRolloutPercentage": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "automaticRolloutPercentages": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "update_rollout_status",
+      "description": "Updates rollout status (halt, resume, promote). Changes the rollout lifecycle status — typically halting or resuming a staged rollout, or promoting it to the next track.",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/publish",
+      "path": "/v2/rollout/{platformType}/{profileId}/{appVersionId}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platformType": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=iOS,2=Android,9=AndroidIos ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              9
+            ]
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "appVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trackValue": {
+            "type": "string",
+            "nullable": true
+          },
+          "isAutomaticActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "platformType",
+          "profileId",
+          "appVersionId"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_modules",
+      "description": "Gets all webhook scopes/modules",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks/modules",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "Gets webhooks",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size"
+      ]
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook",
+      "method": "POST",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latestDeliveryStatus": {
+            "type": "integer",
+            "description": "\"[ 0=UNKNOWN,1=NOTSTARTED,2=SUCCEED,3=FAILED,4=INPROGESS ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "module": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "postUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "secretKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "actions",
+          "postUrl"
+        ]
+      }
+    },
+    {
+      "name": "get_webhook",
+      "description": "Get details of a webhook",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks/{Id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "Id"
+        ]
+      }
+    },
+    {
+      "name": "update_webhook",
+      "description": "Update a webhook",
+      "method": "PATCH",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updateDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latestDeliveryStatus": {
+            "type": "integer",
+            "description": "\"[ 0=UNKNOWN,1=NOTSTARTED,2=SUCCEED,3=FAILED,4=INPROGESS ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "enabled": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "profileId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "module": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "postUrl": {
+            "type": "string",
+            "minLength": 1
+          },
+          "secretKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "actions",
+          "postUrl"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook",
+      "method": "DELETE",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks/{Id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "Id"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_history",
+      "description": "Get webhooks's delivery history",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks/history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size"
+      ]
+    },
+    {
+      "name": "get_webhook_history",
+      "description": "Get a webhook's delivery history",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/webhook",
+      "path": "/v2/webhooks/history/{webhookId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhookId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "webhookId"
+        ]
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size"
+      ]
+    },
+    {
+      "name": "get_build_report",
+      "description": "Retrieves build reports with detailed usage metrics. Fetches a paginated or exported report on build usage, filtered by date range, build profile name, and organization ID. This endpoint supports advanced filtering, sorting, and pagination for efficient report generation. Exported reports are returned in CSV format if the 'export' parameter is set to true. Date ranges are automatically converted to UTC. The request requires valid pagination parameters and ensures the page number and size meet specified constraints.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/report",
+      "path": "/v2/build",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "buildProfileName": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "integer",
+            "description": "\"[ 0=Success,1=Failed,2=Canceled,3=Timeout,90=Waiting,91=Running,92=Completing,99=Unknown,100=Warning ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              90,
+              91,
+              92,
+              99,
+              100
+            ]
+          },
+          "export": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "startDate",
+        "endDate",
+        "buildProfileName",
+        "organizationId",
+        "status",
+        "export"
+      ]
+    },
+    {
+      "name": "get_publish_activity_report",
+      "description": "Retrieve the publish activity report. Fetches a detailed report on publishing activities within a specified date range. The report can be filtered by organization name, user email, profile name, platform, action type, and organization ID. Pagination is supported with configurable page size and sorting options. Returns metadata, including pagination details and a summary of transactions.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/report",
+      "path": "/v2/publish/activity",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organizationName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "profileName": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "description": "\"[ 0=unknown,1=ios,2=android ]\"",
+            "enum": [
+              "unknown",
+              "ios",
+              "android"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "description": "\"[ 0=None,1=PublishflowSaved,2=PublishSaved,3=PublishStepSaved,4=PublishStepFailed,6=PublishStepSuccess,7=PublishRestarting,8=PublishArchived,9=PublishRestartingCancelled,10=PublishStopped,11=PublishSuccess,12=PublishSucceededWithoutArtifacts,13=PublishFailed,14=PublishStepStarting,15=PublishStepStarted,16=CancelPublishStep,17=PublishStepStartingCancelled,20=ProfileCreated,21=AppVersionUploaded,22=AppVersionCreated,23=ProfileDeleted,24=AppVersionDeleted,25=MetaDataFileDeleted,26=MetaDataFileDeleting,27=MetaDataFileDeletingCancelled,28=MetaDataImporting,29=MetaDataImportingCancelled,30=MetaDataImported,31=MetaDataUploading,32=MetaDataUpdated,33=MetaDataUploaded,34=MetaDataUploadingCancelled,35=ResignCreating,36=ResignCreated,37=ResignCreatingCancelled,38=ResignSuccess,39=ResignFailed,40=ResignCancelled,41=MarkedAsReleaseCandidate,42=UnMarkedReleaseCandidate,43=ReleaseNoteUpdated,44=AppInfoStoreUpdateFailed,45=AppInfoStoreUpdatePartiallyFailed,46=AppInfoStoreUpdateSucceeded,47=AppVersionRejected,48=ReviewSubmissionCancelled,62=ResignTimeOut,180=AppReleaseInformationUpdated,181=AppReleaseInformationUpdateFailed,182=StoreStatusChecked ]\"",
+            "enum": [
+              "None",
+              "PublishflowSaved",
+              "PublishSaved",
+              "PublishStepSaved",
+              "PublishStepFailed",
+              "PublishStepSuccess",
+              "PublishRestarting",
+              "PublishArchived",
+              "PublishRestartingCancelled",
+              "PublishStopped",
+              "PublishSuccess",
+              "PublishSucceededWithoutArtifacts",
+              "PublishFailed",
+              "PublishStepStarting",
+              "PublishStepStarted",
+              "CancelPublishStep",
+              "PublishStepStartingCancelled",
+              "ProfileCreated",
+              "AppVersionUploaded",
+              "AppVersionCreated",
+              "ProfileDeleted",
+              "AppVersionDeleted",
+              "MetaDataFileDeleted",
+              "MetaDataFileDeleting",
+              "MetaDataFileDeletingCancelled",
+              "MetaDataImporting",
+              "MetaDataImportingCancelled",
+              "MetaDataImported",
+              "MetaDataUploading",
+              "MetaDataUpdated",
+              "MetaDataUploaded",
+              "MetaDataUploadingCancelled",
+              "ResignCreating",
+              "ResignCreated",
+              "ResignCreatingCancelled",
+              "ResignSuccess",
+              "ResignFailed",
+              "ResignCancelled",
+              "MarkedAsReleaseCandidate",
+              "UnMarkedReleaseCandidate",
+              "ReleaseNoteUpdated",
+              "AppInfoStoreUpdateFailed",
+              "AppInfoStoreUpdatePartiallyFailed",
+              "AppInfoStoreUpdateSucceeded",
+              "AppVersionRejected",
+              "ReviewSubmissionCancelled",
+              "ResignTimeOut",
+              "AppReleaseInformationUpdated",
+              "AppReleaseInformationUpdateFailed",
+              "StoreStatusChecked"
+            ]
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "startDate",
+        "endDate",
+        "organizationName",
+        "email",
+        "profileName",
+        "platform",
+        "action",
+        "organizationId"
+      ]
+    },
+    {
+      "name": "get_publish_status_report",
+      "description": "Retrieve the publish status report. Fetches publish executions within a given date range with rich filters: organization name, profile name, app unique id / app name, status, trigger, marketplace, platform, version, version code, duration. Pagination is supported with configurable page size and sort options.",
+      "method": "GET",
+      "base_url": "https://api.appcircle.io/report",
+      "path": "/v2/publish/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Sort": {
+            "type": "string"
+          },
+          "Page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "Size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "organizationName": {
+            "type": "string"
+          },
+          "profileName": {
+            "type": "string"
+          },
+          "appUniqueId": {
+            "type": "string"
+          },
+          "appName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "description": "\"[ 0=Success,1=Failed,2=Canceled,3=Timeout,90=Waiting,91=Running,92=Completing,99=Unknown,200=NotStarted,201=Stopped,202=InProgress,203=AwaitingResponse ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              90,
+              91,
+              92,
+              99,
+              200,
+              201,
+              202,
+              203
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "integer",
+            "description": "\"[ 0=Manuel,1=AutoStart,2=Scheduled,3=StepCompleted,10=Unknown ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              10
+            ]
+          },
+          "marketPlace": {
+            "type": "integer",
+            "description": "\"[ 0=Unknown,1=AppleAppStore,2=GooglePlayStore,3=HuaweiAppGallery,4=MicrosoftIntune ]\"",
+            "format": "int32",
+            "enum": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "platform": {
+            "type": "string",
+            "description": "\"[ 0=unknown,1=ios,2=android ]\"",
+            "enum": [
+              "unknown",
+              "ios",
+              "android"
+            ]
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "string"
+          },
+          "versionCode": {
+            "type": "string"
+          },
+          "minDuration": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxDuration": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "query_params": [
+        "Sort",
+        "Page",
+        "Size",
+        "startDate",
+        "endDate",
+        "organizationName",
+        "profileName",
+        "appUniqueId",
+        "appName",
+        "status",
+        "email",
+        "trigger",
+        "marketPlace",
+        "platform",
+        "organizationId",
+        "version",
+        "versionCode",
+        "minDuration",
+        "maxDuration"
+      ]
+    }
+  ]
+}

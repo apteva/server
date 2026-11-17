@@ -1,0 +1,219 @@
+{
+  "slug": "typeform",
+  "name": "Typeform",
+  "description": "MCP server for Typeform operations - forms, responses, and workspaces",
+  "logo": "https://www.google.com/s2/favicons?domain=typeform.com&sz=128",
+  "categories": [
+    "forms",
+    "typeform",
+    "surveys",
+    "data-collection",
+    "feedback"
+  ],
+  "base_url": "https://api.typeform.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_workspaces",
+      "description": "List all workspaces",
+      "method": "GET",
+      "path": "/list-workspaces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 10
+          },
+          "search": {
+            "type": "string",
+            "description": "Search query"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_forms",
+      "description": "List all forms",
+      "method": "GET",
+      "path": "/list-forms",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 1
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 10
+          },
+          "search": {
+            "type": "string",
+            "description": "Search query"
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Filter by workspace"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_form",
+      "description": "Get details of a specific form",
+      "method": "GET",
+      "path": "/get-form",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string",
+            "description": "ID of the form"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "list_responses",
+      "description": "List responses for a form",
+      "method": "GET",
+      "path": "/list-responses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string",
+            "description": "ID of the form"
+          },
+          "page_size": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 25
+          },
+          "since": {
+            "type": "string",
+            "description": "Filter responses after this date"
+          },
+          "until": {
+            "type": "string",
+            "description": "Filter responses before this date"
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "Filter by completion status"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          }
+        },
+        "required": [
+          "form_id"
+        ]
+      }
+    },
+    {
+      "name": "get_response",
+      "description": "Get a specific response",
+      "method": "GET",
+      "path": "/get-response",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "form_id": {
+            "type": "string",
+            "description": "ID of the form"
+          },
+          "response_id": {
+            "type": "string",
+            "description": "ID of the response"
+          }
+        },
+        "required": [
+          "form_id",
+          "response_id"
+        ]
+      }
+    },
+    {
+      "name": "create_form",
+      "description": "Create a new form",
+      "method": "POST",
+      "path": "/create-form",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Form title"
+          },
+          "fields": {
+            "type": "array",
+            "description": "Form fields"
+          },
+          "settings": {
+            "type": "object",
+            "description": "Form settings"
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace ID"
+          },
+          "welcome_screens": {
+            "type": "array",
+            "description": "Welcome screens"
+          },
+          "thankyou_screens": {
+            "type": "array",
+            "description": "Thank you screens"
+          },
+          "logic": {
+            "type": "array",
+            "description": "Form logic"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-typeform-signature",
+    "events": [
+      {
+        "name": "form_response",
+        "description": "New form response submitted"
+      }
+    ]
+  }
+}

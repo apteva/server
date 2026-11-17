@@ -1,0 +1,81 @@
+{
+  "slug": "blacksmith",
+  "name": "Blacksmith",
+  "description": "Drop-in faster + cheaper GitHub Actions runners (~half the price of GH-hosted, gaming-CPU hardware). Switch a workflow over by changing `runs-on` to `blacksmith-*-ubuntu-*`. The Blacksmith API is for org/billing inspection; jobs themselves dispatch via GitHub Actions.",
+  "logo": "https://www.google.com/s2/favicons?domain=blacksmith.sh&sz=128",
+  "categories": ["build", "ci", "github-actions", "runners", "devops"],
+  "base_url": "https://api.blacksmith.sh/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "Blacksmith API token from app.blacksmith.sh", "required": true, "type": "password" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_organizations",
+      "description": "List Blacksmith organizations the token can access.",
+      "method": "GET",
+      "path": "/organizations",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_usage",
+      "description": "Get runner-minute usage + spend for an organization. Args: org_id, period? (current|YYYY-MM).",
+      "method": "GET",
+      "path": "/organizations/{org_id}/usage?period={period}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "period": { "type": "string" }
+        },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List recent jobs that ran on Blacksmith runners. Args: org_id, status? (queued|in_progress|completed|failed), limit?.",
+      "method": "GET",
+      "path": "/organizations/{org_id}/jobs?status={status}&limit={limit}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "status": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "list_caches",
+      "description": "List Blacksmith cache entries (their faster actions/cache replacement). Args: org_id, repository?.",
+      "method": "GET",
+      "path": "/organizations/{org_id}/caches?repo={repository}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "repository": { "type": "string" }
+        },
+        "required": ["org_id"]
+      }
+    },
+    {
+      "name": "delete_cache",
+      "description": "Evict a cache entry. Args: org_id, cache_id.",
+      "method": "DELETE",
+      "path": "/organizations/{org_id}/caches/{cache_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "cache_id": { "type": "string" }
+        },
+        "required": ["org_id", "cache_id"]
+      }
+    }
+  ]
+}

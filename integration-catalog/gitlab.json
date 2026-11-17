@@ -1,0 +1,394 @@
+{
+  "slug": "gitlab",
+  "name": "GitLab",
+  "description": "MCP server for GitLab repository management, CI/CD, and issue tracking",
+  "logo": "https://about.gitlab.com/images/press/logo/svg/gitlab-icon-rgb.svg",
+  "categories": [
+    "gitlab",
+    "development",
+    "ci-cd",
+    "repositories",
+    "issues"
+  ],
+  "base_url": "https://gitlab.com/api/v4",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "PRIVATE-TOKEN": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "Your GitLab Personal Access Token"
+      },
+      {
+        "name": "instanceUrl",
+        "label": "Instance Url",
+        "description": "GitLab instance URL (default: https://gitlab.com)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_repositories",
+      "description": "List all accessible GitLab repositories (alias for list-projects)",
+      "method": "GET",
+      "path": "/list-repositories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Search for repositories by name"
+          },
+          "owned": {
+            "type": "boolean",
+            "description": "Limit to owned repositories"
+          },
+          "membership": {
+            "type": "boolean",
+            "description": "Limit to repositories user is a member of"
+          },
+          "starred": {
+            "type": "boolean",
+            "description": "Limit to starred repositories"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List all accessible GitLab projects",
+      "method": "GET",
+      "path": "/list-projects",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Search for projects by name"
+          },
+          "owned": {
+            "type": "boolean",
+            "description": "Limit to owned projects"
+          },
+          "membership": {
+            "type": "boolean",
+            "description": "Limit to projects user is a member of"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_issue",
+      "description": "Create a new issue in a GitLab project",
+      "method": "POST",
+      "path": "/create-issue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Issue description"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Issue labels"
+          },
+          "assignee_ids": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "User IDs to assign"
+          },
+          "milestone_id": {
+            "type": "number",
+            "description": "Milestone ID"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "list_issues",
+      "description": "List issues in a GitLab project",
+      "method": "GET",
+      "path": "/list-issues",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "opened",
+              "closed",
+              "all"
+            ],
+            "description": "Issue state filter"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter by labels"
+          },
+          "assignee_id": {
+            "type": "number",
+            "description": "Filter by assignee ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_merge_request",
+      "description": "Create a new merge request in GitLab",
+      "method": "POST",
+      "path": "/create-merge-request",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "source_branch": {
+            "type": "string",
+            "description": "Source branch name"
+          },
+          "target_branch": {
+            "type": "string",
+            "description": "Target branch name"
+          },
+          "title": {
+            "type": "string",
+            "description": "Merge request title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Merge request description"
+          },
+          "assignee_id": {
+            "type": "number",
+            "description": "Assignee user ID"
+          },
+          "reviewer_ids": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "Reviewer user IDs"
+          }
+        },
+        "required": [
+          "source_branch",
+          "target_branch",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "list_merge_requests",
+      "description": "List merge requests in a GitLab project",
+      "method": "GET",
+      "path": "/list-merge-requests",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "opened",
+              "closed",
+              "merged",
+              "all"
+            ],
+            "description": "Merge request state"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "created_by_me",
+              "assigned_to_me",
+              "all"
+            ],
+            "description": "Scope of merge requests"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_pipeline",
+      "description": "Trigger a new CI/CD pipeline",
+      "method": "POST",
+      "path": "/create-pipeline",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Branch or tag name"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Pipeline variables"
+          }
+        },
+        "required": [
+          "ref"
+        ]
+      }
+    },
+    {
+      "name": "get_pipeline_status",
+      "description": "Get the status of a CI/CD pipeline",
+      "method": "GET",
+      "path": "/get-pipeline-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_id": {
+            "type": "number",
+            "description": "Pipeline ID"
+          }
+        },
+        "required": [
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "list_jobs",
+      "description": "List jobs in a pipeline",
+      "method": "GET",
+      "path": "/list-jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pipeline_id": {
+            "type": "number",
+            "description": "Pipeline ID"
+          }
+        },
+        "required": [
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "create_branch",
+      "description": "Create a new branch in GitLab project",
+      "method": "POST",
+      "path": "/create-branch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string",
+            "description": "Branch name"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Source branch or commit SHA"
+          }
+        },
+        "required": [
+          "branch",
+          "ref"
+        ]
+      }
+    },
+    {
+      "name": "get_file",
+      "description": "Get file content from repository",
+      "method": "GET",
+      "path": "/get-file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "File path in repository"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Branch, tag, or commit",
+            "default": "main"
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "create_workflow",
+      "description": "Create or update .gitlab-ci.yml workflow file",
+      "method": "POST",
+      "path": "/create-workflow",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workflow_content": {
+            "type": "string",
+            "description": "YAML content for .gitlab-ci.yml"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch to commit to",
+            "default": "main"
+          },
+          "commit_message": {
+            "type": "string",
+            "description": "Commit message",
+            "default": "Update CI/CD workflow"
+          }
+        },
+        "required": [
+          "workflow_content"
+        ]
+      }
+    },
+    {
+      "name": "trigger_deployment",
+      "description": "Trigger a deployment pipeline or job",
+      "method": "GET",
+      "path": "/trigger-deployment",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Branch, tag, or commit to deploy"
+          },
+          "environment": {
+            "type": "string",
+            "description": "Target environment",
+            "enum": [
+              "development",
+              "staging",
+              "production"
+            ]
+          },
+          "variables": {
+            "type": "object",
+            "description": "Deployment variables"
+          }
+        },
+        "required": [
+          "ref",
+          "environment"
+        ]
+      }
+    }
+  ]
+}

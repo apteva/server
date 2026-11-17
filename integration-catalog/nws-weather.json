@@ -1,0 +1,157 @@
+{
+  "slug": "nws-weather",
+  "name": "US National Weather Service",
+  "description": "Official public US National Weather Service API for active weather alerts, alert history, point forecasts, forecast grids, observation stations, and observations. No API key is required; NWS asks clients to send an identifiable User-Agent with contact information.",
+  "logo": "https://www.google.com/s2/favicons?domain=weather.gov&sz=128",
+  "categories": [
+    "united-states",
+    "weather",
+    "storms",
+    "alerts",
+    "hail",
+    "wind",
+    "open-data"
+  ],
+  "base_url": "https://api.weather.gov",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "User-Agent": "Apteva weather integration ({{contact_email}})",
+      "Accept": "application/geo+json"
+    },
+    "credential_fields": [
+      {
+        "name": "contact_email",
+        "label": "Contact email",
+        "description": "NWS requests an identifiable User-Agent containing contact information. This is not an API credential.",
+        "required": true,
+        "type": "text"
+      }
+    ]
+  },
+  "health_check": {
+    "method": "GET",
+    "path": "/alerts/active",
+    "expect_status": [200]
+  },
+  "tools": [
+    {
+      "name": "list_active_alerts",
+      "description": "List current NWS alerts. Narrow by state/territory area code, point, zone, urgency, severity, certainty, or event name. For storm-response leads, filter events such as Severe Thunderstorm Warning, Tornado Warning, or Severe Weather Statement.",
+      "method": "GET",
+      "path": "/alerts/active",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "area": {"type": "string", "description": "Two-letter state or territory code, for example TX or FL."},
+          "point": {"type": "string", "description": "WGS84 point `latitude,longitude`."},
+          "region": {"type": "string", "description": "Marine region code."},
+          "zone": {"type": "string", "description": "Forecast or county zone identifier."},
+          "status": {"type": "string", "description": "Alert status filter."},
+          "message_type": {"type": "string", "description": "Alert, update, or cancel."},
+          "event": {"type": "string", "description": "Exact alert event name."},
+          "urgency": {"type": "string"},
+          "severity": {"type": "string"},
+          "certainty": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "search_alerts",
+      "description": "Search recent or historical alert products with temporal and status filters. NWS does not promise a permanent complete archive through this endpoint; use NCEI archives for long-term analysis.",
+      "method": "GET",
+      "path": "/alerts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start": {"type": "string", "description": "ISO 8601 start time."},
+          "end": {"type": "string", "description": "ISO 8601 end time."},
+          "active": {"type": "boolean"},
+          "status": {"type": "string"},
+          "message_type": {"type": "string"},
+          "event": {"type": "string"},
+          "area": {"type": "string"},
+          "point": {"type": "string", "description": "`latitude,longitude`."},
+          "region": {"type": "string"},
+          "zone": {"type": "string"},
+          "urgency": {"type": "string"},
+          "severity": {"type": "string"},
+          "certainty": {"type": "string"},
+          "cursor": {"type": "string", "description": "Pagination cursor returned by NWS."}
+        }
+      }
+    },
+    {
+      "name": "get_alert",
+      "description": "Get one NWS alert by its identifier.",
+      "method": "GET",
+      "path": "/alerts/{alert_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "alert_id": {"type": "string", "description": "Alert identifier from an alerts response."}
+        },
+        "required": ["alert_id"]
+      }
+    },
+    {
+      "name": "resolve_point",
+      "description": "Resolve latitude/longitude to the responsible NWS office, forecast grid coordinates, county/forecast zone, radar station, and forecast URLs. Call this before point forecasts or station lookup.",
+      "method": "GET",
+      "path": "/points/{latitude},{longitude}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+          "longitude": {"type": "number", "minimum": -180, "maximum": 180}
+        },
+        "required": ["latitude", "longitude"]
+      }
+    },
+    {
+      "name": "get_forecast",
+      "description": "Get the standard forecast for an NWS grid point. Resolve office/grid coordinates with resolve_point first.",
+      "method": "GET",
+      "path": "/gridpoints/{office}/{grid_x},{grid_y}/forecast",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "office": {"type": "string", "description": "Three-letter NWS office code."},
+          "grid_x": {"type": "integer"},
+          "grid_y": {"type": "integer"},
+          "units": {"type": "string", "enum": ["us", "si"]}
+        },
+        "required": ["office", "grid_x", "grid_y"]
+      }
+    },
+    {
+      "name": "list_point_stations",
+      "description": "List observation stations associated with a latitude/longitude point.",
+      "method": "GET",
+      "path": "/points/{latitude},{longitude}/stations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+          "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+          "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 20}
+        },
+        "required": ["latitude", "longitude"]
+      }
+    },
+    {
+      "name": "get_latest_observation",
+      "description": "Get the latest observation from an NWS station, including wind gust and precipitation when reported.",
+      "method": "GET",
+      "path": "/stations/{station_id}/observations/latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "station_id": {"type": "string", "description": "Station identifier such as KJFK."},
+          "require_qc": {"type": "boolean", "description": "Require quality-controlled values."}
+        },
+        "required": ["station_id"]
+      }
+    }
+  ]
+}

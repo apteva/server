@@ -28,8 +28,8 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Presets) != 19 {
-		t.Fatalf("got %d presets, want 19", len(catalog.Presets))
+	if len(catalog.Presets) != 20 {
+		t.Fatalf("got %d presets, want 20", len(catalog.Presets))
 	}
 	counts := map[string]int{}
 	knownApps := map[string]bool{
@@ -43,7 +43,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"containers": true, "fleet": true, "backup": true, "computer": true,
 		"screenshots": true, "signatures": true, "billing": true, "commerce": true,
 		"catalog": true, "inventory": true, "orders": true, "messaging": true,
-		"webinars": true, "builder": true, "workspaces": true, "a2a": true,
+		"webinars": true, "workspaces": true, "a2a": true, "processes": true, "evals": true, "database": true,
 		"media-downloader": true, "media": true,
 	}
 	requiredDomainApps := map[string][]string{
@@ -57,7 +57,7 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		"work-research":                  {"web", "notes", "tables"},
 		"work-youtube-to-blog":           {"media-downloader", "media", "storage", "content"},
 		"development-software":           {"code", "environments", "deploy"},
-		"development-engineering-team":   {"builder", "tasks", "code", "workspaces", "a2a", "deploy"},
+		"development-engineering-team":   {"tasks", "code", "workspaces", "a2a", "deploy"},
 		"development-devops":             {"deploy", "instances", "containers", "backup"},
 		"development-qa":                 {"code", "environments", "computer", "screenshots"},
 		"development-data":               {"tables", "analytics", "storage"},
@@ -111,14 +111,14 @@ func TestProjectPresetCatalogIsVersionedAndContainsFourCategories(t *testing.T) 
 		}
 	}
 	// Work, development, and business each include a specialist preset.
-	wantCounts := map[string]int{"personal": 4, "work": 5, "development": 5, "business": 5}
+	wantCounts := map[string]int{"personal": 4, "work": 5, "development": 6, "business": 5}
 	for category, want := range wantCounts {
 		if counts[category] != want {
 			t.Fatalf("category %s has %d presets, want %d", category, counts[category], want)
 		}
 	}
 	youtube := catalog.ByID["work-youtube-to-blog"]
-	if len(youtube.Agents) != 1 || youtube.Agents[0].Unconscious || !strings.Contains(youtube.Agents[0].Directive, "Never publish") {
+	if len(youtube.Agents) != 1 || youtube.Agents[0].Unconscious || !strings.Contains(youtube.Agents[0].Directive, "ask before publishing") {
 		t.Fatalf("youtube-to-blog safety contract is incomplete: %+v", youtube)
 	}
 }
@@ -184,11 +184,14 @@ func TestProjectPresetPreviewUsesConstrainedPlannerAndResolvesProjectApps(t *tes
 	if preview.Planner != "meta" || preview.Preset.ID != "business-lead-generation" {
 		t.Fatalf("unexpected plan: planner=%s preset=%s", preview.Planner, preview.Preset.ID)
 	}
-	if len(preview.Agents) != 1 {
-		t.Fatalf("agents=%d, want 1", len(preview.Agents))
+	if len(preview.Agents) != 3 {
+		t.Fatalf("agents=%d, want 3", len(preview.Agents))
 	}
 	if !containsInt64(preview.Agents[0].AppInstallIDs, crmInstallID) {
 		t.Fatalf("CRM install %d not attached: %+v", crmInstallID, preview.Agents[0])
+	}
+	if !containsString(preview.Agents[0].Apps, "tasks") {
+		t.Fatalf("planned but uninstalled apps must remain visible in the preview: %+v", preview.Agents[0])
 	}
 	if strings.Contains(preview.Agents[0].Directive, "{{") {
 		t.Fatalf("directive still contains an unresolved placeholder: %q", preview.Agents[0].Directive)
@@ -208,6 +211,8 @@ func TestProjectPresetPreviewUsesConstrainedPlannerAndResolvesProjectApps(t *tes
 func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) {
 	s := newTestServer(t)
 	seedPresetProject(t, s, "apply-project")
+	sidecar, _ := presetEvalsFixture(t)
+	seedPresetEvalsApp(t, s, "apply-project", sidecar.URL)
 	crmInstallID := seedAppWithTools(t, s, "crm", "apply-project", []string{"contacts_list"})
 	if err := s.registerAppMCP(crmInstallID); err != nil {
 		t.Fatal(err)
@@ -219,6 +224,7 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 
 	apply := func() map[string]any {
 		req := authedRequest(t, http.MethodPost, "/projects/apply-project/setup/apply", "", body)
+		req.Header.Set("X-Apteva-Operator-ID", "1")
 		rec := httptest.NewRecorder()
 		s.handleProject(rec, req)
 		if rec.Code != http.StatusOK {
@@ -231,8 +237,11 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 		return result
 	}
 	first := apply()
-	if got := len(first["created_agents"].([]any)); got != 1 {
-		t.Fatalf("created_agents=%d, want 1: %#v", got, first)
+	if first["status"] != "applied" {
+		t.Fatalf("setup was incomplete: %#v", first)
+	}
+	if got := len(first["created_agents"].([]any)); got != 3 {
+		t.Fatalf("created_agents=%d, want 3: %#v", got, first)
 	}
 	foundStoppedWarning := false
 	for _, raw := range first["warnings"].([]any) {
@@ -242,7 +251,7 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 		t.Fatalf("stopped-agent warning was lost: %#v", first["warnings"])
 	}
 	agents, err := s.store.ListAgentsInProject("apply-project")
-	if err != nil || len(agents) != 1 {
+	if err != nil || len(agents) != 3 {
 		t.Fatalf("project agents=%d err=%v", len(agents), err)
 	}
 	fresh, err := s.store.GetAgentByID(agents[0].ID)
@@ -272,8 +281,8 @@ func TestProjectPresetApplyUsesNormalAgentContractAndIsIdempotent(t *testing.T) 
 	if got := len(second["created_agents"].([]any)); got != 0 {
 		t.Fatalf("second apply created %d duplicate agents: %#v", got, second)
 	}
-	if got := len(second["existing_agents"].([]any)); got != 1 {
-		t.Fatalf("second apply existing_agents=%d, want 1", got)
+	if got := len(second["existing_agents"].([]any)); got != 3 {
+		t.Fatalf("second apply existing_agents=%d, want 3", got)
 	}
 	_, secondLayoutRevision := s.store.GetUserUILayoutWithRevision(1)
 	if secondLayoutRevision != firstLayoutRevision {
@@ -383,6 +392,12 @@ provides:
       slots: [dashboard.home]
       supported_sizes: [half, full]
       default_size: half
+    - name: agent-conversations
+      label: Agent conversations
+      entry: /ui/AgentConversations.mjs
+      slots: [dashboard.agent_detail]
+      supported_sizes: [half, full]
+      default_size: half
 runtime:
   kind: static
   static_dir: %s
@@ -432,7 +447,7 @@ runtime:
 		t.Fatalf("Conversations was not installed globally: %v", err)
 	}
 	var conversationsBindings int
-	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE install_id=? AND enabled=1`, conversationsInstallID).Scan(&conversationsBindings); err != nil || conversationsBindings != 1 {
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE install_id=? AND enabled=1`, conversationsInstallID).Scan(&conversationsBindings); err != nil || conversationsBindings != 2 {
 		t.Fatalf("Conversations bindings=%d err=%v", conversationsBindings, err)
 	}
 	if layout := string(s.store.GetUserUILayout(1)); !strings.Contains(layout, defaultConversationsWidget) {

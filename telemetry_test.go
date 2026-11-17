@@ -190,6 +190,10 @@ func TestTelemetryProjectStreamForwardsPlatformHelperEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.store.db.Exec(`INSERT INTO projects(id,user_id,name) VALUES('project-a',?,'Stream project'); INSERT INTO project_members(project_id,user_id,role) VALUES('project-a',?,'owner')`, user.ID, user.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := s.store.CreateAgent(user.ID, "project agent", "d", "autonomous", "{}", "project-a"); err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +286,10 @@ func TestTelemetryProjectStreamReplaysSinceCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.store.db.Exec(`INSERT INTO projects(id,user_id,name) VALUES('project-a',?,'Stream project'); INSERT INTO project_members(project_id,user_id,role) VALUES('project-a',?,'owner')`, user.ID, user.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	agent, err := s.store.CreateAgent(user.ID, "replay agent", "d", "autonomous", "{}", "project-a")
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,266 @@
+{
+  "slug": "you-com",
+  "name": "You.com",
+  "description": "You.com web intelligence APIs for AI agents: real-time web/news search, clean page contents, cited research answers, finance research, and account balance lookup.",
+  "logo": "https://www.google.com/s2/favicons?domain=you.com&sz=128",
+  "categories": [
+    "ai",
+    "search",
+    "web",
+    "research",
+    "extraction",
+    "grounding",
+    "finance"
+  ],
+  "base_url": "https://ydc-index.io",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "You.com API key from https://you.com/platform."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Run You.com Web Search for LLM-ready web and news results. Returns structured results with URLs, titles, descriptions, snippets, metadata, and optional live-crawled page content. For include_domains, exclude_domains, and boost_domains in GET requests, pass one comma-separated string such as \"nytimes.com,bbc.com\".",
+      "method": "GET",
+      "path": "https://ydc-index.io/v1/search",
+      "query_params": [
+        "query",
+        "count",
+        "freshness",
+        "offset",
+        "country",
+        "language",
+        "safesearch",
+        "livecrawl",
+        "livecrawl_formats",
+        "include_domains",
+        "exclude_domains",
+        "boost_domains",
+        "crawl_timeout"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query. Search operators such as site: and exclusions may be used."
+          },
+          "count": {
+            "type": "integer",
+            "default": 10,
+            "description": "Maximum results per section, where sections are web and news."
+          },
+          "freshness": {
+            "type": "string",
+            "description": "Recency filter: day, week, month, year, or a custom date range like 2026-01-01to2026-01-31."
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 9,
+            "description": "Pagination offset in multiples of count."
+          },
+          "country": {
+            "type": "string",
+            "description": "Country code for geographical focus, for example US, GB, FR, DE, ES."
+          },
+          "language": {
+            "type": "string",
+            "default": "EN",
+            "description": "Language code for results, for example EN, EN-GB, FR, DE, ES."
+          },
+          "safesearch": {
+            "type": "string",
+            "enum": [
+              "off",
+              "moderate",
+              "strict"
+            ],
+            "default": "moderate",
+            "description": "SafeSearch moderation level."
+          },
+          "livecrawl": {
+            "type": "string",
+            "enum": [
+              "web",
+              "news",
+              "all"
+            ],
+            "description": "Enable live crawling for result pages in the selected section. This is billed per crawled page in addition to the base search call."
+          },
+          "livecrawl_formats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "html",
+                "markdown"
+              ]
+            },
+            "description": "Formats to return when livecrawl is enabled."
+          },
+          "include_domains": {
+            "type": "string",
+            "description": "Comma-separated domain allowlist. Cannot be combined with exclude_domains."
+          },
+          "exclude_domains": {
+            "type": "string",
+            "description": "Comma-separated domain blocklist. Cannot be combined with include_domains."
+          },
+          "boost_domains": {
+            "type": "string",
+            "description": "Comma-separated domains to boost in ranking. Cannot be combined with include_domains."
+          },
+          "crawl_timeout": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 60,
+            "description": "Maximum seconds to wait for page content when livecrawl is enabled."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "contents",
+      "description": "Fetch clean page contents for one or more URLs. Returns requested formats such as Markdown, HTML, and metadata. Use this after search when agents need full page text.",
+      "method": "POST",
+      "path": "https://ydc-index.io/v1/contents",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "URLs to fetch."
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "html",
+                "markdown",
+                "metadata"
+              ]
+            },
+            "default": [
+              "markdown"
+            ],
+            "description": "Content formats to return. Include metadata for OpenGraph/JSON-LD metadata when available."
+          },
+          "crawl_timeout": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 60,
+            "description": "Maximum seconds to wait for page content."
+          },
+          "max_age": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Maximum allowed age of cached content in seconds. Set 0 to force fresh content when supported."
+          }
+        },
+        "required": [
+          "urls"
+        ]
+      }
+    },
+    {
+      "name": "research",
+      "description": "Run You.com Research for multi-step, cited web research. Use this when a question is too complex for a single search and needs a synthesized answer with source citations.",
+      "method": "POST",
+      "path": "https://api.you.com/v1/research",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Research question or complex query. Maximum length is 40,000 characters."
+          },
+          "research_effort": {
+            "type": "string",
+            "enum": [
+              "lite",
+              "standard",
+              "deep",
+              "exhaustive"
+            ],
+            "default": "standard",
+            "description": "Research depth. Higher effort runs more searches and takes longer."
+          },
+          "source_control": {
+            "type": "object",
+            "description": "Optional source controls. Supported fields include include_domains, exclude_domains, boost_domains, freshness, and country. include_domains cannot be combined with exclude_domains; boost_domains cannot be combined with include_domains."
+          },
+          "output_schema": {
+            "type": "object",
+            "description": "Optional JSON Schema for structured output. Supported with standard, deep, and exhaustive, not lite."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "finance_research",
+      "description": "Run You.com Finance Research for cited financial research over sources such as earnings reports, SEC filings, analyst coverage, market data, and financial news. This endpoint is significantly more expensive than normal web research; use only for finance-grade questions.",
+      "method": "POST",
+      "path": "https://api.you.com/v1/finance_research",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Financial research question. Maximum length is 40,000 characters."
+          },
+          "research_effort": {
+            "type": "string",
+            "enum": [
+              "deep",
+              "exhaustive"
+            ],
+            "default": "deep",
+            "description": "Finance research depth."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "get_account_balance",
+      "description": "Get the remaining You.com API credit balance for the account or organization associated with the API key. Balance is returned in cents; divide by 100 for USD.",
+      "method": "GET",
+      "path": "https://api.you.com/v1/billing/account_balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

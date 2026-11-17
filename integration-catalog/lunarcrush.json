@@ -1,0 +1,96 @@
+{
+  "slug": "lunarcrush",
+  "name": "LunarCrush",
+  "description": "Social intelligence for crypto — social media metrics, influencer tracking, sentiment analysis, and trending coins across Twitter, Reddit, YouTube.",
+  "logo": "https://www.google.com/s2/favicons?domain=lunarcrush.com&sz=128",
+  "categories": [
+    "social",
+    "sentiment",
+    "influencers",
+    "trending",
+    "crypto"
+  ],
+  "base_url": "https://lunarcrush.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "LunarCrush API key (from https://lunarcrush.com/developers/api/authentication)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_coins",
+      "description": "Get list of all tracked coins with social metrics.",
+      "method": "GET",
+      "path": "/api4/public/coins/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_coin_metrics",
+      "description": "Get social metrics for a specific coin — social volume, sentiment, interactions, contributors.",
+      "method": "GET",
+      "path": "/api4/public/coins/{symbol}/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Coin symbol (e.g., BTC, ETH, SOL)"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_coin_time_series",
+      "description": "Get historical social and market data for a coin.",
+      "method": "GET",
+      "path": "/api4/public/coins/{symbol}/time-series/v2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Coin symbol"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "hour",
+              "day",
+              "week"
+            ],
+            "default": "day"
+          }
+        },
+        "required": [
+          "symbol"
+        ]
+      }
+    },
+    {
+      "name": "get_trending",
+      "description": "Get trending coins by social activity.",
+      "method": "GET",
+      "path": "/api4/public/coins/trending/v1",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

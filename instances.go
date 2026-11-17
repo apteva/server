@@ -27,21 +27,26 @@ import (
 var errAgentAlreadyRunning = errors.New("agent already running")
 
 type runningAgent struct {
-	cmd         *exec.Cmd
-	port        int
-	pid         int
-	coreAPIKey  string         // API key injected into core for auth
-	channels    *AgentChannels // channel infrastructure for this instance
-	reattached  bool           // process was inherited from an older server process
-	runtimeMu   sync.Mutex
-	runtimeInfo coreRuntimeInfo
-	runtimeAt   time.Time
-	waitOnce    sync.Once
-	done        chan struct{}
-	waitErr     error
-	diagMu      sync.Mutex
-	lastProc    string // latest /proc snapshot captured while the child was alive
+	resourceIdentity    *runtimeProcessIdentity
+	releaseResources    func()
+	resourceReleaseOnce sync.Once
+	cmd                 *exec.Cmd
+	port                int
+	pid                 int
+	coreAPIKey          string         // API key injected into core for auth
+	channels            *AgentChannels // channel infrastructure for this instance
+	reattached          bool           // process was inherited from an older server process
+	runtimeMu           sync.Mutex
+	runtimeInfo         coreRuntimeInfo
+	runtimeAt           time.Time
+	waitOnce            sync.Once
+	done                chan struct{}
+	waitErr             error
+	diagMu              sync.Mutex
+	lastProc            string // latest /proc snapshot captured while the child was alive
 }
+
+const coreRuntimeInfoCacheTTL = 5 * time.Second
 
 func (r *runningAgent) wait() error {
 	if r == nil || r.cmd == nil || r.reattached {
@@ -52,6 +57,11 @@ func (r *runningAgent) wait() error {
 			r.done = make(chan struct{})
 		}
 		r.waitErr = r.cmd.Wait()
+		r.resourceReleaseOnce.Do(func() {
+			if r.releaseResources != nil {
+				r.releaseResources()
+			}
+		})
 		close(r.done)
 	})
 	if r.done != nil {
@@ -133,13 +143,16 @@ func (r *runningAgent) procSnapshot() string {
 }
 
 type AgentManager struct {
-	internalMCPSecret  string
-	AuthorizeMCPConfig func(*Agent, map[string]any) error
-	mu                 sync.RWMutex
-	processes          map[int64]*runningAgent // instanceID → running process + port
-	dataDir            string
-	coreCmd            string // path to core binary
-	serverCmd          string // optional apteva-server binary override for the stdio management gateway
+	LoadProcessResources func(int64) (runtimeResourceRecord, error)
+	internalMCPSecret    string
+	AuthorizeMCPConfig   func(*Agent, map[string]any) error
+	mu                   sync.RWMutex
+	processes            map[int64]*runningAgent // instanceID → running process + port
+	coreStatusClientOnce sync.Once
+	coreStatusClient     *http.Client
+	dataDir              string
+	coreCmd              string // path to core binary
+	serverCmd            string // optional apteva-server binary override for the stdio management gateway
 
 	// PostChannelsInit is invoked right after an instance's
 	// ChannelRegistry is created and the CLI bridge is registered,
@@ -177,6 +190,13 @@ type AgentManager struct {
 	// spawning core with live=false, while Reattach calls it after the
 	// live core is recorded with live=true.
 	CapabilityMemorySync func(inst *Agent, includeChannels bool, live bool) error
+}
+
+func (im *AgentManager) coreStatusHTTPClient() *http.Client {
+	im.coreStatusClientOnce.Do(func() {
+		im.coreStatusClient = &http.Client{Timeout: 800 * time.Millisecond}
+	})
+	return im.coreStatusClient
 }
 
 func describeProcessState(ps *os.ProcessState) string {
@@ -289,22 +309,50 @@ func channelsMCPConfig(url string) map[string]any {
 }
 
 func managementGatewayConfig(inst *Agent, serverBin, serverPort string) map[string]any {
-	if inst != nil && inst.Kind == "platform_helper" {
-		return map[string]any{
-			"name":      "apteva-server",
-			"url":       "http://127.0.0.1:" + serverPort + "/api/apps/apteva-server/mcp",
-			"transport": "http",
-			"tool_loading": map[string]any{
-				"default": "deferred",
-			},
+	return map[string]any{
+		"name":         platformMCPName,
+		"url":          "http://127.0.0.1:" + serverPort + platformMCPPath,
+		"transport":    "http",
+		"tool_loading": map[string]any{"default": "deferred"},
+	}
+}
+
+// mergeServerOwnedMCPs is the single attachment path for fresh and adopted
+// cores. Replacing system entries by name keeps one current gateway URL even
+// when a saved config contains an older or duplicate entry.
+func mergeServerOwnedMCPs(inst *Agent, config map[string]any, gateway, output, channels map[string]any) bool {
+	includeGateway := platformMCPAttached(inst)
+	includeChannels := true
+	var instCfg map[string]any
+	if inst.Config != "" {
+		_ = json.Unmarshal([]byte(inst.Config), &instCfg)
+	}
+	if v, ok := instCfg["include_channels"].(bool); ok {
+		includeChannels = v
+	}
+
+	var entries []any
+	if includeGateway {
+		entries = append(entries, gateway)
+	}
+	if includeChannels {
+		entries = append(entries, output, channels)
+	}
+	if existing, ok := config["mcp_servers"].([]any); ok {
+		for _, raw := range existing {
+			entry, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := entry["name"].(string)
+			if name == "apteva-server" || isServerOwnedOutputMCP(name) {
+				continue
+			}
+			entries = append(entries, entry)
 		}
 	}
-	return map[string]any{
-		"name":     "apteva-server",
-		"command":  serverBin,
-		"args":     []string{"--mcp-gateway", fmt.Sprintf("--user-id=%d", inst.UserID)},
-		"no_spawn": true,
-	}
+	config["mcp_servers"] = entries
+	return includeChannels
 }
 
 // agentOutputMCPConfig is main's central operator-output surface: one mutable
@@ -422,6 +470,8 @@ func (im *AgentManager) PreSeedConfig(instID int64, cfgJSON string) error {
 
 // ProviderInfo holds provider metadata for config.json injection.
 type ProviderInfo struct {
+	ServiceTier         string
+	ServiceTiers        []string
 	AvailableModels     map[string]bool
 	ModelPolicy         *RuntimeModelPolicy
 	ModelSelectionError bool
@@ -430,6 +480,8 @@ type ProviderInfo struct {
 	ModelMedium         string
 	ModelSmall          string
 	RealtimeVoice       string
+	Realtime            *RuntimeRealtimeCatalog
+	Builtins            ProviderBuiltins
 	BuiltinTools        []string
 	ModelCapabilities   map[string]ProviderModelCapabilities
 }
@@ -484,6 +536,21 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		return fmt.Errorf("%w: instance %d", errAgentAlreadyRunning, inst.ID)
 	}
 
+	var resources runtimeResourceRecord
+	if im.LoadProcessResources != nil {
+		var err error
+		resources, err = im.LoadProcessResources(inst.ID)
+		if err != nil {
+			return fmt.Errorf("agent resource policy unavailable: %w", err)
+		}
+	}
+	if err := validateAgentResources(resources.Policy); err != nil {
+		return err
+	}
+	processResources := resolveProcessResources(resources.Policy.Process)
+	if err := validateLocalProcessResources(processResources); err != nil {
+		return err
+	}
 	port := im.allocPort()
 	dir := im.instanceDir(inst.ID)
 
@@ -537,12 +604,13 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
-	// Core owns directive evolution; the server owns the behavior section.
+	// Core owns directive evolution; the server stores only the authored base
+	// and compiles private controls at this Core boundary.
 	if _, hasDirective := config["directive"]; !hasDirective {
 		config["directive"] = inst.Directive
 	}
 	directive, _ := config["directive"].(string)
-	config["directive"] = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
+	config["directive"] = compileAgentDirective(directive, inst.Mode, inst.Proactivity)
 	delete(config, "mode")
 	delete(config, "proactivity")
 	applyBehaviorToSavedWorkers(config, inst.Mode, inst.Proactivity)
@@ -565,7 +633,15 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		if err := validateProviderModel(providerPool, selected, configuredAgentModelOverride(inst.Config, selected)); err != nil {
 			return err
 		}
-		provArray := buildAgentCoreProviderConfigs(providerPool, inst.Config, defaultProvider)
+		provArray := buildAgentCoreProviderConfigs(providerPool, realtimeConfigFromDisk(inst.Config, config), defaultProvider)
+		for _, provider := range provArray {
+			if builtins := runtimeBuiltins(provider); len(builtins) > 0 {
+				name, _ := provider["name"].(string)
+				if _, err := (&Server{agents: im}).validateProviderBuiltins(context.Background(), name, builtins); err != nil {
+					return err
+				}
+			}
+		}
 		if selected == "" {
 			for _, info := range providerPool {
 				if info.ModelPolicy != nil {
@@ -662,50 +738,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
 	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
-	// Read the opt-in flags for the auto-injected system MCPs. These
-	// live in the instance's DB record (inst.Config JSON blob) rather
-	// than disk config.json — core owns the disk config and drops
-	// unknown fields on save, so any server-only state needs to live
-	// elsewhere. Channels default on; the platform gateway is private
-	// and must be explicitly set by server-owned helper setup.
-	includeGateway := false
-	includeChannels := true
-	{
-		var instCfg map[string]any
-		if inst.Config != "" {
-			json.Unmarshal([]byte(inst.Config), &instCfg)
-		}
-		if v, ok := instCfg["include_apteva_server"].(bool); ok {
-			includeGateway = v
-		}
-		if v, ok := instCfg["include_channels"].(bool); ok {
-			includeChannels = v
-		}
-	}
-
-	// Merge apteva-server and the role-split output servers into existing MCPs.
-	// Preserve all other MCP servers (schedule, social, helpdesk, etc.) that were
-	// added at runtime or manually. Only replace server-owned system entries.
-	var userServers []any
-	if existing, ok := config["mcp_servers"].([]any); ok {
-		for _, s := range existing {
-			if sm, ok := s.(map[string]any); ok {
-				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
-					continue // will be re-added with fresh URLs (if enabled)
-				}
-				userServers = append(userServers, sm)
-			}
-		}
-	}
-	var systemEntries []any
-	if includeGateway {
-		systemEntries = append(systemEntries, gateway)
-	}
-	if includeChannels {
-		systemEntries = append(systemEntries, outputEntry, channelsEntry)
-	}
-	config["mcp_servers"] = append(systemEntries, userServers...)
+	includeChannels := mergeServerOwnedMCPs(inst, config, gateway, outputEntry, channelsEntry)
 	if im.AuthorizeMCPConfig != nil {
 		if err := im.AuthorizeMCPConfig(inst, config); err != nil {
 			ic.Stop()
@@ -777,9 +810,16 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	releaseResources, resourceErr := configureProcessResources(cmd, processResourceOwner{"agent", itoa64(inst.ID)}, processResources)
+	if resourceErr != nil {
+		ic.Stop()
+		return resourceErr
+	}
 	log.Printf("[SPAWN] exec %s --headless dir=%s port=%d providerEnvKeys=%v", im.coreCmd, dir, port, providerEnvKeys(providerEnv))
 	if err := cmd.Start(); err != nil {
+		releaseResources()
 		log.Printf("[SPAWN] exec failed: %v", err)
+		ic.Stop()
 		return fmt.Errorf("failed to start core: %w", err)
 	}
 	log.Printf("[SPAWN] core started agent=%d pid=%d port=%d", inst.ID, cmd.Process.Pid, port)
@@ -801,6 +841,10 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}(inst.ID, cmd.Process.Pid, port)
 
 	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{})}
+	ri.releaseResources = releaseResources
+	if identity, e := readRuntimeProcessIdentity(cmd.Process.Pid); e == nil {
+		ri.resourceIdentity = &identity
+	}
 	im.processes[inst.ID] = ri
 	inst.Port = port
 	inst.Pid = cmd.Process.Pid
@@ -995,11 +1039,17 @@ func buildCoreProviderConfigs(pool []ProviderInfo, configuredDefault string) []m
 			},
 			"default": providerIsDefault(name, defaultProvider, i),
 		}
+		if tier, err := validateServiceTier(name, provider.ServiceTiers, provider.ServiceTier); err == nil && tier != "" {
+			entry["service_tier"] = tier
+		}
 		if provider.RealtimeVoice != "" {
 			entry["realtime_voice"] = provider.RealtimeVoice
 		}
 		if len(provider.ModelCapabilities) > 0 {
 			entry["model_capabilities"] = provider.ModelCapabilities
+		}
+		if len(provider.Builtins) > 0 {
+			entry["builtins"] = provider.Builtins
 		}
 		if len(provider.BuiltinTools) > 0 {
 			entry["builtin_tools"] = provider.BuiltinTools
@@ -1036,12 +1086,69 @@ func buildAgentCoreProviderConfigs(pool []ProviderInfo, configJSON string, fallb
 	}
 	pool = eligibleProviderPool(pool)
 	providers := buildCoreProviderConfigs(pool, configuredDefault)
+	applyAgentServiceTiers(providers, pool, savedAgentServiceTiers(configJSON))
+	applyAgentBuiltins(providers, savedAgentBuiltins(configJSON))
+	var saved struct {
+		Providers []map[string]any `json:"providers"`
+	}
+	if json.Unmarshal([]byte(configJSON), &saved) == nil {
+		for _, provider := range providers {
+			for _, override := range saved.Providers {
+				if override["name"] == provider["name"] {
+					for _, field := range []string{"image_generation", "realtime_voice", "realtime_models", "realtime_execution"} {
+						if value, exists := override[field]; exists {
+							provider[field] = value
+						}
+					}
+				}
+			}
+		}
+	}
+
 	effectiveDefault := effectiveProviderDefault(pool, configuredDefault)
 	model := configuredAgentModelOverride(configJSON, effectiveDefault)
 	if err := validateProviderModel(pool, effectiveDefault, model); err != nil {
 		log.Printf("[RUNTIME-MODELS] ignoring incompatible saved agent override: %v", err)
 	} else {
 		applyAgentModelOverride(providers, effectiveDefault, model)
+	}
+	realtimeProvider, realtimeModel := configuredAgentRealtimeSelection(configJSON)
+	if realtimeProvider != "" || realtimeModel != "" {
+		if provider, selectedModel, err := resolveRealtimeSelection(pool, realtimeProvider, realtimeModel); err != nil {
+			log.Printf("[RUNTIME-MODELS] ignoring incompatible saved realtime choice: %v", err)
+		} else {
+			applyRealtimeSelection(providers, provider, selectedModel)
+			var voiceConfig struct {
+				Voice string `json:"realtime_voice"`
+			}
+			_ = json.Unmarshal([]byte(configJSON), &voiceConfig)
+			// Explicit per-provider voice survives hydration; catalog defaults
+			// only fill the absence of an operator choice.
+			for _, name := range []string{provider, strings.TrimSuffix(provider, "-realtime")} {
+				for _, entry := range saved.Providers {
+					if entry["name"] == name {
+						if voice, ok := entry["realtime_voice"].(string); ok && voice != "" {
+							voiceConfig.Voice = voice
+							break
+						}
+					}
+				}
+				if voiceConfig.Voice != "" {
+					break
+				}
+			}
+			if voiceConfig.Voice == "" {
+				for _, info := range pool {
+					if info.Type == provider {
+						voiceConfig.Voice = realtimeDefaultVoice(info, selectedModel)
+						break
+					}
+				}
+			}
+			if voiceConfig.Voice != "" {
+				applyRealtimeVoice(providers, provider, voiceConfig.Voice)
+			}
+		}
 	}
 	return providers
 }
@@ -1098,13 +1205,23 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 	for _, provider := range providers {
 		name, _ := provider["name"].(string)
 		override := byName[name]
-		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice"} {
+		if value, sent := override["service_tier"]; sent && value != nil {
+			checked := map[string]string{}
+			if err := mergeAgentServiceTiers(checked, map[string]any{name: value}, pool); err != nil {
+				return nil, "", err
+			}
+			applyAgentServiceTiers([]map[string]any{provider}, pool, checked)
+		}
+		for _, field := range []string{"models", "model_capabilities", "builtin_tools", "realtime_voice", "realtime_models", "realtime_execution", "image_generation", "builtins"} {
 			if value, ok := override[field]; ok {
 				provider[field] = value
 			}
 		}
 	}
 	if err := validateProviderModelMaps(pool, providers); err != nil {
+		return nil, "", err
+	}
+	if err := validateRealtimeProviderModelMaps(pool, providers); err != nil {
 		return nil, "", err
 	}
 	return providers, effectiveDefault, nil
@@ -1231,41 +1348,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 	channelsEntry := channelsMCPConfig(channelsMCP.url())
 	outputEntry := agentOutputMCPConfig(outputMCP.url())
 
-	includeGateway := false
-	includeChannels := true
-	{
-		var instCfg map[string]any
-		if inst.Config != "" {
-			_ = json.Unmarshal([]byte(inst.Config), &instCfg)
-		}
-		if v, ok := instCfg["include_apteva_server"].(bool); ok {
-			includeGateway = v
-		}
-		if v, ok := instCfg["include_channels"].(bool); ok {
-			includeChannels = v
-		}
-	}
-
-	var userServers []any
-	if existing, ok := config["mcp_servers"].([]any); ok {
-		for _, s := range existing {
-			if sm, ok := s.(map[string]any); ok {
-				name, _ := sm["name"].(string)
-				if isServerOwnedOutputMCP(name) || name == "apteva-server" {
-					continue
-				}
-				userServers = append(userServers, sm)
-			}
-		}
-	}
-	var systemEntries []any
-	if includeGateway {
-		systemEntries = append(systemEntries, gateway)
-	}
-	if includeChannels {
-		systemEntries = append(systemEntries, outputEntry, channelsEntry)
-	}
-	config["mcp_servers"] = append(systemEntries, userServers...)
+	includeChannels := mergeServerOwnedMCPs(inst, config, gateway, outputEntry, channelsEntry)
 	if im.AuthorizeMCPConfig != nil {
 		if err := im.AuthorizeMCPConfig(inst, config); err != nil {
 			ic.Stop()
@@ -1291,6 +1374,11 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 
 	proc, _ := os.FindProcess(inst.Pid)
 	ri := &runningAgent{cmd: &exec.Cmd{Process: proc}, port: inst.Port, pid: inst.Pid, coreAPIKey: inst.CoreAPIKey, channels: ic, reattached: true}
+	if identity, e := readRuntimeProcessIdentity(inst.Pid); e == nil {
+		ri.resourceIdentity = &identity
+	}
+	ri.releaseResources = adoptProcessResources(inst.Pid, processResourceOwner{"agent", itoa64(inst.ID)})
+	ri.watchResourceExit()
 	im.mu.Lock()
 	im.processes[inst.ID] = ri
 	im.mu.Unlock()
@@ -1588,12 +1676,19 @@ func (im *AgentManager) coreRuntimeInfoContext(ctx context.Context, instanceID i
 	port := ri.port
 	coreAPIKey := ri.coreAPIKey
 	im.mu.RUnlock()
+	ri.runtimeMu.Lock()
+	if !ri.runtimeAt.IsZero() && time.Since(ri.runtimeAt) < coreRuntimeInfoCacheTTL {
+		cached := ri.runtimeInfo
+		ri.runtimeMu.Unlock()
+		return cached, true
+	}
+	ri.runtimeMu.Unlock()
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/status", port), nil)
 	if coreAPIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+coreAPIKey)
 	}
-	resp, err := (&http.Client{Timeout: 800 * time.Millisecond}).Do(req)
+	resp, err := im.coreStatusHTTPClient().Do(req)
 	if err != nil {
 		return coreRuntimeInfo{}, false
 	}
@@ -1669,12 +1764,15 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name        string `json:"name"`
-		Directive   string `json:"directive"`
-		Proactivity *int   `json:"proactivity"`
-		Mode        string `json:"mode"`   // "autonomous" | "cautious" | "learn"
-		Config      string `json:"config"` // optional JSON blob for MCP servers etc
-		ProjectID   string `json:"project_id"`
+		Capabilities []AgentCapability `json:"capabilities,omitempty"`
+		Name         string            `json:"name"`
+		Icon         string            `json:"icon"`
+		IconColor    string            `json:"icon_color"`
+		Directive    string            `json:"directive"`
+		Proactivity  *int              `json:"proactivity"`
+		Mode         string            `json:"mode"`   // "autonomous" | "cautious" | "learn"
+		Config       string            `json:"config"` // optional JSON blob for MCP servers etc
+		ProjectID    string            `json:"project_id"`
 		// IdempotencyKey identifies one logical agent creation. Reusing it in
 		// the same project returns the existing agent instead of creating a
 		// duplicate. Unscoped agents are isolated by caller user id.
@@ -1721,6 +1819,16 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if body.Icon == "" {
+		body.Icon = defaultAgentIcon
+	}
+	if body.IconColor == "" {
+		body.IconColor = defaultAgentIconColor
+	}
+	if !validAgentAppearance(body.Icon, body.IconColor) {
+		http.Error(w, "invalid agent icon or color", http.StatusBadRequest)
 		return
 	}
 	// Multi-user: editor+ on the target project is required to create
@@ -1805,8 +1913,21 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	selectedAppInstallIDs = validAppInstallIDs
 
+	if len(body.Capabilities) > 0 {
+		body.Config, err = s.configWithAgentCapabilities(attachmentProbe, body.Capabilities)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Freeze the creation preference even when the agent is created stopped.
 	body.Config = s.applyNewAgentProviderDefault(userID, body.ProjectID, body.Config)
+	body.Config, err = s.prepareAgentBuiltins(r.Context(), body.Config, s.GetProviderPool(userID, body.ProjectID))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	inst, created, err := s.store.CreateAgentIdempotent(
 		userID, body.Name, body.Directive, body.Mode, body.Config, body.ProjectID, body.IdempotencyKey, optionalProactivity(body.Proactivity),
@@ -1816,18 +1937,29 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !created {
+		if err := s.store.populateAgentAppearance(inst); err != nil {
+			http.Error(w, "failed to load agent appearance", http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, map[string]any{
 			"id": inst.ID, "name": inst.Name, "status": inst.Status,
-			"project_id": inst.ProjectID, "created": false, "idempotent_replay": true,
+			"project_id": inst.ProjectID, "icon": inst.Icon, "icon_color": inst.IconColor,
+			"created": false, "idempotent_replay": true,
 		})
 		return
 	}
+	if err := s.store.updateAgentIdentity(inst.ID, nil, &body.Icon, &body.IconColor); err != nil {
+		_ = s.store.DeleteAgent(userID, inst.ID)
+		http.Error(w, "failed to save agent appearance", http.StatusInternalServerError)
+		return
+	}
+	inst.Icon, inst.IconColor = body.Icon, body.IconColor
 
 	// Write the operator's effective app selection before startup. App
 	// attachments are part of the creation contract: fail and remove the
 	// not-yet-started agent instead of silently creating it without a default.
 	if len(selectedAppInstallIDs) > 0 {
-		tx, err := s.store.db.Begin()
+		tx, err := s.store.dbBeginTx(r.Context(), nil)
 		if err != nil {
 			_ = s.store.DeleteAgent(userID, inst.ID)
 			http.Error(w, "begin app attachment", http.StatusInternalServerError)
@@ -1980,7 +2112,12 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		if instCfg == nil {
 			instCfg = map[string]any{}
 		}
-		delete(instCfg, "include_apteva_server")
+		instCfg["include_apteva_server"] = false
+		for _, entry := range mcpMaps(instCfg["mcp_servers"]) {
+			if entry["name"] == platformMCPName {
+				instCfg["include_apteva_server"] = true
+			}
+		}
 		instCfg["include_channels"] = includeChannels
 		if body.Unconscious != nil {
 			instCfg["unconscious"] = *body.Unconscious
@@ -2012,19 +2149,23 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		providerEnv, err := s.GetAllProviderEnvVars(userID, inst.ProjectID)
 		if err != nil {
 			writeJSON(w, map[string]any{
-				"id":      inst.ID,
-				"name":    inst.Name,
-				"status":  "stopped",
-				"warning": "agent created but not started: " + err.Error(),
+				"id":         inst.ID,
+				"name":       inst.Name,
+				"icon":       inst.Icon,
+				"icon_color": inst.IconColor,
+				"status":     "stopped",
+				"warning":    "agent created but not started: " + err.Error(),
 			})
 			return
 		}
 		pool := s.GetProviderPool(userID, inst.ProjectID)
 		if len(pool) == 0 {
 			writeJSON(w, map[string]any{
-				"id":     inst.ID,
-				"name":   inst.Name,
-				"status": "stopped",
+				"id":         inst.ID,
+				"name":       inst.Name,
+				"icon":       inst.Icon,
+				"icon_color": inst.IconColor,
+				"status":     "stopped",
 				"warning": "agent created but not started: no LLM provider configured. " +
 					"Add one in Settings → Providers, then click Start.",
 			})
@@ -2073,8 +2214,25 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if err := s.store.populateAgentAppearances(instances); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	builtinPools := map[string][]ProviderInfo{}
 	// Update running status
 	for i := range instances {
+		key := fmt.Sprintf("%d:%s", instances[i].UserID, instances[i].ProjectID)
+		pool, exists := builtinPools[key]
+		if !exists {
+			pool = s.GetProviderPool(instances[i].UserID, instances[i].ProjectID)
+			builtinPools[key] = pool
+		}
+		summaryAgent := instances[i]
+		if full, err := s.store.GetAgentByIDContext(r.Context(), instances[i].ID); err == nil {
+			summaryAgent.Config = full.Config
+		}
+		populateAgentBuiltinSummary(&summaryAgent, pool)
+		instances[i].Builtins = summaryAgent.Builtins
 		s.enrichAgentRuntime(&instances[i])
 		restrictAgentConfig(r, &instances[i])
 	}
@@ -2101,7 +2259,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	// access agents created by other users in a project they're in.
 	// Authz comes from the agent's project membership, not the row's
 	// user_id.
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2128,35 +2286,52 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		populateAgentBuiltinSummary(inst, s.GetProviderPool(inst.UserID, inst.ProjectID))
 		s.enrichAgentRuntime(inst)
+		if err := s.store.populateAgentAppearance(inst); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		restrictAgentConfig(r, inst)
 		writeJSON(w, inst)
 
 	case http.MethodPut, http.MethodPatch:
-		// Rename / metadata edit. The only mutable field for now is name —
-		// directive/mode/config go through /instances/:id/config which also
-		// forwards to the running core. Keep this endpoint narrow on
-		// purpose so renaming a running instance never has to touch the
-		// core process.
+		// Agent identity is server-owned metadata. Editing it does not
+		// mutate core config or wake a running agent.
 		var body struct {
-			Name string `json:"name"`
+			Name      *string `json:"name"`
+			Icon      *string `json:"icon"`
+			IconColor *string `json:"icon_color"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		name := strings.TrimSpace(body.Name)
-		if name == "" {
-			http.Error(w, "name required", http.StatusBadRequest)
+		if body.Name == nil && body.Icon == nil && body.IconColor == nil {
+			http.Error(w, "no identity fields provided", http.StatusBadRequest)
 			return
 		}
-		if len(name) > 100 {
-			http.Error(w, "name too long (max 100)", http.StatusBadRequest)
+		if body.Name != nil {
+			name := strings.TrimSpace(*body.Name)
+			if name == "" || len(name) > 100 {
+				http.Error(w, "name must be 1–100 characters", http.StatusBadRequest)
+				return
+			}
+			body.Name = &name
+		}
+		if body.Icon != nil && !agentIcons[*body.Icon] || body.IconColor != nil && !agentIconColors[*body.IconColor] {
+			http.Error(w, "invalid agent icon or color", http.StatusBadRequest)
 			return
 		}
-		inst.Name = name
-		if err := s.store.RenameAgent(inst.ID, inst.Name); err != nil {
+		if err := s.store.updateAgentIdentity(inst.ID, body.Name, body.Icon, body.IconColor); err != nil {
 			http.Error(w, "failed to update instance", http.StatusInternalServerError)
+			return
+		}
+		if body.Name != nil {
+			inst.Name = *body.Name
+		}
+		if err := s.store.populateAgentAppearance(inst); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, inst)
@@ -2227,7 +2402,7 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2438,7 +2613,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2484,7 +2659,7 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 			// Auto-resume or another start request may have won between the
 			// IsRunning check and AgentManager.Start. Treat that race exactly
 			// like the fast path above instead of leaking a spurious 500.
-			if current, getErr := s.store.GetAgentByID(inst.ID); getErr == nil {
+			if current, getErr := s.store.GetAgentByIDContext(r.Context(), inst.ID); getErr == nil {
 				inst = current
 			}
 			writeJSON(w, inst)
@@ -2515,7 +2690,7 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.GetAgentByID(instanceID); err != nil {
+	if _, err := s.store.GetAgentByIDContext(r.Context(), instanceID); err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
 	}
@@ -2537,7 +2712,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2550,7 +2725,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		out["directive"] = inst.Directive
 		out["mode"] = agentMode(inst.Mode)
 		out["proactivity"] = inst.Proactivity
+		out["controls"] = publicAgentControls(inst)
 		out["config_source"] = "saved"
+		sanitizeDirectiveFields(out)
 		writeJSON(w, out)
 		return
 	}
@@ -2587,7 +2764,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// simultaneous attachment changes cannot silently disconnect tools.
 	unlockConfig := s.lockAgentConfig(instanceID)
 	defer unlockConfig()
-	inst, err = s.store.GetAgentByID(instanceID)
+	inst, err = s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -2618,6 +2795,27 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON object", http.StatusBadRequest)
 		return
 	}
+	if inst.Kind == "platform_helper" {
+		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
+			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
+			return
+		}
+		if body.Config != "" {
+			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
+			return
+		}
+	}
+
+	if err := validateAgentAttachmentSettings(body.Config); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, field := range []string{"bound_app_install_ids", "bound_connection_ids", "mcp_server_ids", "mcp_action"} {
+		if _, exists := rawBody[field]; exists {
+			http.Error(w, "use /agents/:id/mcp-servers for attachment selectors", http.StatusBadRequest)
+			return
+		}
+	}
 	if value, exists := rawBody["proactivity"]; exists {
 		n, ok := value.(float64)
 		if !ok || n < 0 || n > 100 || n != float64(int(n)) {
@@ -2642,15 +2840,34 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
 		return
 	}
-	if inst.Kind == "platform_helper" {
-		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
-			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
+
+	// Advanced config updates are patches. Replacing the saved object here
+	// would discard the creation provider pin on an unrelated settings edit,
+	// causing provider hydration and the next start to select pool[0].
+	if body.Config != "" {
+		saved := map[string]any{}
+		if strings.TrimSpace(inst.Config) != "" {
+			if err := json.Unmarshal([]byte(inst.Config), &saved); err != nil {
+				http.Error(w, "invalid stored agent config", http.StatusInternalServerError)
+				return
+			}
+		}
+		if saved == nil {
+			saved = map[string]any{}
+		}
+		var patch map[string]any
+		// validateAgentAttachmentSettings already validated the incoming object.
+		_ = json.Unmarshal([]byte(body.Config), &patch)
+		for key, value := range patch {
+			saved[key] = value
+		}
+		merged, err := json.Marshal(saved)
+		if err != nil {
+			http.Error(w, "encode agent config", http.StatusInternalServerError)
 			return
 		}
-		if body.Config != "" {
-			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
-			return
-		}
+		body.Config = string(merged)
+		rawBody["config"] = body.Config
 	}
 
 	// The public additive MCP endpoint is rewritten to these internal fields
@@ -2659,6 +2876,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	action, hasMCPAction := rawBody["_mcp_action"].(string)
 	if hasMCPAction {
 		rawIDs, ok := rawBody["_mcp_server_ids"].([]any)
+		if rawBody["_mcp_server_ids"] == nil {
+			rawIDs, ok = []any{}, true
+		}
 		if !ok {
 			http.Error(w, "mcp_server_ids must be an array", http.StatusBadRequest)
 			return
@@ -2672,12 +2892,29 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			serverIDs = append(serverIDs, int64(id))
 		}
+		if action != "add" && action != "remove" && action != "set" {
+			http.Error(w, "action must be add, remove, or set", http.StatusBadRequest)
+			return
+		}
+		if value := rawBody["_app_install_ids"]; value != nil {
+			appIDs, err := positiveAttachmentIDs(value)
+			if err != nil {
+				http.Error(w, "bound_app_install_ids must contain positive integers", http.StatusBadRequest)
+				return
+			}
+			appMCPIDs, err := s.resolveAgentAppMCPIDs(inst, appIDs)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			serverIDs = append(serverIDs, appMCPIDs...)
+		}
 		current, err := s.currentAgentMCPServers(inst, port)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		selected, err := s.resolveAgentMCPConfigs(getUserID(r), inst, serverIDs)
+		selected, err := s.resolveAgentMCPConfigs(getUserID(r), inst, serverIDs, action == "remove")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -2685,6 +2922,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		rawBody["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(current, selected, action))
 		delete(rawBody, "_mcp_action")
 		delete(rawBody, "_mcp_server_ids")
+		delete(rawBody, "_app_install_ids")
 	} else if _, hasMCPServers := rawBody["mcp_servers"]; !hasMCPServers {
 		// Dashboard and gateway config writes are patch-shaped (directive,
 		// mode, provider selection, reset). Core's config endpoint is not:
@@ -2701,6 +2939,90 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if err := s.authorizeAgentMCPConfig(inst, rawBody); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
+	}
+
+	serviceConfig := inst.Config
+	if body.Config != "" {
+		serviceConfig = body.Config
+	}
+	builtinOverrides := editableAgentBuiltins(serviceConfig)
+	builtinPatch, builtinSent := rawBody["builtin_overrides"]
+	if patch, ok := builtinPatch.(map[string]any); ok && len(patch) == 0 {
+		builtinSent = false
+	}
+	if body.Config != "" {
+		normalized, err := s.prepareAgentBuiltins(r.Context(), body.Config, s.GetProviderPool(inst.UserID, inst.ProjectID))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		body.Config = normalized
+		builtinOverrides = editableAgentBuiltins(normalized)
+		builtinSent = true
+	}
+	if builtinPatch != nil {
+		if err := s.mergeAgentBuiltins(r.Context(), builtinOverrides, builtinPatch, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if _, exists := rawBody["builtin_overrides"]; exists {
+		http.Error(w, "builtin_overrides must be an object", http.StatusBadRequest)
+		return
+	}
+	for _, provider := range body.Providers {
+		if value, exists := provider["builtins"]; exists {
+			name, _ := provider["name"].(string)
+			if err := s.mergeAgentBuiltins(r.Context(), builtinOverrides, map[string]any{name: value}, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			delete(provider, "builtins")
+			builtinSent = true
+		}
+	}
+	serviceOverrides := savedAgentServiceTiers(serviceConfig)
+	servicePatch, servicePatchSent := rawBody["service_tier_overrides"]
+	serviceTiersSent := servicePatchSent
+	if body.Config != "" {
+		var supplied map[string]any
+		if err := json.Unmarshal([]byte(body.Config), &supplied); err != nil {
+			http.Error(w, "invalid config", http.StatusBadRequest)
+			return
+		}
+		if value, exists := supplied["service_tier_overrides"]; exists {
+			patch, ok := value.(map[string]any)
+			if !ok {
+				http.Error(w, "service_tier_overrides must be an object", http.StatusBadRequest)
+				return
+			}
+			if err := mergeAgentServiceTiers(serviceOverrides, patch, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			serviceTiersSent = true
+		}
+	}
+	if servicePatchSent {
+		patch, ok := servicePatch.(map[string]any)
+		if !ok {
+			http.Error(w, "service_tier_overrides must be an object", http.StatusBadRequest)
+			return
+		}
+		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
+		if err := mergeAgentServiceTiers(serviceOverrides, patch, pool); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	for _, provider := range body.Providers {
+		if tier, sent := provider["service_tier"]; sent {
+			name, _ := provider["name"].(string)
+			if err := mergeAgentServiceTiers(serviceOverrides, map[string]any{name: tier}, s.GetProviderPool(inst.UserID, inst.ProjectID)); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			serviceTiersSent = true
+		}
 	}
 
 	effectiveDefault := ""
@@ -2724,13 +3046,38 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			body.Providers = []map[string]any{{"name": selected, "default": true}}
 		}
 	}
-	if len(body.Providers) > 0 {
+	savedRealtimeProvider, savedRealtimeModel := configuredAgentRealtimeSelection(inst.Config)
+	requestedRealtimeProvider, requestedRealtimeModel := savedRealtimeProvider, savedRealtimeModel
+	_, realtimeProviderSent := rawBody["realtime_provider"]
+	_, realtimeModelSent := rawBody["realtime_model"]
+	if realtimeProviderSent {
+		value, ok := rawBody["realtime_provider"].(string)
+		if !ok {
+			http.Error(w, "realtime_provider must be a string", http.StatusBadRequest)
+			return
+		}
+		requestedRealtimeProvider = strings.TrimSpace(value)
+		if !realtimeModelSent && requestedRealtimeProvider != savedRealtimeProvider {
+			requestedRealtimeModel = ""
+		}
+	}
+	if realtimeModelSent {
+		value, ok := rawBody["realtime_model"].(string)
+		if !ok {
+			http.Error(w, "realtime_model must be a string", http.StatusBadRequest)
+			return
+		}
+		requestedRealtimeModel = strings.TrimSpace(value)
+	}
+	if len(body.Providers) > 0 || realtimeProviderSent || realtimeModelSent || serviceTiersSent || builtinSent {
+		// Core receives its existing providers[] shape; the new agent choice
+		// is server-owned metadata and is translated into that shape below.
 		pool := s.GetProviderPool(inst.UserID, inst.ProjectID)
 		configuredDefault := configuredAgentDefaultProvider(inst.Config)
 		if body.Config != "" {
 			configuredDefault = configuredAgentDefaultProvider(body.Config)
 		}
-		hydrated, selected, err := hydrateCoreProviderConfigs(pool, configuredDefault, body.Providers)
+		hydrated, selected, err := hydrateCoreProviderConfigs(pool, configuredDefault, mergeSavedRealtimeProviders(s.savedRealtimeConfig(inst), body.Providers))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -2744,12 +3091,56 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		applyAgentModelOverride(hydrated, selected, modelOverride)
+		if requestedRealtimeProvider != "" || requestedRealtimeModel != "" {
+			provider, model, err := resolveRealtimeSelection(pool, requestedRealtimeProvider, requestedRealtimeModel)
+			if err != nil {
+				if realtimeProviderSent || realtimeModelSent {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				log.Printf("[RUNTIME-MODELS] ignoring incompatible saved realtime choice: %v", err)
+			} else {
+				applyRealtimeSelection(hydrated, provider, model)
+				selectedVoice := ""
+				if voice, sent := rawBody["realtime_voice"].(string); sent {
+					selectedVoice = voice
+					if err := validateRealtimeModelVoice(pool, provider, model, voice); err != nil {
+						http.Error(w, err.Error(), http.StatusBadRequest)
+						return
+					}
+				} else if (realtimeProviderSent && requestedRealtimeProvider != savedRealtimeProvider) || (realtimeModelSent && requestedRealtimeModel != savedRealtimeModel) {
+					for _, info := range pool {
+						if providerKeyFromName(info.Type) == provider {
+							rawBody["realtime_voice"] = realtimeDefaultVoice(info, model)
+							selectedVoice = realtimeDefaultVoice(info, model)
+							break
+						}
+					}
+				}
+				if selectedVoice != "" {
+					applyRealtimeVoice(hydrated, provider, selectedVoice)
+				}
+			}
+		}
+		applyAgentServiceTiers(hydrated, pool, serviceOverrides)
+		preserveAgentLegacyImages(hydrated, body.Providers, serviceConfig)
+		applyAgentBuiltins(hydrated, builtinOverrides)
+		if builtinSent && port > 0 {
+			if _, err := s.liveBuiltinConfig(r.Context(), inst); err != nil {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+		}
 		rawBody["providers"] = hydrated
 		effectiveDefault = selected
 	}
 	// model_override is server-owned agent metadata. Core receives the
 	// resulting per-provider model map, not this persistence envelope.
+	delete(rawBody, "builtin_overrides")
+	delete(rawBody, "service_tier_overrides")
 	delete(rawBody, "model_override")
+	delete(rawBody, "realtime_provider")
+	delete(rawBody, "realtime_model")
 	if body.Mode == "autonomous" && s.store.GetPlatformRole(inst.UserID) != PlatformAdmin {
 		if policy, err := s.loadAccessPolicy(); err != nil || !policy.Capabilities.AutonomousScheduling {
 			body.Mode = "cautious"
@@ -2761,7 +3152,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	_, proactivitySent := rawBody["proactivity"]
 	behaviorChanged := directiveSent || modeSent || proactivitySent
 	if behaviorChanged {
-		base := body.Directive
+		base := withoutAgentControls(body.Directive)
 		if !directiveSent {
 			state, stateErr := s.store.agentBehaviorState(inst.ID)
 			if stateErr != nil {
@@ -2776,7 +3167,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				if latest, ok := cfg["directive"].(string); ok {
-					base = latest
+					base = withoutAgentControls(latest)
 				}
 			}
 		}
@@ -2786,9 +3177,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if proactivitySent {
 			inst.Proactivity = int(rawBody["proactivity"].(float64))
 		}
-		inst.Directive = withAgentBehavior(base, inst.Mode, inst.Proactivity)
+		inst.Directive = withoutAgentControls(base)
 		body.Directive = inst.Directive
-		rawBody["directive"] = inst.Directive
+		rawBody["directive"] = compileAgentDirective(inst.Directive, inst.Mode, inst.Proactivity)
 	}
 	delete(rawBody, "mode")
 	delete(rawBody, "proactivity")
@@ -2806,7 +3197,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// Save the validated effective provider rather than relying on whichever
 	// order SQLite or the dashboard happened to return.
-	if effectiveDefault != "" {
+	if effectiveDefault != "" || realtimeProviderSent || realtimeModelSent || serviceTiersSent || builtinSent {
 		var cfg map[string]any
 		if strings.TrimSpace(inst.Config) != "" {
 			if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
@@ -2817,7 +3208,31 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg == nil {
 			cfg = map[string]any{}
 		}
-		cfg["default_provider"] = effectiveDefault
+		if providers, exists := rawBody["providers"]; exists {
+			cfg["providers"] = providers
+		}
+		if builtinSent {
+			removeLegacyAgentImages(cfg)
+			persistAgentBuiltins(cfg, builtinOverrides)
+		}
+		if serviceTiersSent {
+			cfg["service_tier_overrides"] = serviceOverrides
+		}
+		if effectiveDefault != "" {
+			cfg["default_provider"] = effectiveDefault
+		}
+		if realtimeProviderSent || realtimeModelSent {
+			if requestedRealtimeProvider == "" {
+				delete(cfg, "realtime_provider")
+			} else {
+				cfg["realtime_provider"] = requestedRealtimeProvider
+			}
+			if requestedRealtimeModel == "" {
+				delete(cfg, "realtime_model")
+			} else {
+				cfg["realtime_model"] = requestedRealtimeModel
+			}
+		}
 		if body.ModelOverride != nil {
 			model := strings.TrimSpace(*body.ModelOverride)
 			if model == "" {
@@ -2847,15 +3262,20 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			instCfg = map[string]any{}
 		}
 		hasChannels := false
+		hasPlatform := inst.Kind == "platform_helper"
 		for _, s := range mcpList {
 			if sm, ok := s.(map[string]any); ok {
 				n, _ := sm["name"].(string)
+				if n == platformMCPName {
+					hasPlatform = true
+				}
 				if isServerOwnedOutputMCP(n) {
 					hasChannels = true
 				}
 			}
 		}
 		instCfg["include_channels"] = hasChannels
+		instCfg["include_apteva_server"] = hasPlatform
 		if out, err := json.Marshal(instCfg); err == nil {
 			inst.Config = string(out)
 		}
@@ -2867,7 +3287,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if behaviorChanged {
-		if _, err := s.store.db.Exec(`UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET revision=revision+1,version=? WHERE agent_id=? AND version<>?`, behaviorVersion, inst.ID, behaviorVersion); err != nil {
 			http.Error(w, "persist behavior revision", 500)
 			return
 		}
@@ -2885,22 +3305,22 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		defer resp.Body.Close()
 		if behaviorChanged && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
-			_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, fmt.Sprintf("main behavior pending: core HTTP %d", resp.StatusCode), inst.ID)
+			_, _ = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, fmt.Sprintf("main behavior pending: core HTTP %d", resp.StatusCode), inst.ID)
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			if behaviorChanged {
 				state, stateErr := s.store.agentBehaviorState(inst.ID)
 				if stateErr == nil {
-					_, stateErr = s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
+					_, stateErr = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
 				}
 				if stateErr == nil {
 					stateErr = s.applyBehaviorToLiveWorkers(r.Context(), inst)
 				}
 				if stateErr == nil {
-					_, stateErr = s.store.db.Exec(`UPDATE agent_behavior_state SET applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
+					_, stateErr = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
 				}
 				if stateErr != nil {
-					_, _ = s.store.db.Exec(`UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, stateErr.Error(), inst.ID)
+					_, _ = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET last_error=? WHERE agent_id=?`, stateErr.Error(), inst.ID)
 					resp.StatusCode = http.StatusAccepted
 				}
 			}
@@ -2909,7 +3329,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "core config updated but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 				return
 			}
-			if body.Directive != "" {
+			if directiveSent {
 				s.refreshChannelChatConversationDirectives(inst.ID)
 			}
 		}
@@ -2924,8 +3344,8 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// threads, unconscious) and the `reset` sub-object.
 	err = s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
 		delete(cfg, "computer")
-		if body.Directive != "" {
-			cfg["directive"] = body.Directive
+		if behaviorChanged {
+			cfg["directive"] = compileAgentDirective(inst.Directive, inst.Mode, inst.Proactivity)
 		}
 		delete(cfg, "mode")
 		delete(cfg, "proactivity")
@@ -2958,7 +3378,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if behaviorChanged {
-		if _, err := s.store.db.Exec(`UPDATE agent_behavior_state SET main_revision=revision,applied_revision=revision,last_error='' WHERE agent_id=?`, inst.ID); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET main_revision=revision,applied_revision=revision,last_error='' WHERE agent_id=?`, inst.ID); err != nil {
 			http.Error(w, "config saved but behavior synchronization metadata failed", 500)
 			return
 		}
@@ -2968,7 +3388,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config saved but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 		return
 	}
-	if body.Directive != "" {
+	if directiveSent {
 		s.refreshChannelChatConversationDirectives(inst.ID)
 	}
 	log.Printf("[CONFIG] PUT stopped agent=%d — persisted to config.json (applies on next start)", inst.ID)
@@ -3073,7 +3493,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -3081,10 +3501,17 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	port := s.agents.GetPort(inst.ID)
 	corePath := "/" + parts[1]
+	if r.Method == http.MethodDelete && strings.HasPrefix(corePath, "/threads/") {
+		threadID := strings.TrimPrefix(corePath, "/threads/")
+		if threadID != "" && !strings.Contains(threadID, "/") {
+			unlock := lockAsyncThreadDelivery(inst.ID, threadID)
+			defer unlock()
+		}
+	}
 	if (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete) && strings.HasPrefix(corePath, "/threads/") {
 		unlock := s.lockAgentConfig(inst.ID)
 		defer unlock()
-		if latest, err := s.store.GetAgentByID(inst.ID); err == nil {
+		if latest, err := s.store.GetAgentByIDContext(r.Context(), inst.ID); err == nil {
 			inst = latest
 		}
 		if r.Method != http.MethodDelete && !strings.Contains(strings.TrimPrefix(corePath, "/threads/"), "/") {
@@ -3095,7 +3522,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if directive, ok := payload["directive"].(string); ok && directive != "" {
-				payload["directive"] = withAgentBehavior(directive, inst.Mode, inst.Proactivity)
+				payload["directive"] = compileAgentDirective(directive, inst.Mode, inst.Proactivity)
 			}
 			data, _ = json.Marshal(payload)
 			r.Body = io.NopCloser(bytes.NewReader(data))
@@ -3159,6 +3586,15 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	// otherwise every dashboard / TUI status reader made the agent
 	// think cli was reachable and caused it to respond there by
 	// default (stranding messages no one would ever see).
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodDelete && strings.HasPrefix(corePath, "/threads/") {
+		threadID := strings.TrimPrefix(corePath, "/threads/")
+		if threadID != "" && !strings.Contains(threadID, "/") {
+			if err := s.store.DeleteAgentThreadScope(inst.ID, threadID); err != nil {
+				http.Error(w, "thread deleted but resource cleanup failed", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
 	flusher, canFlush := w.(http.Flusher)
 	isSSE := canFlush && resp.Header.Get("Content-Type") == "text/event-stream"
 
@@ -3179,6 +3615,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				// verbatim.
 				if bytes.HasPrefix(line, []byte("data: ")) {
 					rewritten := enrichLLMDoneSSELine(line)
+					rewritten = sanitizeDirectiveSSELine(rewritten)
 					if _, err := w.Write(rewritten); err != nil {
 						return
 					}
@@ -3196,7 +3633,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads")
+		needsRewrite := resp.StatusCode >= 200 && resp.StatusCode < 300 && r.Method == http.MethodGet && (corePath == "/status" || corePath == "/threads" || strings.HasPrefix(corePath, "/threads/"))
 		if !needsRewrite {
 			for k, v := range resp.Header {
 				w.Header()[k] = v
@@ -3221,6 +3658,10 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 				body, rewritten = s.enrichAgentStatusBody(inst.ID, body, time.Now(), inst)
 			case "/threads":
 				body, rewritten = s.enrichAgentThreadsBody(inst.ID, body, time.Now())
+			default:
+				if strings.HasPrefix(corePath, "/threads/") {
+					body, rewritten = sanitizeDirectiveJSON(body)
+				}
 			}
 		}
 		for k, v := range resp.Header {
@@ -3326,20 +3767,21 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 						depth = int(d)
 					}
 					threads = append(threads, map[string]any{
-						"id":          t["id"],
-						"parent_id":   t["parent_id"],
-						"depth":       depth,
-						"directive":   t["directive"],
-						"tools":       t["tools"],
-						"mcp_names":   t["mcp_names"],
-						"realtime":    t["realtime"],
-						"voice":       t["voice"],
-						"provider":    t["provider"],
-						"iteration":   0,
-						"rate":        "stopped",
-						"model":       "",
-						"age":         "",
-						"sleep_state": "stopped",
+						"id":                 t["id"],
+						"parent_id":          t["parent_id"],
+						"depth":              depth,
+						"directive":          withoutAgentControls(sleepStringValue(t["directive"])),
+						"tools":              t["tools"],
+						"mcp_names":          t["mcp_names"],
+						"realtime":           t["realtime"],
+						"voice":              t["voice"],
+						"provider":           t["provider"],
+						"realtime_execution": t["realtime_execution"],
+						"iteration":          0,
+						"rate":               "stopped",
+						"model":              "",
+						"age":                "",
+						"sleep_state":        "stopped",
 					})
 				}
 			}
@@ -3368,6 +3810,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 
 	case "/config":
 		directive, _ := config["directive"].(string)
+		directive = withoutAgentControls(directive)
 		if directive == "" {
 			directive = inst.Directive
 		}
@@ -3381,7 +3824,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 		// inject so the dashboard never guesses from a differently ordered
 		// provider list or displays stale disk defaults.
 		if pool := s.GetProviderPool(inst.UserID, inst.ProjectID); len(pool) > 0 {
-			config["providers"] = buildAgentCoreProviderConfigs(pool, inst.Config)
+			config["providers"] = buildAgentCoreProviderConfigs(pool, realtimeConfigFromDisk(inst.Config, config))
 		}
 		// Return the full persisted config surface — mcp_servers,
 		// providers, threads — so the stopped-instance UI
@@ -3405,6 +3848,7 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			out["mcp_servers"] = []any{}
 		}
 		s.behaviorMetadata(inst, out)
+		sanitizeDirectiveFields(out)
 		writeJSON(w, out)
 	}
 }
@@ -3450,6 +3894,10 @@ func (s *Server) handleStoppedMutation(w http.ResponseWriter, r *http.Request, i
 		})
 		if err != nil {
 			http.Error(w, fmt.Sprintf("persist threads: %v", err), http.StatusInternalServerError)
+			return true
+		}
+		if err := s.store.DeleteAgentThreadScope(inst.ID, tid); err != nil {
+			http.Error(w, "thread deleted but resource cleanup failed", http.StatusInternalServerError)
 			return true
 		}
 		log.Printf("[THREADS] stopped agent=%d dropped persisted thread %q", inst.ID, tid)
@@ -3556,7 +4004,7 @@ func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/instances/")
 	parts := strings.SplitN(path, "/", 2)
 	instanceID, _ := atoi64(parts[0])
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -3637,7 +4085,7 @@ func (s *Server) handleSystemMCPToggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return
@@ -3713,7 +4161,7 @@ func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid instance ID", http.StatusBadRequest)
 		return
 	}
-	inst, err := s.store.GetAgentByID(instanceID)
+	inst, err := s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
 		return

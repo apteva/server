@@ -1,0 +1,1585 @@
+{
+  "slug": "ecwid",
+  "name": "Ecwid by Lightspeed",
+  "description": "Ecwid REST API for hosted physical and digital commerce: Instant Site products, downloadable files, variants, media, inventory, categories, orders, customers, promotions, and coupons.",
+  "logo": "https://www.google.com/s2/favicons?domain=ecwid.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "storefront",
+    "instant-site",
+    "digital-products",
+    "products",
+    "orders",
+    "retail"
+  ],
+  "base_url": "https://app.ecwid.com/api/v3/{{credential.store_id}}",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "store_id",
+        "label": "Store ID",
+        "description": "Numeric Ecwid store ID.",
+        "required": true
+      },
+      {
+        "name": "token",
+        "label": "Secret Access Token",
+        "type": "password",
+        "description": "Ecwid app access token with the catalog/order scopes needed by the tools you use.",
+        "required": true
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_store_profile",
+      "description": "Get the store profile, currencies, enabled languages, storefront URLs, and account settings.",
+      "method": "GET",
+      "path": "/profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "responseFields": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_store_profile",
+      "description": "Update editable store-profile and Instant Site settings.",
+      "method": "PUT",
+      "path": "/profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "companyName": {
+            "type": "string"
+          },
+          "companyEmail": {
+            "type": "string"
+          },
+          "storeUrl": {
+            "type": "string"
+          },
+          "orderCommentsEnabled": {
+            "type": "boolean"
+          },
+          "askCompanyName": {
+            "type": "boolean"
+          },
+          "settings": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_latest_stats",
+      "description": "Get current store statistics.",
+      "method": "GET",
+      "path": "/latest-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_products",
+      "description": "Search products and return their Ecwid or Instant Site product URLs.",
+      "method": "GET",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "category": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "inStock": {
+            "type": "boolean"
+          },
+          "sortBy": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Get one product, including its hosted product URL, media, variants, and digital-file metadata.",
+      "method": "GET",
+      "path": "/products/{productId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "responseFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a physical or digital product. For digital-only products set isShippingRequired=false, then attach files with upload_product_file.",
+      "method": "POST",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string",
+            "description": "Merchant SKU."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Stock quantity."
+          },
+          "unlimited": {
+            "type": "boolean",
+            "description": "Disable stock limits when true."
+          },
+          "name": {
+            "type": "string",
+            "description": "Product name."
+          },
+          "price": {
+            "type": "number",
+            "description": "Product price in the store currency."
+          },
+          "compareToPrice": {
+            "type": "number",
+            "description": "Original price shown for a sale."
+          },
+          "costPrice": {
+            "type": "number",
+            "description": "Internal product cost."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the product is visible for sale."
+          },
+          "description": {
+            "type": "string",
+            "description": "HTML product description."
+          },
+          "categoryIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Category IDs assigned to the product."
+          },
+          "isShippingRequired": {
+            "type": "boolean",
+            "description": "False for a purely digital product."
+          },
+          "weight": {
+            "type": "number"
+          },
+          "dimensions": {
+            "type": "object"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "relatedProducts": {
+            "type": "object"
+          },
+          "seoTitle": {
+            "type": "string"
+          },
+          "seoDescription": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "price"
+        ]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update product content, pricing, visibility, categories, shipping behavior, options, and SEO.",
+      "method": "PUT",
+      "path": "/products/{productId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "sku": {
+            "type": "string",
+            "description": "Merchant SKU."
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Stock quantity."
+          },
+          "unlimited": {
+            "type": "boolean",
+            "description": "Disable stock limits when true."
+          },
+          "name": {
+            "type": "string",
+            "description": "Product name."
+          },
+          "price": {
+            "type": "number",
+            "description": "Product price in the store currency."
+          },
+          "compareToPrice": {
+            "type": "number",
+            "description": "Original price shown for a sale."
+          },
+          "costPrice": {
+            "type": "number",
+            "description": "Internal product cost."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the product is visible for sale."
+          },
+          "description": {
+            "type": "string",
+            "description": "HTML product description."
+          },
+          "categoryIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Category IDs assigned to the product."
+          },
+          "isShippingRequired": {
+            "type": "boolean",
+            "description": "False for a purely digital product."
+          },
+          "weight": {
+            "type": "number"
+          },
+          "dimensions": {
+            "type": "object"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "relatedProducts": {
+            "type": "object"
+          },
+          "seoTitle": {
+            "type": "string"
+          },
+          "seoDescription": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete one product.",
+      "method": "DELETE",
+      "path": "/products/{productId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "adjust_product_stock",
+      "description": "Atomically increase or decrease product stock.",
+      "method": "PUT",
+      "path": "/products/{productId}/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "quantityDelta": {
+            "type": "integer",
+            "description": "Positive adds stock; negative removes stock."
+          },
+          "checkLowStockNotification": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "productId",
+          "quantityDelta"
+        ]
+      },
+      "query_params": [
+        "checkLowStockNotification"
+      ]
+    },
+    {
+      "name": "list_product_variations",
+      "description": "List product variations.",
+      "method": "GET",
+      "path": "/products/{productId}/combinations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "get_product_variation",
+      "description": "Get one product variation.",
+      "method": "GET",
+      "path": "/products/{productId}/combinations/{combinationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "combinationId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "combinationId"
+        ]
+      }
+    },
+    {
+      "name": "create_product_variation",
+      "description": "Create a product variation with option selections, SKU, price, and stock.",
+      "method": "POST",
+      "path": "/products/{productId}/combinations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "combinationNumber": {
+            "type": "integer"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sku": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "unlimited": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "productId",
+          "options"
+        ]
+      }
+    },
+    {
+      "name": "update_product_variation",
+      "description": "Update a product variation.",
+      "method": "PUT",
+      "path": "/products/{productId}/combinations/{combinationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "combinationId": {
+            "type": "integer"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sku": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "unlimited": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "productId",
+          "combinationId"
+        ]
+      }
+    },
+    {
+      "name": "delete_product_variation",
+      "description": "Delete a product variation.",
+      "method": "DELETE",
+      "path": "/products/{productId}/combinations/{combinationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "combinationId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "combinationId"
+        ]
+      }
+    },
+    {
+      "name": "adjust_product_variation_stock",
+      "description": "Atomically increase or decrease variation stock.",
+      "method": "PUT",
+      "path": "/products/{productId}/combinations/{combinationId}/inventory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "combinationId": {
+            "type": "integer"
+          },
+          "quantityDelta": {
+            "type": "integer"
+          },
+          "checkLowStockNotification": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "productId",
+          "combinationId",
+          "quantityDelta"
+        ]
+      },
+      "query_params": [
+        "checkLowStockNotification"
+      ]
+    },
+    {
+      "name": "upload_main_product_image_from_url",
+      "description": "Import a main product image asynchronously from an HTTPS URL.",
+      "method": "POST",
+      "path": "/products/{productId}/image/async",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "width": {
+            "type": "string"
+          },
+          "height": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "object"
+          },
+          "externalId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "url",
+          "width",
+          "height"
+        ]
+      }
+    },
+    {
+      "name": "upload_gallery_product_image_from_url",
+      "description": "Import a gallery product image asynchronously from an HTTPS URL.",
+      "method": "POST",
+      "path": "/products/{productId}/gallery/async",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "width": {
+            "type": "string"
+          },
+          "height": {
+            "type": "string"
+          },
+          "alt": {
+            "type": "object"
+          },
+          "externalId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "url",
+          "width",
+          "height"
+        ]
+      }
+    },
+    {
+      "name": "delete_main_product_image",
+      "description": "Delete the main product image.",
+      "method": "DELETE",
+      "path": "/products/{productId}/image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId"
+        ]
+      }
+    },
+    {
+      "name": "delete_gallery_product_image",
+      "description": "Delete one gallery product image.",
+      "method": "DELETE",
+      "path": "/products/{productId}/gallery/{galleryImageId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "galleryImageId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "galleryImageId"
+        ]
+      }
+    },
+    {
+      "name": "upload_product_file",
+      "description": "Attach a downloadable file to a digital product by importing it from a temporary HTTPS URL.",
+      "method": "POST",
+      "path": "/products/{productId}/files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "externalUrl": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "fileName",
+          "externalUrl"
+        ]
+      },
+      "query_params": [
+        "fileName",
+        "externalUrl",
+        "description"
+      ]
+    },
+    {
+      "name": "download_product_file",
+      "description": "Download an attached digital product file.",
+      "method": "GET",
+      "path": "/products/{productId}/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "fileId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "update_product_file",
+      "description": "Change the customer-visible description of a digital product file.",
+      "method": "PUT",
+      "path": "/products/{productId}/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "fileId": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "productId",
+          "fileId",
+          "description"
+        ]
+      }
+    },
+    {
+      "name": "delete_product_file",
+      "description": "Delete one downloadable file from a product.",
+      "method": "DELETE",
+      "path": "/products/{productId}/files/{fileId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "integer"
+          },
+          "fileId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "fileId"
+        ]
+      }
+    },
+    {
+      "name": "search_categories",
+      "description": "Search store categories.",
+      "method": "GET",
+      "path": "/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          },
+          "parent": {
+            "type": "integer"
+          },
+          "hidden_categories": {
+            "type": "boolean"
+          },
+          "keyword": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_category",
+      "description": "Get one category.",
+      "method": "GET",
+      "path": "/categories/{categoryId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "categoryId"
+        ]
+      }
+    },
+    {
+      "name": "create_category",
+      "description": "Create a product category.",
+      "method": "POST",
+      "path": "/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "orderBy": {
+            "type": "integer"
+          },
+          "seoTitle": {
+            "type": "string"
+          },
+          "seoDescription": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "update_category",
+      "description": "Update a product category.",
+      "method": "PUT",
+      "path": "/categories/{categoryId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "orderBy": {
+            "type": "integer"
+          },
+          "seoTitle": {
+            "type": "string"
+          },
+          "seoDescription": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "categoryId"
+        ]
+      }
+    },
+    {
+      "name": "delete_category",
+      "description": "Delete a product category.",
+      "method": "DELETE",
+      "path": "/categories/{categoryId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "categoryId"
+        ]
+      }
+    },
+    {
+      "name": "assign_products_to_category",
+      "description": "Assign products to a category.",
+      "method": "POST",
+      "path": "/categories/{categoryId}/assignProducts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "integer"
+          },
+          "productIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "categoryId",
+          "productIds"
+        ]
+      }
+    },
+    {
+      "name": "unassign_products_from_category",
+      "description": "Remove products from a category.",
+      "method": "POST",
+      "path": "/categories/{categoryId}/unassignProducts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "categoryId": {
+            "type": "integer"
+          },
+          "productIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "categoryId",
+          "productIds"
+        ]
+      }
+    },
+    {
+      "name": "search_orders",
+      "description": "Search orders by dates, status, customer, or IDs.",
+      "method": "GET",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          },
+          "orderNumber": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "fulfillmentStatus": {
+            "type": "string"
+          },
+          "createdFrom": {
+            "type": "string"
+          },
+          "createdTo": {
+            "type": "string"
+          },
+          "updatedFrom": {
+            "type": "string"
+          },
+          "updatedTo": {
+            "type": "string"
+          },
+          "productId": {
+            "type": "integer"
+          },
+          "customerId": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Get one order.",
+      "method": "GET",
+      "path": "/orders/{orderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "responseFields": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create an order in Ecwid.",
+      "method": "POST",
+      "path": "/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subtotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "email": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "fulfillmentStatus": {
+            "type": "string"
+          },
+          "billingPerson": {
+            "type": "object"
+          },
+          "shippingPerson": {
+            "type": "object"
+          },
+          "shippingOption": {
+            "type": "object"
+          },
+          "trackingNumber": {
+            "type": "string"
+          },
+          "externalOrderId": {
+            "type": "string"
+          },
+          "externalFulfillment": {
+            "type": "boolean"
+          },
+          "disableAllCustomerNotifications": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "subtotal",
+          "total",
+          "email",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "update_order",
+      "description": "Update payment, fulfillment, tracking, address, line-item, and administrative order data.",
+      "method": "PUT",
+      "path": "/orders/{orderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "fulfillmentStatus": {
+            "type": "string"
+          },
+          "trackingNumber": {
+            "type": "string"
+          },
+          "shippingPerson": {
+            "type": "object"
+          },
+          "billingPerson": {
+            "type": "object"
+          },
+          "shippingOption": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "privateAdminNotes": {
+            "type": "string"
+          },
+          "externalOrderId": {
+            "type": "string"
+          },
+          "externalFulfillment": {
+            "type": "boolean"
+          },
+          "disableAllCustomerNotifications": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "delete_order",
+      "description": "Delete an order.",
+      "method": "DELETE",
+      "path": "/orders/{orderId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "get_repeat_order_url",
+      "description": "Get an Ecwid-hosted URL that lets the customer repeat a previous order.",
+      "method": "GET",
+      "path": "/orders/{orderId}/repeatURL",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      }
+    },
+    {
+      "name": "search_customers",
+      "description": "Search customers.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          },
+          "keyword": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "customerGroupId": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Get one customer.",
+      "method": "GET",
+      "path": "/customers/{customerId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customerId"
+        ]
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a customer profile.",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "companyName": {
+            "type": "string"
+          },
+          "customerGroupId": {
+            "type": "integer"
+          },
+          "billingPerson": {
+            "type": "object"
+          },
+          "shippingAddresses": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "acceptMarketing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update a customer profile.",
+      "method": "PUT",
+      "path": "/customers/{customerId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "integer"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "companyName": {
+            "type": "string"
+          },
+          "customerGroupId": {
+            "type": "integer"
+          },
+          "billingPerson": {
+            "type": "object"
+          },
+          "shippingAddresses": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "acceptMarketing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customerId"
+        ]
+      }
+    },
+    {
+      "name": "delete_customer",
+      "description": "Delete a customer profile.",
+      "method": "DELETE",
+      "path": "/customers/{customerId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customerId"
+        ]
+      }
+    },
+    {
+      "name": "list_promotions",
+      "description": "List automatic promotions.",
+      "method": "GET",
+      "path": "/promotions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_promotion",
+      "description": "Create an automatic promotion.",
+      "method": "POST",
+      "path": "/promotions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "triggers": {
+            "type": "object"
+          },
+          "targets": {
+            "type": "object"
+          },
+          "discount": {
+            "type": "object"
+          },
+          "limits": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "discount"
+        ]
+      }
+    },
+    {
+      "name": "update_promotion",
+      "description": "Update an automatic promotion.",
+      "method": "PUT",
+      "path": "/promotions/{promotionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "triggers": {
+            "type": "object"
+          },
+          "targets": {
+            "type": "object"
+          },
+          "discount": {
+            "type": "object"
+          },
+          "limits": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "promotionId"
+        ]
+      }
+    },
+    {
+      "name": "delete_promotion",
+      "description": "Delete an automatic promotion.",
+      "method": "DELETE",
+      "path": "/promotions/{promotionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "promotionId"
+        ]
+      }
+    },
+    {
+      "name": "list_discount_coupons",
+      "description": "List discount coupons.",
+      "method": "GET",
+      "path": "/discount_coupons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results."
+          },
+          "responseFields": {
+            "type": "string",
+            "description": "Comma-separated response fields to retain."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_discount_coupon",
+      "description": "Get one discount coupon.",
+      "method": "GET",
+      "path": "/discount_coupons/{discountCouponId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "discountCouponId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "discountCouponId"
+        ]
+      }
+    },
+    {
+      "name": "create_discount_coupon",
+      "description": "Create a discount coupon.",
+      "method": "POST",
+      "path": "/discount_coupons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "discountType": {
+            "type": "string"
+          },
+          "discount": {
+            "type": "number"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "usesLimit": {
+            "type": "string"
+          },
+          "applicationLimit": {
+            "type": "string"
+          },
+          "expirationDate": {
+            "type": "string"
+          },
+          "catalogLimit": {
+            "type": "object"
+          },
+          "orderCount": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "code",
+          "discountType"
+        ]
+      }
+    },
+    {
+      "name": "update_discount_coupon",
+      "description": "Update a discount coupon.",
+      "method": "PUT",
+      "path": "/discount_coupons/{discountCouponId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "discountCouponId": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "discountType": {
+            "type": "string"
+          },
+          "discount": {
+            "type": "number"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "usesLimit": {
+            "type": "string"
+          },
+          "applicationLimit": {
+            "type": "string"
+          },
+          "expirationDate": {
+            "type": "string"
+          },
+          "catalogLimit": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "discountCouponId"
+        ]
+      }
+    },
+    {
+      "name": "delete_discount_coupon",
+      "description": "Delete a discount coupon.",
+      "method": "DELETE",
+      "path": "/discount_coupons/{discountCouponId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "discountCouponId": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "discountCouponId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_store_profile"
+  }
+}

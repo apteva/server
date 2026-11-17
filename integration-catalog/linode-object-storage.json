@@ -1,0 +1,183 @@
+{
+  "slug": "linode-object-storage",
+  "name": "Linode Object Storage",
+  "description": "Linode Object Storage \u2014 S3-compatible object storage from Akamai/Linode. $5/month base subscription includes 250GB storage + 1TB outbound transfer; overage at $0.02/GB storage and $0.005/GB egress. Bucket-scoped REST with AWS SigV4 against {cluster}.linodeobjects.com. Cluster examples: us-east-1, us-southeast-1, us-mia-1, us-iad-1, us-ord-1, us-sea-1, eu-central-1, ap-south-1, fr-par-1. Generate Object Storage Access Keys at cloud.linode.com \u2192 Object Storage \u2192 Access Keys.",
+  "logo": "https://www.google.com/s2/favicons?domain=linode.com&sz=128",
+  "categories": [
+    "storage",
+    "linode",
+    "akamai",
+    "cloud",
+    "infrastructure",
+    "s3-compatible"
+  ],
+  "base_url": "https://{{cluster}}.linodeobjects.com",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "description": "Linode cluster id (used as both the SigV4 region and the endpoint subdomain). Examples: us-east-1, us-mia-1, us-iad-1, us-ord-1, us-sea-1, eu-central-1, ap-south-1, fr-par-1.",
+        "required": true,
+        "type": "text",
+        "default": "us-east-1"
+      },
+      {
+        "name": "region",
+        "label": "SigV4 Region",
+        "description": "Region used for SigV4 signing. Almost always equals the cluster id; override only if Linode publishes a separate signing region.",
+        "required": false,
+        "type": "text",
+        "default": "us-east-1"
+      },
+      {
+        "name": "access_key_id",
+        "label": "Linode Access Key",
+        "description": "From cloud.linode.com \u2192 Object Storage \u2192 Access Keys \u2192 Create Access Key. Limited Access Keys can be scoped to specific buckets \u2014 prefer those over unrestricted keys.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "Linode Secret Key",
+        "description": "Shown once at key creation. Regenerate the key if lost.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "description": "Linode Object Storage bucket name."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Filter to keys starting with this prefix."
+          },
+          "continuation-token": {
+            "type": "string",
+            "description": "Pagination cursor from a prior IsTruncated response."
+          },
+          "max-keys": {
+            "type": "integer",
+            "description": "Page size (max 1000)."
+          },
+          "list-type": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "bucket"
+        ]
+      },
+      "query_params": [
+        "prefix",
+        "continuation-token",
+        "max-keys",
+        "list-type"
+      ]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass content as 'body'; runner sends verbatim with SigV4 integrity hash. Single-PUT cap is 5GB; use multipart for larger.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "Object key (path inside the bucket)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Object content. Bytes welcome \u2014 the runner sends them verbatim."
+          }
+        },
+        "required": [
+          "bucket",
+          "key",
+          "body"
+        ]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200MB).",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "key"
+        ]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all Linode buckets the access key can see. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_buckets",
+    "auth_ok_when_body_contains": [
+      "AccessDenied"
+    ]
+  }
+}

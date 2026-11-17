@@ -1,0 +1,146 @@
+{
+  "slug": "smartlead",
+  "name": "Smartlead",
+  "description": "Cold-email platform with unlimited mailboxes and built-in warmup. Often paired with or chosen over Instantly for higher-volume outbound.",
+  "logo": "https://www.google.com/s2/favicons?domain=smartlead.ai&sz=128",
+  "categories": ["email", "outreach", "sequencing", "campaigns", "sales", "cold-email"],
+  "base_url": "https://server.smartlead.ai/api/v1",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "api_key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Smartlead API key from app.smartlead.ai → Settings → API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_campaigns",
+      "description": "List all campaigns.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a new campaign (empty shell — add mailboxes, sequence steps, leads in follow-up calls).",
+      "method": "POST",
+      "path": "/campaigns/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "client_id": { "type": "integer", "description": "Optional whitelabel/sub-account id" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "save_sequence",
+      "description": "Save the email sequence (steps) for a campaign.",
+      "method": "POST",
+      "path": "/campaigns/{campaign_id}/sequences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "integer" },
+          "sequences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq_number": { "type": "integer" },
+                "seq_delay_details": { "type": "object", "properties": { "delay_in_days": { "type": "integer" } } },
+                "subject": { "type": "string" },
+                "email_body": { "type": "string", "description": "HTML or text body" }
+              }
+            }
+          }
+        },
+        "required": ["campaign_id", "sequences"]
+      }
+    },
+    {
+      "name": "add_leads",
+      "description": "Add leads to a campaign.",
+      "method": "POST",
+      "path": "/campaigns/{campaign_id}/leads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "integer" },
+          "lead_list": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_name": { "type": "string" },
+                "last_name": { "type": "string" },
+                "email": { "type": "string" },
+                "company_name": { "type": "string" },
+                "phone_number": { "type": "string" },
+                "website": { "type": "string" },
+                "custom_fields": { "type": "object" }
+              },
+              "required": ["email"]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "ignore_global_block_list": { "type": "boolean" },
+              "ignore_unsubscribe_list": { "type": "boolean" },
+              "ignore_duplicate_leads_in_other_campaign": { "type": "boolean" }
+            }
+          }
+        },
+        "required": ["campaign_id", "lead_list"]
+      }
+    },
+    {
+      "name": "update_campaign_status",
+      "description": "Start, pause, or stop a campaign.",
+      "method": "POST",
+      "path": "/campaigns/{campaign_id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "integer" },
+          "status": { "type": "string", "enum": ["START", "PAUSED", "STOPPED"] }
+        },
+        "required": ["campaign_id", "status"]
+      }
+    },
+    {
+      "name": "campaign_analytics",
+      "description": "Get analytics for a campaign.",
+      "method": "GET",
+      "path": "/campaigns/{campaign_id}/analytics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "integer" }
+        },
+        "required": ["campaign_id"]
+      }
+    },
+    {
+      "name": "list_email_accounts",
+      "description": "List connected sending mailboxes.",
+      "method": "GET",
+      "path": "/email-accounts/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": { "type": "integer", "default": 0 },
+          "limit": { "type": "integer", "default": 100 }
+        }
+      }
+    }
+  ]
+}

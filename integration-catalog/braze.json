@@ -1,0 +1,103 @@
+{
+  "slug": "braze",
+  "name": "Braze",
+  "description": "MCP server for Braze - user tracking, messaging, campaigns, canvases",
+  "logo": "https://www.google.com/s2/favicons?domain=braze.com&sz=128",
+  "categories": ["marketing", "messaging", "email", "push", "crm"],
+  "base_url": "https://{{restEndpoint}}",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "REST API Key" },
+      { "name": "restEndpoint", "label": "REST Endpoint", "description": "e.g. rest.iad-01.braze.com" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "track_users",
+      "description": "Track users / attributes / events / purchases",
+      "method": "POST",
+      "path": "/users/track",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "attributes": { "type": "array" },
+          "events": { "type": "array" },
+          "purchases": { "type": "array" }
+        }
+      }
+    },
+    {
+      "name": "delete_users",
+      "description": "Delete users",
+      "method": "POST",
+      "path": "/users/delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "external_ids": { "type": "array" },
+          "user_aliases": { "type": "array" }
+        }
+      }
+    },
+    {
+      "name": "export_users_ids",
+      "description": "Export user profiles by external_id",
+      "method": "POST",
+      "path": "/users/export/ids",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "external_ids": { "type": "array" },
+          "fields_to_export": { "type": "array" }
+        }
+      }
+    },
+    {
+      "name": "send_messages",
+      "description": "Send transactional or immediate messages",
+      "method": "POST",
+      "path": "/messages/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "external_user_ids": { "type": "array" },
+          "segment_id": { "type": "string" },
+          "messages": { "type": "object" }
+        },
+        "required": ["messages"]
+      }
+    },
+    {
+      "name": "trigger_campaign",
+      "description": "Trigger an API-triggered campaign send",
+      "method": "POST",
+      "path": "/campaigns/trigger/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": { "type": "string" },
+          "recipients": { "type": "array" },
+          "trigger_properties": { "type": "object" }
+        },
+        "required": ["campaign_id"]
+      }
+    },
+    {
+      "name": "trigger_canvas",
+      "description": "Trigger a Canvas send",
+      "method": "POST",
+      "path": "/canvas/trigger/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "canvas_id": { "type": "string" },
+          "recipients": { "type": "array" },
+          "canvas_entry_properties": { "type": "object" }
+        },
+        "required": ["canvas_id"]
+      }
+    }
+  ]
+}

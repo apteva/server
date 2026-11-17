@@ -1,0 +1,366 @@
+{
+  "slug": "qonto",
+  "name": "Qonto",
+  "description": "MCP server for Qonto - European business banking, accounts, transactions, transfers, and cards",
+  "logo": "https://www.google.com/s2/favicons?domain=qonto.com&sz=128",
+  "categories": [
+    "banking",
+    "finance",
+    "business",
+    "payments",
+    "sepa",
+    "europe"
+  ],
+  "base_url": "https://thirdparty.qonto.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Qonto API key in format 'org-slug:secret-key' (get from Qonto Settings > Integrations > API)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "organization_get",
+      "description": "Get the authenticated organization details",
+      "method": "GET",
+      "path": "/organization-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "bank_accounts_list",
+      "description": "List all bank accounts in the organization",
+      "method": "GET",
+      "path": "/bank-accounts-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "transactions_list",
+      "description": "List transactions with optional filters",
+      "method": "GET",
+      "path": "/transactions-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "Filter by bank account ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "side": {
+            "type": "string",
+            "description": "Filter by side: 'credit' or 'debit'",
+            "enum": [
+              "credit",
+              "debit"
+            ]
+          },
+          "updated_at_from": {
+            "type": "string",
+            "description": "Filter from updated date (ISO 8601)"
+          },
+          "updated_at_to": {
+            "type": "string",
+            "description": "Filter to updated date (ISO 8601)"
+          },
+          "emitted_at_from": {
+            "type": "string",
+            "description": "Filter from emitted date (ISO 8601)"
+          },
+          "emitted_at_to": {
+            "type": "string",
+            "description": "Filter to emitted date (ISO 8601)"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "transaction_get",
+      "description": "Get details for a specific transaction",
+      "method": "GET",
+      "path": "/transaction-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string",
+            "description": "The transaction ID"
+          }
+        },
+        "required": [
+          "transaction_id"
+        ]
+      }
+    },
+    {
+      "name": "transfers_list",
+      "description": "List SEPA transfers",
+      "method": "GET",
+      "path": "/transfers-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "Filter by bank account ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer_create",
+      "description": "Create a new SEPA transfer",
+      "method": "GET",
+      "path": "/transfer-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "Source bank account ID"
+          },
+          "beneficiary_id": {
+            "type": "string",
+            "description": "Destination beneficiary ID"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Amount in cents"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code (default: EUR)"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Transfer reference"
+          },
+          "note": {
+            "type": "string",
+            "description": "Internal note"
+          },
+          "scheduled_date": {
+            "type": "string",
+            "description": "Scheduled date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "bank_account_id",
+          "beneficiary_id",
+          "amount"
+        ]
+      }
+    },
+    {
+      "name": "beneficiaries_list",
+      "description": "List SEPA beneficiaries",
+      "method": "GET",
+      "path": "/beneficiaries-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "trusted": {
+            "type": "boolean",
+            "description": "Filter by trusted status"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "beneficiary_create",
+      "description": "Create a new SEPA beneficiary",
+      "method": "GET",
+      "path": "/beneficiary-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Beneficiary name"
+          },
+          "iban": {
+            "type": "string",
+            "description": "IBAN number"
+          },
+          "bic": {
+            "type": "string",
+            "description": "BIC/SWIFT code"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email address"
+          }
+        },
+        "required": [
+          "name",
+          "iban"
+        ]
+      }
+    },
+    {
+      "name": "cards_list",
+      "description": "List all cards in the organization",
+      "method": "GET",
+      "path": "/cards-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bank_account_id": {
+            "type": "string",
+            "description": "Filter by bank account ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by card status"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "card_lock",
+      "description": "Lock a card to prevent usage",
+      "method": "GET",
+      "path": "/card-lock",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "The card ID"
+          }
+        },
+        "required": [
+          "card_id"
+        ]
+      }
+    },
+    {
+      "name": "card_unlock",
+      "description": "Unlock a previously locked card",
+      "method": "GET",
+      "path": "/card-unlock",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "card_id": {
+            "type": "string",
+            "description": "The card ID"
+          }
+        },
+        "required": [
+          "card_id"
+        ]
+      }
+    },
+    {
+      "name": "memberships_list",
+      "description": "List all memberships in the organization",
+      "method": "GET",
+      "path": "/memberships-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    },
+    {
+      "name": "membership_get",
+      "description": "Get the authenticated user's membership details",
+      "method": "GET",
+      "path": "/membership-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "labels_list",
+      "description": "List all labels in the organization",
+      "method": "GET",
+      "path": "/labels-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Results per page"
+          }
+        }
+      }
+    }
+  ]
+}

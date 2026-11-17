@@ -1,0 +1,110 @@
+{
+  "slug": "resend",
+  "name": "Resend",
+  "description": "MCP server for Resend - transactional email, domains, audiences, broadcasts",
+  "logo": "https://www.google.com/s2/favicons?domain=resend.com&sz=128",
+  "categories": ["email", "transactional", "marketing", "communication"],
+  "base_url": "https://api.resend.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Key", "description": "Resend API key (re_...)" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_email",
+      "description": "Send a transactional email",
+      "method": "POST",
+      "path": "/emails",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "array", "items": { "type": "string" } },
+          "subject": { "type": "string" },
+          "html": { "type": "string" },
+          "text": { "type": "string" },
+          "cc": { "type": "array", "items": { "type": "string" } },
+          "bcc": { "type": "array", "items": { "type": "string" } },
+          "reply_to": { "type": "array", "items": { "type": "string" } },
+          "attachments": { "type": "array" },
+          "tags": { "type": "array" }
+        },
+        "required": ["from", "to", "subject"]
+      }
+    },
+    {
+      "name": "send_batch",
+      "description": "Send up to 100 emails in one call",
+      "method": "POST",
+      "path": "/emails/batch",
+      "input_schema": {
+        "type": "object",
+        "properties": { "emails": { "type": "array" } },
+        "required": ["emails"]
+      }
+    },
+    {
+      "name": "get_email",
+      "description": "Retrieve a sent email",
+      "method": "GET",
+      "path": "/emails/{email_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "email_id": { "type": "string" } },
+        "required": ["email_id"]
+      }
+    },
+    {
+      "name": "list_domains",
+      "description": "List verified domains",
+      "method": "GET",
+      "path": "/domains",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_domain",
+      "description": "Add a new sending domain",
+      "method": "POST",
+      "path": "/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Add a contact to an audience",
+      "method": "POST",
+      "path": "/audiences/{audience_id}/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "audience_id": { "type": "string" },
+          "email": { "type": "string" },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "unsubscribed": { "type": "boolean" }
+        },
+        "required": ["audience_id", "email"]
+      }
+    },
+    {
+      "name": "send_broadcast",
+      "description": "Send a broadcast to an audience",
+      "method": "POST",
+      "path": "/broadcasts/{broadcast_id}/send",
+      "input_schema": {
+        "type": "object",
+        "properties": { "broadcast_id": { "type": "string" } },
+        "required": ["broadcast_id"]
+      }
+    }
+  ]
+}

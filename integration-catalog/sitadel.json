@@ -1,0 +1,112 @@
+{
+  "slug": "sitadel",
+  "name": "Sitadel Building Permits",
+  "description": "Official French open data for building permits and other planning authorizations recorded in Sitadel. Covers housing, non-residential premises, development permits, and demolition permits since 2013, updated monthly. Public records retain the work location and permit number but remove protected personal applicant details.",
+  "logo": "https://www.google.com/s2/favicons?domain=statistiques.developpement-durable.gouv.fr&sz=128",
+  "categories": [
+    "france",
+    "construction",
+    "building-permits",
+    "planning",
+    "real-estate",
+    "open-data"
+  ],
+  "base_url": "https://data.statistiques.developpement-durable.gouv.fr/dido/api",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "get_dataset"
+  },
+  "tools": [
+    {
+      "name": "get_dataset",
+      "description": "Get Sitadel dataset metadata, current data-file identifiers, field schemas, millesimes, row counts, and update dates.",
+      "method": "GET",
+      "path": "/v1/datasets/6513f0189d7d312c80ec5b5b",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_housing_authorizations",
+      "description": "Page through permits and prior declarations that create housing. Returns project state and milestone dates, work address/cadastral location, unit counts, surfaces, and non-protected applicant fields when available.",
+      "method": "GET",
+      "path": "/v1/datafiles/8b35affb-55fc-4c1f-915b-7750f974446a/rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "millesime": {"type": "string", "description": "Optional historical release in YYYY-MM format; omit for latest."},
+          "page": {"type": "integer", "minimum": 1, "default": 1},
+          "pageSize": {"type": "string", "enum": ["10", "20", "50", "100"], "default": "100"},
+          "orderBy": {"type": "string", "description": "Comma-separated fields; prefix descending fields with -, for example `-DATE_REELLE_AUTORISATION`."},
+          "columns": {"type": "string", "description": "Comma-separated columns to return."}
+        }
+      }
+    },
+    {
+      "name": "list_non_residential_authorizations",
+      "description": "Page through authorizations that create or extend non-residential premises, including commercial and industrial projects.",
+      "method": "GET",
+      "path": "/v1/datafiles/f8f0700f-806c-40a7-83b1-f21cf507e7c4/rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "millesime": {"type": "string", "description": "Optional historical release YYYY-MM."},
+          "page": {"type": "integer", "minimum": 1, "default": 1},
+          "pageSize": {"type": "string", "enum": ["10", "20", "50", "100"], "default": "100"},
+          "orderBy": {"type": "string"},
+          "columns": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "list_development_permits",
+      "description": "Page through French permis d'aménager records for land development projects.",
+      "method": "GET",
+      "path": "/v1/datafiles/96883f50-538b-41f9-a059-c6eb97e6a23a/rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "millesime": {"type": "string"},
+          "page": {"type": "integer", "minimum": 1, "default": 1},
+          "pageSize": {"type": "string", "enum": ["10", "20", "50", "100"], "default": "100"},
+          "orderBy": {"type": "string"},
+          "columns": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "list_demolition_permits",
+      "description": "Page through French demolition-permit records.",
+      "method": "GET",
+      "path": "/v1/datafiles/1a9a2f0c-56fe-4e69-84a7-fbbda2121f02/rows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "millesime": {"type": "string"},
+          "page": {"type": "integer", "minimum": 1, "default": 1},
+          "pageSize": {"type": "string", "enum": ["10", "20", "50", "100"], "default": "100"},
+          "orderBy": {"type": "string"},
+          "columns": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "get_datafile_metadata",
+      "description": "Get metadata and the current field schema for any Sitadel data file returned by get_dataset.",
+      "method": "GET",
+      "path": "/v1/datafiles/{rid}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "rid": {"type": "string", "description": "Sitadel data-file UUID."},
+          "millesime": {"type": "string", "description": "Optional release YYYY-MM."}
+        },
+        "required": ["rid"]
+      }
+    }
+  ]
+}

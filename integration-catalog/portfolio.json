@@ -1,0 +1,511 @@
+{
+  "slug": "portfolio",
+  "name": "Portfolio Management",
+  "description": "Investment portfolio management - track portfolios, holdings, transactions, and search/browse dividend stocks",
+  "logo": "https://www.google.com/s2/favicons?domain=dividend.watch&sz=128",
+  "categories": [
+    "portfolio",
+    "investments",
+    "holdings",
+    "transactions",
+    "assets",
+    "stocks",
+    "dividends"
+  ],
+  "base_url": "https://api.portfolio.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api Key",
+        "description": "Your Portfolio Platform API key"
+      },
+      {
+        "name": "userId",
+        "label": "User Id",
+        "description": "Your user ID for portfolio operations"
+      },
+      {
+        "name": "portfolioId",
+        "label": "Portfolio Id",
+        "description": "Default portfolio ID (can be overridden per request)"
+      },
+      {
+        "name": "environment",
+        "label": "Environment",
+        "description": "Trading environment: 'paper' or 'live' (defaults to 'paper')"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_assets",
+      "description": "Search for stocks, ETFs, and other assets by symbol or name. Returns matching assets with basic info.",
+      "method": "GET",
+      "path": "/search-assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query - stock symbol (e.g., AAPL) or company name (e.g., Apple)"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Filter by asset type",
+            "enum": [
+              "stock",
+              "etf",
+              "crypto",
+              "bond",
+              "fund"
+            ]
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Filter by exchange (e.g., NYSE, NASDAQ)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results to return",
+            "default": 20,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List and filter assets (stocks, ETFs) with fundamentals data. Supports filtering by dividend yield, P/E ratio, market cap, sector, and sorting.",
+      "method": "GET",
+      "path": "/list-assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_type": {
+            "type": "string",
+            "description": "Filter by asset type (stock, etf, crypto)"
+          },
+          "exchange": {
+            "type": "string",
+            "description": "Filter by exchange (NYSE, NASDAQ)"
+          },
+          "search": {
+            "type": "string",
+            "description": "Text search in symbol or name"
+          },
+          "min_dividend_yield": {
+            "type": "number",
+            "description": "Minimum dividend yield percentage (e.g., 3 for 3%+)"
+          },
+          "max_dividend_yield": {
+            "type": "number",
+            "description": "Maximum dividend yield percentage"
+          },
+          "min_pe_ratio": {
+            "type": "number",
+            "description": "Minimum P/E ratio"
+          },
+          "max_pe_ratio": {
+            "type": "number",
+            "description": "Maximum P/E ratio (e.g., 20 for value stocks)"
+          },
+          "min_market_cap": {
+            "type": "number",
+            "description": "Minimum market cap in USD (e.g., 1000000000 for $1B+)"
+          },
+          "max_market_cap": {
+            "type": "number",
+            "description": "Maximum market cap in USD"
+          },
+          "sector": {
+            "type": "string",
+            "description": "Filter by sector (e.g., Technology, Healthcare, Financial Services)"
+          },
+          "industry": {
+            "type": "string",
+            "description": "Filter by industry"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order - field:direction (e.g., dividend_yield:desc, pe_ratio:asc, market_cap:desc)",
+            "default": "symbol:asc"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results per page",
+            "default": 50,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_asset",
+      "description": "Get comprehensive details for a single asset including price, fundamentals, and dividend history",
+      "method": "GET",
+      "path": "/get-asset",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "Asset ID or symbol (e.g., AAPL, MSFT)"
+          },
+          "include_prices": {
+            "type": "boolean",
+            "description": "Include price history",
+            "default": true
+          },
+          "include_fundamentals": {
+            "type": "boolean",
+            "description": "Include fundamental data (P/E, dividend yield, etc.)",
+            "default": true
+          },
+          "include_dividends": {
+            "type": "boolean",
+            "description": "Include dividend history",
+            "default": true
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Asset type: stock (default) or crypto/cryptocurrency",
+            "enum": [
+              "stock",
+              "crypto"
+            ],
+            "default": "stock"
+          }
+        },
+        "required": [
+          "asset_id"
+        ]
+      }
+    },
+    {
+      "name": "create",
+      "description": "Create a new investment portfolio to track holdings and performance",
+      "method": "POST",
+      "path": "/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID who owns the portfolio"
+          },
+          "name": {
+            "type": "string",
+            "description": "Portfolio name (e.g., 'Dividend Growth', 'Tech Stocks')"
+          },
+          "description": {
+            "type": "string",
+            "description": "Portfolio description"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Base currency for the portfolio",
+            "enum": [
+              "USD",
+              "EUR",
+              "GBP",
+              "CHF",
+              "CAD",
+              "AUD",
+              "JPY"
+            ],
+            "default": "USD"
+          },
+          "is_default": {
+            "type": "boolean",
+            "description": "Set as default portfolio for this user",
+            "default": false
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list",
+      "description": "List all portfolios for a user",
+      "method": "GET",
+      "path": "/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID to list portfolios for"
+          },
+          "include_valuations": {
+            "type": "boolean",
+            "description": "Include current valuation for each portfolio",
+            "default": false
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "get_summary",
+      "description": "Get portfolio summary with total value, cost basis, P&L - all converted to portfolio's base currency",
+      "method": "GET",
+      "path": "/get-summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "as_of_date": {
+            "type": "string",
+            "description": "Get summary as of specific date (YYYY-MM-DD)",
+            "format": "date"
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ]
+      }
+    },
+    {
+      "name": "get_holdings",
+      "description": "Get current holdings for a portfolio with market values converted to portfolio's base currency",
+      "method": "GET",
+      "path": "/get-holdings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Filter by asset type (stock, etf, crypto)"
+          },
+          "include_zero_balance": {
+            "type": "boolean",
+            "description": "Include positions with zero balance",
+            "default": false
+          },
+          "convert_to_base_currency": {
+            "type": "boolean",
+            "description": "Convert all values to portfolio's base currency",
+            "default": true
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ]
+      }
+    },
+    {
+      "name": "record_transaction",
+      "description": "Record a buy, sell, or transfer transaction and automatically update holdings",
+      "method": "GET",
+      "path": "/record-transaction",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Asset ID"
+          },
+          "transaction_type": {
+            "type": "string",
+            "description": "Type of transaction",
+            "enum": [
+              "buy",
+              "sell",
+              "transfer_in",
+              "transfer_out"
+            ]
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Number of shares/units"
+          },
+          "price_per_unit": {
+            "type": "number",
+            "description": "Price per share/unit"
+          },
+          "transaction_date": {
+            "type": "string",
+            "description": "Transaction date (YYYY-MM-DD)",
+            "format": "date"
+          },
+          "fees": {
+            "type": "number",
+            "description": "Transaction fees",
+            "default": 0
+          },
+          "taxes": {
+            "type": "number",
+            "description": "Transaction taxes",
+            "default": 0
+          },
+          "currency": {
+            "type": "string",
+            "description": "Transaction currency",
+            "default": "USD"
+          },
+          "exchange_rate": {
+            "type": "number",
+            "description": "Exchange rate to portfolio base currency (auto-fetched if not provided)",
+            "default": 1
+          },
+          "notes": {
+            "type": "string",
+            "description": "Transaction notes"
+          }
+        },
+        "required": [
+          "portfolio_id",
+          "asset_id",
+          "transaction_type",
+          "quantity",
+          "price_per_unit",
+          "transaction_date"
+        ]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List transaction history for a portfolio with filtering options",
+      "method": "GET",
+      "path": "/list-transactions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Filter by specific asset"
+          },
+          "transaction_type": {
+            "type": "string",
+            "description": "Filter by transaction type",
+            "enum": [
+              "buy",
+              "sell",
+              "transfer_in",
+              "transfer_out",
+              "dividend"
+            ]
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter from date (YYYY-MM-DD)",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter to date (YYYY-MM-DD)",
+            "format": "date"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum results",
+            "default": 50,
+            "maximum": 500
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Pagination offset",
+            "default": 0
+          }
+        },
+        "required": [
+          "portfolio_id"
+        ]
+      }
+    },
+    {
+      "name": "record_income",
+      "description": "Record dividend income or other distributions received",
+      "method": "GET",
+      "path": "/record-income",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "portfolio_id": {
+            "type": "string",
+            "description": "Portfolio ID"
+          },
+          "asset_id": {
+            "type": "string",
+            "description": "Asset ID that paid the dividend"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Dividend amount received"
+          },
+          "income_type": {
+            "type": "string",
+            "description": "Type of income",
+            "enum": [
+              "dividend",
+              "interest",
+              "distribution",
+              "return_of_capital"
+            ],
+            "default": "dividend"
+          },
+          "income_date": {
+            "type": "string",
+            "description": "Date received (YYYY-MM-DD)",
+            "format": "date"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Income currency",
+            "default": "USD"
+          },
+          "tax_withheld": {
+            "type": "number",
+            "description": "Tax withheld amount",
+            "default": 0
+          },
+          "notes": {
+            "type": "string",
+            "description": "Notes"
+          }
+        },
+        "required": [
+          "portfolio_id",
+          "asset_id",
+          "amount",
+          "income_date"
+        ]
+      }
+    }
+  ]
+}

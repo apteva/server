@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,6 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { store.Close() })
 	// Reset rate limiters for clean test state
 	loginLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
 	registerLimiter = &rateLimiter{attempts: make(map[string][]time.Time)}
@@ -30,7 +30,7 @@ func newTestServer(t *testing.T) *Server {
 	publicClientRateBuckets = map[int64]publicClientRateBucket{}
 	publicClientRateMu.Unlock()
 
-	return &Server{
+	s := &Server{
 		store:          store,
 		agents:         NewAgentManager(t.TempDir(), "echo"),
 		broadcaster:    NewTelemetryBroadcaster(),
@@ -38,6 +38,17 @@ func newTestServer(t *testing.T) *Server {
 		instanceSecret: "test-secret",
 		secret:         bytes.Repeat([]byte{0x42}, 32),
 	}
+	t.Cleanup(func() {
+		if s.appRuntime != nil {
+			s.appRuntime.Close()
+		}
+		s.shutdownWebsocketProxies()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.stopProxyTelemetry(ctx)
+		store.Close()
+	})
+	return s
 }
 
 func postJSON(t *testing.T, handler http.HandlerFunc, body any) *httptest.ResponseRecorder {
@@ -376,6 +387,40 @@ func TestAuthMiddleware_AnonymousNoAuthAppRoute_MethodSpecific(t *testing.T) {
 	handler(patchW, patch)
 	if patchW.Code != 401 {
 		t.Fatalf("PATCH to POST-only no_auth route got %d, want 401", patchW.Code)
+	}
+}
+
+func TestAuthMiddleware_SocialOAuthHandoffIsOnlyAnonymousAccountRoute(t *testing.T) {
+	s := newTestServer(t)
+	s.installedApps = NewInstalledAppsRegistry()
+	s.installedApps.Add(&InstalledApp{
+		InstallID: 1,
+		AppName:   "social",
+		ProjectID: "proj-1",
+		Manifest: sdk.Manifest{Provides: sdk.Provides{HTTPRoutes: []sdk.RouteSpec{
+			{Prefix: "/"},
+			{Method: http.MethodGet, Prefix: "/accounts/oauth_done", NoAuth: true},
+		}}},
+	})
+	handler := s.authMiddleware(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{
+		{http.MethodGet, "/apps/social/accounts/oauth_done?project_id=proj-1", http.StatusNoContent},
+		{http.MethodPost, "/apps/social/accounts/oauth_done?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodPost, "/apps/social/accounts/start?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodGet, "/apps/social/accounts/7/pages?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodGet, "/apps/social/accounts/7/oauth_status?project_id=proj-1", http.StatusUnauthorized},
+		{http.MethodPost, "/apps/social/accounts/finalize?project_id=proj-1", http.StatusUnauthorized},
+	} {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequest(tc.method, tc.path, nil))
+		if rec.Code != tc.status {
+			t.Errorf("anonymous %s %s: status=%d want=%d", tc.method, tc.path, rec.Code, tc.status)
+		}
 	}
 }
 

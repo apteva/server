@@ -1,0 +1,332 @@
+{
+  "slug": "forecast-app",
+  "name": "Forecast",
+  "description": "Forecast.app agency project management - projects, resources, time tracking, and financial planning",
+  "logo": "https://www.google.com/s2/favicons?domain=forecast.app&sz=128",
+  "categories": [
+    "project-management",
+    "agency",
+    "resource-planning",
+    "time-tracking",
+    "forecasting",
+    "financial"
+  ],
+  "base_url": "https://api.forecast.it/api/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "forecast_projects_list",
+      "description": "List all projects with optional filtering",
+      "method": "GET",
+      "path": "/forecast-projects-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "RUNNING",
+              "HALTED",
+              "DONE"
+            ],
+            "description": "Filter by project status"
+          },
+          "client_id": {
+            "type": "integer",
+            "description": "Filter by client ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "forecast_project_get",
+      "description": "Get details of a specific project including financials",
+      "method": "GET",
+      "path": "/forecast-project-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "forecast_project_create",
+      "description": "Create a new project",
+      "method": "GET",
+      "path": "/forecast-project-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Project name"
+          },
+          "client_id": {
+            "type": "integer",
+            "description": "Client ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "budget_type": {
+            "type": "string",
+            "enum": [
+              "FIXED_PRICE",
+              "TIME_AND_MATERIALS",
+              "NON_BILLABLE"
+            ],
+            "description": "Budget type"
+          },
+          "budget": {
+            "type": "number",
+            "description": "Project budget amount"
+          },
+          "color": {
+            "type": "string",
+            "description": "Project color (hex)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "forecast_tasks_list",
+      "description": "List tasks in a project",
+      "method": "GET",
+      "path": "/forecast-tasks-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assignee_id": {
+            "type": "integer",
+            "description": "Filter by assignee"
+          },
+          "done": {
+            "type": "boolean",
+            "description": "Filter by completion status"
+          }
+        }
+      }
+    },
+    {
+      "name": "forecast_task_create",
+      "description": "Create a new task",
+      "method": "GET",
+      "path": "/forecast-task-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Task title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Task description"
+          },
+          "assignee_id": {
+            "type": "integer",
+            "description": "Assignee person ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date"
+          },
+          "estimated_hours": {
+            "type": "number",
+            "description": "Estimated hours"
+          },
+          "role_id": {
+            "type": "integer",
+            "description": "Role ID for resource planning"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "forecast_time_registrations_list",
+      "description": "List time registrations with filtering",
+      "method": "GET",
+      "path": "/forecast-time-registrations-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "integer",
+            "description": "Filter by person ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date range (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date range (YYYY-MM-DD)"
+          }
+        }
+      }
+    },
+    {
+      "name": "forecast_time_registration_create",
+      "description": "Log time to a project or task",
+      "method": "GET",
+      "path": "/forecast-time-registration-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "integer",
+            "description": "Task ID (optional)"
+          },
+          "person_id": {
+            "type": "integer",
+            "description": "Person ID"
+          },
+          "date": {
+            "type": "string",
+            "description": "Date (YYYY-MM-DD)"
+          },
+          "hours": {
+            "type": "number",
+            "description": "Hours worked"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Notes about the work"
+          }
+        },
+        "required": [
+          "person_id",
+          "date",
+          "hours"
+        ]
+      }
+    },
+    {
+      "name": "forecast_persons_list",
+      "description": "List all team members",
+      "method": "GET",
+      "path": "/forecast-persons-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Filter by active status"
+          }
+        }
+      }
+    },
+    {
+      "name": "forecast_clients_list",
+      "description": "List all clients",
+      "method": "GET",
+      "path": "/forecast-clients-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "forecast_client_create",
+      "description": "Create a new client",
+      "method": "GET",
+      "path": "/forecast-client-create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Client name"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Notes about the client"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "forecast_phases_list",
+      "description": "List project phases/milestones",
+      "method": "GET",
+      "path": "/forecast-phases-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "forecast_allocations_list",
+      "description": "List resource allocations for planning",
+      "method": "GET",
+      "path": "/forecast-allocations-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "person_id": {
+            "type": "integer",
+            "description": "Filter by person ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date range"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date range"
+          }
+        }
+      }
+    },
+    {
+      "name": "forecast_financials_get",
+      "description": "Get financial summary for a project or across all projects",
+      "method": "GET",
+      "path": "/forecast-financials-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date for financial period"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date for financial period"
+          }
+        }
+      }
+    }
+  ]
+}

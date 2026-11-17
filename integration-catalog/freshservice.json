@@ -1,0 +1,604 @@
+{
+  "slug": "freshservice",
+  "name": "Freshservice",
+  "description": "Freshservice IT service management for tickets, requesters, agents, groups, departments, assets, problems, changes, releases, and service requests.",
+  "logo": "https://www.google.com/s2/favicons?domain=freshservice.com&sz=128",
+  "categories": [
+    "it-service-management",
+    "helpdesk",
+    "tickets",
+    "assets"
+  ],
+  "base_url": "https://{{domain}}.freshservice.com/api/v2",
+  "auth": {
+    "types": [
+      "basic"
+    ],
+    "headers": {
+      "Authorization": "Basic {{basic_auth}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "domain",
+        "label": "Freshservice Domain",
+        "type": "text",
+        "description": "Subdomain only, for example acme.",
+        "required": true
+      },
+      {
+        "name": "username",
+        "label": "API Key",
+        "type": "password",
+        "description": "Freshservice API key used as the Basic Auth username.",
+        "required": true
+      },
+      {
+        "name": "password",
+        "label": "Basic Auth Password",
+        "type": "password",
+        "description": "Use X for API-key authentication.",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_agents"
+  },
+  "tools": [
+    {
+      "name": "list_tickets",
+      "description": "List service desk tickets.",
+      "method": "GET",
+      "path": "/tickets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string"
+          },
+          "requester_id": {
+            "type": "number"
+          },
+          "email": {
+            "type": "string"
+          },
+          "updated_since": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "include": {
+            "type": "string"
+          },
+          "order_by": {
+            "type": "string"
+          },
+          "order_type": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ticket",
+      "description": "Get one ticket.",
+      "method": "GET",
+      "path": "/tickets/{ticket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number"
+          },
+          "include": {
+            "type": "string",
+            "description": "For example conversations,requester,stats."
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "create_ticket",
+      "description": "Create a Freshservice ticket.",
+      "method": "POST",
+      "path": "/tickets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "requester_id": {
+            "type": "number"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "description_text": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "number"
+          },
+          "responder_id": {
+            "type": "number"
+          },
+          "category": {
+            "type": "string"
+          },
+          "sub_category": {
+            "type": "string"
+          },
+          "item_category": {
+            "type": "string"
+          },
+          "due_by": {
+            "type": "string"
+          },
+          "custom_fields": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "subject",
+          "description",
+          "priority",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "update_ticket",
+      "description": "Update a ticket.",
+      "method": "PUT",
+      "path": "/tickets/{ticket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "group_id": {
+            "type": "number"
+          },
+          "responder_id": {
+            "type": "number"
+          },
+          "category": {
+            "type": "string"
+          },
+          "sub_category": {
+            "type": "string"
+          },
+          "item_category": {
+            "type": "string"
+          },
+          "custom_fields": {
+            "type": "object"
+          },
+          "tags": {
+            "type": "array",
+            "description": "Tags.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_ticket",
+      "description": "Delete a ticket.",
+      "method": "DELETE",
+      "path": "/tickets/{ticket_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "list_ticket_conversations",
+      "description": "List replies and notes for a ticket.",
+      "method": "GET",
+      "path": "/tickets/{ticket_id}/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket_id"
+        ]
+      }
+    },
+    {
+      "name": "reply_to_ticket",
+      "description": "Send a public reply to a ticket.",
+      "method": "POST",
+      "path": "/tickets/{ticket_id}/reply",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number"
+          },
+          "body": {
+            "type": "string",
+            "description": "HTML reply body."
+          },
+          "from_email": {
+            "type": "string"
+          },
+          "cc_emails": {
+            "type": "array",
+            "description": "CC email addresses.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc_emails": {
+            "type": "array",
+            "description": "BCC email addresses.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ticket_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "add_ticket_note",
+      "description": "Add a public or private note to a ticket.",
+      "method": "POST",
+      "path": "/tickets/{ticket_id}/notes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "number"
+          },
+          "body": {
+            "type": "string",
+            "description": "HTML note body."
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "notify_emails": {
+            "type": "array",
+            "description": "Notification recipients.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ticket_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_requesters",
+      "description": "List requesters.",
+      "method": "GET",
+      "path": "/requesters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "mobile_phone_number": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "updated_since": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_requester",
+      "description": "Get a requester.",
+      "method": "GET",
+      "path": "/requesters/{requester_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requester_id": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "requester_id"
+        ]
+      }
+    },
+    {
+      "name": "create_requester",
+      "description": "Create a requester.",
+      "method": "POST",
+      "path": "/requesters",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "first_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "primary_email": {
+            "type": "string"
+          },
+          "work_phone_number": {
+            "type": "string"
+          },
+          "mobile_phone_number": {
+            "type": "string"
+          },
+          "job_title": {
+            "type": "string"
+          },
+          "department_ids": {
+            "type": "array",
+            "description": "Department IDs.",
+            "items": {
+              "type": "number"
+            }
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "first_name",
+          "primary_email"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List service desk agents.",
+      "method": "GET",
+      "path": "/agents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "mobile_phone_number": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_groups",
+      "description": "List agent groups.",
+      "method": "GET",
+      "path": "/groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_departments",
+      "description": "List departments.",
+      "method": "GET",
+      "path": "/departments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List assets.",
+      "method": "GET",
+      "path": "/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string"
+          },
+          "search": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "include": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_asset",
+      "description": "Get an asset.",
+      "method": "GET",
+      "path": "/assets/{display_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "display_id": {
+            "type": "number"
+          },
+          "include": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_id"
+        ]
+      }
+    },
+    {
+      "name": "list_problems",
+      "description": "List problems.",
+      "method": "GET",
+      "path": "/problems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "updated_since": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_changes",
+      "description": "List changes.",
+      "method": "GET",
+      "path": "/changes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "updated_since": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_releases",
+      "description": "List releases.",
+      "method": "GET",
+      "path": "/releases",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "updated_since": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,313 @@
+{
+  "slug": "opendota",
+  "name": "OpenDota",
+  "description": "Public Dota 2 match, player, hero and professional team statistics. No key required for the free tier: 3,000 calls/day and 60 calls/minute across all tools. Detailed stats depend on match parsing and coverage. No bookmaker odds or betting operations. Docs: https://docs.opendota.com/; access limits: https://www.opendota.com/api-keys",
+  "logo": "https://www.google.com/s2/favicons?domain=opendota.com&sz=128",
+  "categories": [
+    "sports",
+    "esports",
+    "dota2",
+    "stats",
+    "open-data"
+  ],
+  "base_url": "https://api.opendota.com/api",
+  "auth": {
+    "types": [
+      "none"
+    ],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "list_pro_matches",
+      "description": "List recent professional matches. Page backwards with less_than_match_id.",
+      "method": "GET",
+      "path": "/proMatches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "less_than_match_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Return matches older than this match ID."
+          }
+        },
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_match",
+      "description": "Get match details, players, picks/bans and parsed statistics when available.",
+      "method": "GET",
+      "path": "/matches/{match_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "match_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Dota match ID."
+          }
+        },
+        "required": [
+          "match_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_teams",
+      "description": "List professional team ratings. This response is large; prefer get_team once the ID is known.",
+      "method": "GET",
+      "path": "/teams",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team",
+      "description": "Get a team rating and record.",
+      "method": "GET",
+      "path": "/teams/{team_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Team ID."
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_team_matches",
+      "description": "Get recent matches for a team.",
+      "method": "GET",
+      "path": "/teams/{team_id}/matches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Team ID."
+          }
+        },
+        "required": [
+          "team_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_leagues",
+      "description": "List league/tournament identifiers. Cache this reference list.",
+      "method": "GET",
+      "path": "/leagues",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player",
+      "description": "Get a public Dota player profile.",
+      "method": "GET",
+      "path": "/players/{account_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Dota account ID, not Steam64 ID."
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player_matches",
+      "description": "Get player match history with bounded pagination.",
+      "method": "GET",
+      "path": "/players/{account_id}/matches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum results to return."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Pagination offset."
+          },
+          "hero_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "date": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Look back this many days."
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_player_win_loss",
+      "description": "Get player win/loss counts; optionally filter hero and lookback days.",
+      "method": "GET",
+      "path": "/players/{account_id}/wl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hero_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "date": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Lookback days."
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_heroes",
+      "description": "List Dota heroes and their identifiers.",
+      "method": "GET",
+      "path": "/heroes",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_hero_stats",
+      "description": "Get aggregate hero pick/win statistics by skill bracket.",
+      "method": "GET",
+      "path": "/heroStats",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "rate_limit": {
+        "min_interval_ms": 1000,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_heroes"
+  }
+}

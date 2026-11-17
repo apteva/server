@@ -1,0 +1,1891 @@
+{
+  "slug": "heygen",
+  "name": "HeyGen",
+  "description": "HeyGen AI video generation platform using the current v3 API first: Avatar IV/V video generation, image-to-video, Video Agent prompt-to-video, voices/TTS, avatar creation, assets, video translation, lipsync, webhooks, and legacy Studio/template APIs where v3 has no replacement.",
+  "logo": "https://www.google.com/s2/favicons?domain=heygen.com&sz=128",
+  "categories": [
+    "ai",
+    "video",
+    "avatars",
+    "generation",
+    "translation"
+  ],
+  "base_url": "https://api.heygen.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-Api-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "HeyGen API Key",
+        "description": "Create one at https://app.heygen.com/settings?nav=API"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_video_agent_v3",
+      "description": "Create a video with HeyGen Video Agent v3. One prompt can produce a finished video; optional avatar, voice, style, brand kit, and files steer the result. Poll returned video_id with get_video.",
+      "method": "POST",
+      "path": "/v3/video-agents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language description of the video to create."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "generate",
+              "chat"
+            ],
+            "default": "generate",
+            "description": "generate is one-shot; chat allows multi-turn revision."
+          },
+          "avatar_id": {
+            "type": "string",
+            "description": "Optional avatar look id from list_avatar_looks."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Optional voice id from list_voices."
+          },
+          "style_id": {
+            "type": "string",
+            "description": "Optional style id from HeyGen video agent styles."
+          },
+          "brand_kit_id": {
+            "type": "string",
+            "description": "Optional brand kit id."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "landscape",
+              "portrait"
+            ],
+            "description": "Optional output orientation."
+          },
+          "files": {
+            "type": "array",
+            "description": "Optional asset inputs, max 20. Each entry is {type:\"url\"|\"asset_id\"|\"base64\", ...}.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook URL for completion/failure."
+          },
+          "callback_id": {
+            "type": "string",
+            "description": "Caller-defined callback identifier."
+          },
+          "incognito_mode": {
+            "type": "boolean",
+            "default": false,
+            "description": "Disable memory injection/extraction for this session."
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "video_agent_generate",
+      "description": "Older one-shot video generation via the v1 Video Agent. Takes a natural-language prompt plus optional config (avatar, duration, orientation) and asset references. Kept for backward compatibility; for new integrations prefer create_video_agent_v3.",
+      "method": "POST",
+      "path": "/v1/video_agent/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Natural-language description of the video you want to create."
+          },
+          "config": {
+            "type": "object",
+            "description": "Optional generation config. Fields: avatar_id (string), duration_sec (integer, min 5), orientation ('portrait' | 'landscape')."
+          },
+          "files": {
+            "type": "array",
+            "description": "Array of asset references the agent can incorporate. Each entry: {\"asset_id\": \"...\"}",
+            "items": {
+              "type": "object"
+            }
+          },
+          "callback_id": {
+            "type": "string",
+            "description": "Custom identifier echoed back in completion webhooks."
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook URL to notify when the video finishes generating."
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "create_video",
+      "description": "Create a HeyGen v3 video from an avatar look or an arbitrary image. Supports Avatar IV/V engines, script+voice or audio lip-sync, backgrounds, captions, mp4/webm output, and async polling via get_video.",
+      "method": "POST",
+      "path": "/v3/videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "avatar",
+              "image"
+            ],
+            "description": "Use avatar for a saved avatar look, image for one-off image-to-video."
+          },
+          "avatar_id": {
+            "type": "string",
+            "description": "Avatar look id from list_avatar_looks. Required when type=avatar."
+          },
+          "image": {
+            "type": "object",
+            "description": "Image input when type=image: {type:\"url\",url} or {type:\"asset_id\",asset_id} or {type:\"base64\",data}."
+          },
+          "title": {
+            "type": "string",
+            "description": "Display title in HeyGen."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "720p",
+              "1080p",
+              "4k"
+            ],
+            "default": "1080p"
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "16:9",
+              "9:16",
+              "4:5",
+              "5:4",
+              "1:1",
+              "auto"
+            ],
+            "default": "16:9"
+          },
+          "fit": {
+            "type": "string",
+            "enum": [
+              "contain",
+              "cover"
+            ],
+            "description": "Subject fit on canvas."
+          },
+          "background": {
+            "type": "object",
+            "description": "Background setting: color/image/video input depending on HeyGen support."
+          },
+          "remove_background": {
+            "type": "boolean",
+            "description": "Remove avatar background when supported."
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "mp4",
+              "webm"
+            ],
+            "default": "mp4"
+          },
+          "script": {
+            "type": "string",
+            "description": "Text script. Mutually exclusive with audio_url/audio_asset_id."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Voice id from list_voices. Required for image/script; optional for avatars with default voice."
+          },
+          "audio_url": {
+            "type": "string",
+            "description": "Public audio URL for lip-sync. Mutually exclusive with script."
+          },
+          "audio_asset_id": {
+            "type": "string",
+            "description": "Uploaded audio asset id for lip-sync. Mutually exclusive with script."
+          },
+          "voice_settings": {
+            "type": "object",
+            "description": "Voice settings: speed, pitch, volume, locale, engine_settings."
+          },
+          "motion_prompt": {
+            "type": "string",
+            "description": "Avatar IV-only body motion prompt; do not use with engine.type=avatar_v."
+          },
+          "expressiveness": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Avatar IV-only expressiveness."
+          },
+          "engine": {
+            "type": "object",
+            "description": "Engine selector, e.g. {type:\"avatar_v\"} or {type:\"avatar_iv\"}. Omit for HeyGen default."
+          },
+          "watermark": {
+            "type": "object",
+            "description": "Optional watermark config."
+          },
+          "caption": {
+            "type": "object",
+            "description": "Optional caption config."
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook URL for completion/failure."
+          },
+          "callback_id": {
+            "type": "string",
+            "description": "Caller-defined callback identifier."
+          }
+        },
+        "required": [
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "generate_studio_video",
+      "description": "Legacy v2 Studio multi-scene generator. Keep for older Studio/template workflows; for new single-scene avatar/image videos use create_video (POST /v3/videos), and for prompt-to-video use create_video_agent_v3.",
+      "method": "POST",
+      "path": "/v2/video/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_inputs": {
+            "type": "array",
+            "description": "Array of scene inputs. Each entry: { character: {type: 'avatar'|'talking_photo', avatar_id: '...', avatar_style: 'normal'|'closeUp'}, voice: {type: 'text', input_text: '...', voice_id: '...'}, background: {type: 'color'|'image'|'video', value: '#hex' or url: '...'} }",
+            "items": {
+              "type": "object"
+            }
+          },
+          "dimension": {
+            "type": "object",
+            "description": "Output dimensions: {width: 1920, height: 1080}"
+          },
+          "test": {
+            "type": "boolean",
+            "description": "Generate a free watermarked test video. Leave unset / false when you're sure you want to spend credits."
+          },
+          "caption": {
+            "type": "boolean",
+            "description": "Enable auto-captions."
+          },
+          "title": {
+            "type": "string"
+          },
+          "callback_id": {
+            "type": "string",
+            "description": "Custom callback id for webhook notifications."
+          }
+        },
+        "required": [
+          "video_inputs"
+        ]
+      }
+    },
+    {
+      "name": "create_webm_video",
+      "description": "Generate a WebM-format avatar video with transparent background (true alpha channel). Ideal for overlays and web embedding where you need the avatar to composite over existing content.",
+      "method": "POST",
+      "path": "/v1/video.webm",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_pose_id": {
+            "type": "string",
+            "description": "Avatar pose id from list_avatars."
+          },
+          "avatar_style": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "closeUp"
+            ],
+            "default": "normal"
+          },
+          "input_text": {
+            "type": "string",
+            "description": "Text for the avatar to speak (provide this OR input_audio)."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Required when input_text is provided."
+          },
+          "input_audio": {
+            "type": "string",
+            "description": "URL or asset id of pre-recorded audio (alternative to input_text + voice_id)."
+          },
+          "dimension": {
+            "type": "object",
+            "description": "Custom output dimensions: {width: 512, height: 512}"
+          }
+        },
+        "required": [
+          "avatar_pose_id"
+        ]
+      }
+    },
+    {
+      "name": "get_video",
+      "description": "Get/poll a HeyGen v3 video by id. Returns status, video_url, thumbnail/gif/subtitle URLs, duration, and failure details.",
+      "method": "GET",
+      "path": "/v3/videos/{video_id}",
+      "path_params": [
+        "video_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "Video id returned by create_video or create_video_agent_v3."
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_videos",
+      "description": "List HeyGen v3 videos with pagination and optional folder/title filtering.",
+      "method": "GET",
+      "path": "/v3/videos",
+      "query_params": [
+        "limit",
+        "token",
+        "folder_id",
+        "title"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 10
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token."
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "Folder filter."
+          },
+          "title": {
+            "type": "string",
+            "description": "Title search."
+          }
+        }
+      }
+    },
+    {
+      "name": "delete_video",
+      "description": "Delete a HeyGen v3 video by id.",
+      "method": "DELETE",
+      "path": "/v3/videos/{video_id}",
+      "path_params": [
+        "video_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "Video id."
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "get_sharable_url",
+      "description": "Get a non-expiring shareable URL for a completed video — useful for embedding the video on external sites or sharing with users who don't have a HeyGen account.",
+      "method": "POST",
+      "path": "/v1/video/sharable-url",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_id"
+        ]
+      }
+    },
+    {
+      "name": "list_avatar_looks",
+      "description": "List HeyGen v3 avatar looks. The look id is the avatar_id for create_video; supported_api_engines indicates Avatar V eligibility.",
+      "method": "GET",
+      "path": "/v3/avatars/looks",
+      "query_params": [
+        "group_id",
+        "avatar_type",
+        "ownership",
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "description": "Avatar group id."
+          },
+          "avatar_type": {
+            "type": "string",
+            "enum": [
+              "studio_avatar",
+              "digital_twin",
+              "photo_avatar"
+            ]
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_avatar_look",
+      "description": "Fetch a HeyGen v3 avatar look, including default_voice_id and supported_api_engines.",
+      "method": "GET",
+      "path": "/v3/avatars/looks/{look_id}",
+      "path_params": [
+        "look_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "look_id": {
+            "type": "string",
+            "description": "Avatar look id."
+          }
+        },
+        "required": [
+          "look_id"
+        ]
+      }
+    },
+    {
+      "name": "list_avatar_groups",
+      "description": "List HeyGen v3 avatar groups/identities.",
+      "method": "GET",
+      "path": "/v3/avatars",
+      "query_params": [
+        "avatar_type",
+        "ownership",
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_type": {
+            "type": "string",
+            "enum": [
+              "studio_avatar",
+              "digital_twin",
+              "photo_avatar"
+            ]
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_avatars_in_group",
+      "description": "List every avatar inside a specific avatar group.",
+      "method": "GET",
+      "path": "/v2/avatar_group/{group_id}/avatars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List HeyGen v3 voices. Use engine=starfish for TTS-compatible voices.",
+      "method": "GET",
+      "path": "/v3/voices",
+      "query_params": [
+        "type",
+        "engine",
+        "language",
+        "gender",
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "public"
+          },
+          "engine": {
+            "type": "string",
+            "description": "Voice engine, e.g. starfish."
+          },
+          "language": {
+            "type": "string",
+            "description": "Language filter."
+          },
+          "gender": {
+            "type": "string",
+            "description": "Gender filter."
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_voice_locales",
+      "description": "List every BCP-47 locale code supported by the voice library (e.g. en-US, es-MX, fr-FR, ja-JP). Used with voice_settings.locale on generate_video to control pronunciation.",
+      "method": "GET",
+      "path": "/v2/voices/locales",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_brand_voices",
+      "description": "List Brand Glossary entries — custom pronunciation and translation rules applied when using brand_voice_id on translate_video or generate_proofread.",
+      "method": "GET",
+      "path": "/v2/brand_voice/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_brand_voice",
+      "description": "Update a Brand Glossary entry to add/modify custom terms and pronunciation rules used during video translation.",
+      "method": "POST",
+      "path": "/v2/brand_voice/update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand_voice_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "terms": {
+            "type": "array",
+            "description": "Array of custom term objects: {term: 'string', pronunciation: 'string', translation_hints: {'es': 'string', ...}}",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "brand_voice_id"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List every video template created under the account. Each template defines a video structure with variables you can fill in to produce custom videos.",
+      "method": "GET",
+      "path": "/v2/templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Fetch a template's definition including all variables that can be replaced during generation. Use the V3 variant (get_template_v3) to also see per-scene variable mappings for templates created in the New AI Studio.",
+      "method": "GET",
+      "path": "/v2/template/{template_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "get_template_v3",
+      "description": "Fetch a template's V3 definition — same as get_template but also returns the scenes field mapping each variable to the scene where it's used. Required for templates created in HeyGen's New AI Studio.",
+      "method": "GET",
+      "path": "/v3/template/{template_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_from_template",
+      "description": "Generate a video from a template with dynamic variable substitution. Call get_template first to see the full list of variables you need to supply.",
+      "method": "POST",
+      "path": "/v2/template/{template_id}/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "object",
+            "description": "Map of variable names to values: {name1: {name: 'name1', type: 'text', properties: {content: '...'}}, ...}. Shape depends on the variable's type (text, image, video, audio) — see the template definition from get_template."
+          },
+          "test": {
+            "type": "boolean",
+            "description": "Generate a free watermarked test video."
+          },
+          "caption": {
+            "type": "boolean"
+          },
+          "callback_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "translate_video",
+      "description": "Translate a video into one of 175+ target languages with natural-sounding voice and accurate lip-sync. Returns video_translate_id to poll via get_translation_status. For translation with human-in-the-loop review, use the proofread family (generate_proofread → download_proofread_srt → upload_proofread_srt → generate_video_from_proofread).",
+      "method": "POST",
+      "path": "/v2/video_translate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_url": {
+            "type": "string",
+            "description": "Source video URL. Supports direct file URLs, Google Drive, and YouTube."
+          },
+          "output_language": {
+            "type": "string",
+            "description": "Target language (see list_target_languages). Example: 'Spanish', 'French'."
+          },
+          "title": {
+            "type": "string"
+          },
+          "speaker_num": {
+            "type": "integer",
+            "description": "Number of distinct speakers in the video (improves diarization accuracy)."
+          },
+          "brand_voice_id": {
+            "type": "string",
+            "description": "Brand Glossary id to apply custom translation/pronunciation rules."
+          },
+          "translate_audio_only": {
+            "type": "boolean",
+            "description": "Return a translated audio track only, skipping video lip-sync."
+          },
+          "callback_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_url",
+          "output_language"
+        ]
+      }
+    },
+    {
+      "name": "get_translation_status",
+      "description": "Poll a video translation job until status is completed or failed.",
+      "method": "GET",
+      "path": "/v2/video_translate/{video_translate_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_translate_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_translate_id"
+        ]
+      }
+    },
+    {
+      "name": "list_target_languages",
+      "description": "List every supported target language for video translation with display names and language codes.",
+      "method": "GET",
+      "path": "/v2/video_translate/target_languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_translation_caption",
+      "description": "Download the caption (SRT) file for a completed translated video — useful for re-uploading the captions elsewhere or displaying them alongside the video.",
+      "method": "GET",
+      "path": "/v2/video_translate/{video_translate_id}/caption",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_translate_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "video_translate_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_proofread",
+      "description": "Generate a translation proofread — HeyGen translates the video and produces an SRT file for human review before the final lip-synced video is made. Use this for higher-quality translations where you want to correct the transcription before HeyGen commits to a final output. Returns a proofread_id. Scale or Enterprise plan only.",
+      "method": "POST",
+      "path": "/v2/video_translate/proofread",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_url": {
+            "type": "string",
+            "description": "Source video URL. Supports direct file URLs, Google Drive, and YouTube."
+          },
+          "title": {
+            "type": "string"
+          },
+          "output_language": {
+            "type": "string",
+            "description": "Single target language (use output_languages for batch)."
+          },
+          "output_languages": {
+            "type": "array",
+            "description": "Multiple target languages for batch proofread generation.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "brand_voice_id": {
+            "type": "string"
+          },
+          "speaker_num": {
+            "type": "integer"
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "Target folder id where the proofread should be stored."
+          },
+          "enable_video_stretching": {
+            "type": "boolean",
+            "description": "Dynamic duration adjustment for better lip-sync."
+          },
+          "disable_music_track": {
+            "type": "boolean"
+          },
+          "enable_speech_enhancement": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "video_url",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "get_proofread_status",
+      "description": "Poll a proofread generation job until the SRT is ready for download/review.",
+      "method": "GET",
+      "path": "/v2/video_translate/proofread/{proofread_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "proofread_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proofread_id"
+        ]
+      }
+    },
+    {
+      "name": "download_proofread_srt",
+      "description": "Get a download URL for the SRT file of a completed proofread. The agent/user reviews and edits the SRT, then uploads the corrected version via upload_proofread_srt.",
+      "method": "GET",
+      "path": "/v2/video_translate/proofread/{proofread_id}/srt",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "proofread_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proofread_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_proofread_srt",
+      "description": "Upload a corrected SRT file back to an existing proofread via a presigned URL HeyGen returns. After this succeeds, call generate_video_from_proofread to produce the final lip-synced video.",
+      "method": "POST",
+      "path": "/v2/video_translate/proofread/{proofread_id}/srt",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "proofread_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proofread_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_video_from_proofread",
+      "description": "Produce the final translated video from an approved proofread. Returns a video_translate_id you can poll via get_translation_status.",
+      "method": "POST",
+      "path": "/v2/video_translate/proofread/{proofread_id}/generate_video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "proofread_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proofread_id"
+        ]
+      }
+    },
+    {
+      "name": "create_photo_avatar",
+      "description": "Generate a personalized AI avatar from text prompts and attribute inputs. The result is a new photo avatar you can use with generate_video.",
+      "method": "POST",
+      "path": "/v2/photo_avatar/photo/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name for the avatar."
+          },
+          "age": {
+            "type": "string",
+            "description": "Age group (e.g. 'Young Adult', 'Adult', 'Senior')."
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "Man",
+              "Woman"
+            ]
+          },
+          "ethnicity": {
+            "type": "string",
+            "description": "Ethnicity hint (e.g. 'East Asian', 'Black', 'White', 'Hispanic')."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "horizontal",
+              "vertical",
+              "square"
+            ]
+          },
+          "pose": {
+            "type": "string",
+            "description": "Pose description (e.g. 'half_body', 'full_body')."
+          },
+          "style": {
+            "type": "string",
+            "description": "Style hint (e.g. 'Realistic', 'Cinematic')."
+          },
+          "appearance": {
+            "type": "string",
+            "description": "Free-text appearance description ('short brown hair, glasses, casual shirt')."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_photo_avatar_group",
+      "description": "Create a photo avatar group — a container for multiple looks of the same avatar subject. Used before train_photo_avatar_group and add_looks_to_photo_avatar_group.",
+      "method": "POST",
+      "path": "/v2/photo_avatar/avatar_group/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "image_key": {
+            "type": "string",
+            "description": "Initial photo image_key from a previously-uploaded asset."
+          }
+        },
+        "required": [
+          "name",
+          "image_key"
+        ]
+      }
+    },
+    {
+      "name": "add_looks_to_photo_avatar_group",
+      "description": "Add additional look images to an existing photo avatar group. Used to feed HeyGen more photos of the same person for higher-quality avatar training.",
+      "method": "POST",
+      "path": "/v2/photo_avatar/avatar_group/add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "image_keys": {
+            "type": "array",
+            "description": "Array of image_key strings from uploaded assets.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "group_id",
+          "image_keys"
+        ]
+      }
+    },
+    {
+      "name": "train_photo_avatar_group",
+      "description": "Initiate the training process for a photo avatar group. HeyGen builds an AI model from the group's photos so the avatar is consistent across generated looks. Poll get_training_job_status.",
+      "method": "POST",
+      "path": "/v2/photo_avatar/train",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "get_training_job_status",
+      "description": "Poll a photo avatar training job until status is done.",
+      "method": "GET",
+      "path": "/v2/photo_avatar/train/status/{group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_photo_avatar_looks",
+      "description": "Generate additional looks (new images) for a trained photo avatar group. Produces variations in pose/expression/setting while keeping the same subject identity.",
+      "method": "POST",
+      "path": "/v2/photo_avatar/look/generate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Free-text description of the new look ('wearing a black suit in an office')."
+          },
+          "orientation": {
+            "type": "string",
+            "enum": [
+              "horizontal",
+              "vertical",
+              "square"
+            ]
+          },
+          "pose": {
+            "type": "string"
+          },
+          "style": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "add_photo_avatar_motion",
+      "description": "Add motion/animation to a still photo avatar look — converts a static image into a subtly animated one that looks alive. Precondition for using the photo avatar in video generation with non-trivial movement.",
+      "method": "POST",
+      "path": "/v2/photo_avatar/add_motion",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_id": {
+            "type": "string",
+            "description": "Photo avatar look id."
+          }
+        },
+        "required": [
+          "avatar_id"
+        ]
+      }
+    },
+    {
+      "name": "get_photo_look_status",
+      "description": "Check the generation status of a photo avatar look (for create_photo_avatar, generate_photo_avatar_looks, or add_photo_avatar_motion).",
+      "method": "GET",
+      "path": "/v2/photo_avatar/{avatar_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_photo_avatar",
+      "description": "Delete a single photo avatar look by id.",
+      "method": "DELETE",
+      "path": "/v2/photo_avatar/{avatar_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "avatar_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_photo_avatar_group",
+      "description": "Delete an entire photo avatar group (along with every look inside it). Irreversible.",
+      "method": "DELETE",
+      "path": "/v2/photo_avatar/avatar_group/{group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "create_digital_twin",
+      "description": "Create a digital twin avatar from training footage. Submit a training-footage video URL and a consent-statement video URL; HeyGen builds a lifelike avatar of the person that can be used like any other avatar_id in generate_video. Training takes several minutes to hours — poll via get_digital_twin_status.",
+      "method": "POST",
+      "path": "/v1/video-avatar/create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "training_footage_url": {
+            "type": "string",
+            "description": "Public URL of the training footage video (typically 2-5 min of the person speaking to camera)."
+          },
+          "video_consent_url": {
+            "type": "string",
+            "description": "Public URL of the consent-statement video."
+          },
+          "avatar_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "training_footage_url",
+          "video_consent_url",
+          "avatar_name"
+        ]
+      }
+    },
+    {
+      "name": "get_digital_twin_status",
+      "description": "Poll a digital twin training job.",
+      "method": "GET",
+      "path": "/v1/video-avatar/{digital_twin_id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "digital_twin_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "digital_twin_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_digital_twin",
+      "description": "Delete a digital twin avatar by id.",
+      "method": "DELETE",
+      "path": "/v1/video-avatar/{digital_twin_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "digital_twin_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "digital_twin_id"
+        ]
+      }
+    },
+    {
+      "name": "legacy_list_assets",
+      "description": "Legacy v1 asset list endpoint. Prefer upload_asset/get_asset/delete_asset for v3 asset workflows.",
+      "method": "GET",
+      "path": "/v1/asset/list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string",
+            "description": "Filter by folder id."
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "audio",
+              "video"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max assets to return (0-100)."
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token from the previous response."
+          }
+        }
+      },
+      "query_params": [
+        "folder_id",
+        "file_type",
+        "limit",
+        "token"
+      ]
+    },
+    {
+      "name": "delete_asset",
+      "description": "Delete a HeyGen v3 asset.",
+      "method": "DELETE",
+      "path": "/v3/assets/{asset_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "Asset id."
+          }
+        },
+        "required": [
+          "asset_id"
+        ]
+      },
+      "path_params": [
+        "asset_id"
+      ]
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new folder under the account for organizing videos, assets, and templates.",
+      "method": "POST",
+      "path": "/v1/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "string",
+            "description": "Parent folder id. Omit for root-level folder."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List folders with filtering by parent and name. Use is_trash=true to view trashed folders.",
+      "method": "GET",
+      "path": "/v1/folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "name_filter": {
+            "type": "string",
+            "description": "Partial name search."
+          },
+          "is_trash": {
+            "type": "boolean",
+            "description": "Return trashed folders instead of live ones."
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "query_params": [
+        "limit",
+        "parent_id",
+        "name_filter",
+        "is_trash",
+        "token"
+      ]
+    },
+    {
+      "name": "update_folder",
+      "description": "Rename an existing folder.",
+      "method": "PATCH",
+      "path": "/v1/folders/{folder_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "New folder name."
+          }
+        },
+        "required": [
+          "folder_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "trash_folder",
+      "description": "Move a folder to the trash (soft delete — restorable via restore_folder).",
+      "method": "DELETE",
+      "path": "/v1/folders/{folder_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      }
+    },
+    {
+      "name": "restore_folder",
+      "description": "Restore a previously trashed folder, returning it to its original location.",
+      "method": "POST",
+      "path": "/v1/folders/{folder_id}/restore",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "folder_id"
+        ]
+      }
+    },
+    {
+      "name": "get_current_user",
+      "description": "Get current HeyGen v3 user, wallet, and subscription information.",
+      "method": "GET",
+      "path": "/v3/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_remaining_quota",
+      "description": "Get the account's remaining API credit quota. Check this before starting expensive operations (digital twin training, batch translation, large template generation) to avoid mid-job credit exhaustion.",
+      "method": "GET",
+      "path": "/v2/user/remaining_quota",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "add_webhook_endpoint",
+      "description": "Register a webhook endpoint to receive real-time notifications when videos complete, translations finish, etc. Events list available via list_available_webhook_events.",
+      "method": "POST",
+      "path": "/v1/webhook/endpoint.add",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "HTTPS endpoint URL that will receive POST notifications."
+          },
+          "events": {
+            "type": "array",
+            "description": "Array of event name strings (e.g. ['avatar_video.success', 'avatar_video.fail'])",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      }
+    },
+    {
+      "name": "list_webhook_endpoints",
+      "description": "List every registered webhook endpoint with its id, URL, and subscribed events.",
+      "method": "GET",
+      "path": "/v1/webhook/endpoint.list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_webhook_endpoint",
+      "description": "Update a webhook endpoint's URL or event subscriptions.",
+      "method": "PATCH",
+      "path": "/v1/webhook/endpoint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "endpoint_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook_endpoint",
+      "description": "Delete a webhook endpoint by id. Events will stop flowing to the URL.",
+      "method": "DELETE",
+      "path": "/v1/webhook/endpoint",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "endpoint_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint_id"
+        ]
+      },
+      "query_params": [
+        "endpoint_id"
+      ]
+    },
+    {
+      "name": "list_available_webhook_events",
+      "description": "List every webhook event type HeyGen supports, so you know what to subscribe to when calling add_webhook_endpoint.",
+      "method": "GET",
+      "path": "/v1/webhook/event.list",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_avatar",
+      "description": "Create a HeyGen v3 prompt, photo, or digital twin avatar. Training is async; poll the group/look status.",
+      "method": "POST",
+      "path": "/v3/avatars",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "prompt",
+              "photo",
+              "digital_twin"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Avatar name."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Prompt for prompt avatars."
+          },
+          "file": {
+            "type": "object",
+            "description": "Photo/video file input: {type:\"url\"|\"asset_id\"|\"base64\", ...}."
+          },
+          "reference_images": {
+            "type": "array",
+            "description": "Up to 3 reference image inputs.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "avatar_group_id": {
+            "type": "string",
+            "description": "Optional existing avatar group id."
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_speech",
+      "description": "Generate HeyGen v3 speech audio from plain text or SSML using a voice id.",
+      "method": "POST",
+      "path": "/v3/voices/speech",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Plain text or SSML."
+          },
+          "voice_id": {
+            "type": "string",
+            "description": "Voice id."
+          },
+          "speed": {
+            "type": "number",
+            "description": "Speed multiplier."
+          },
+          "output_format": {
+            "type": "string",
+            "description": "Audio output format when supported."
+          },
+          "locale": {
+            "type": "string",
+            "description": "Locale/pronunciation hint."
+          }
+        },
+        "required": [
+          "text",
+          "voice_id"
+        ]
+      }
+    },
+    {
+      "name": "upload_asset",
+      "description": "Upload a HeyGen v3 asset for reuse. Supports images, video, audio, and PDF.",
+      "method": "POST",
+      "path": "/v3/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Multipart file upload field or platform-supported file reference."
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional file name."
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "Optional folder id."
+          }
+        },
+        "required": [
+          "file"
+        ]
+      }
+    },
+    {
+      "name": "get_asset",
+      "description": "Get HeyGen v3 asset metadata and URL.",
+      "method": "GET",
+      "path": "/v3/assets/{asset_id}",
+      "path_params": [
+        "asset_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "Asset id."
+          }
+        },
+        "required": [
+          "asset_id"
+        ]
+      }
+    },
+    {
+      "name": "create_video_translation",
+      "description": "Create HeyGen v3 video translations in one or more target languages. Use speed or precision mode; poll get_video_translation.",
+      "method": "POST",
+      "path": "/v3/video-translations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video": {
+            "type": "object",
+            "description": "Source video asset input: {type:\"url\"|\"asset_id\", ...}."
+          },
+          "output_languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Target language names."
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "speed",
+              "precision"
+            ],
+            "default": "speed"
+          },
+          "audio": {
+            "type": "object",
+            "description": "Optional replacement/guide audio asset input."
+          },
+          "input_language": {
+            "type": "string",
+            "description": "Source language code."
+          },
+          "translate_audio_only": {
+            "type": "boolean",
+            "default": false,
+            "description": "Translate only audio."
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook URL."
+          },
+          "callback_id": {
+            "type": "string",
+            "description": "Callback id."
+          },
+          "enable_caption": {
+            "type": "boolean",
+            "default": false,
+            "description": "Generate captions."
+          },
+          "folder_id": {
+            "type": "string",
+            "description": "Folder id."
+          }
+        },
+        "required": [
+          "video",
+          "output_languages"
+        ]
+      }
+    },
+    {
+      "name": "get_video_translation",
+      "description": "Get/poll a HeyGen v3 video translation job.",
+      "method": "GET",
+      "path": "/v3/video-translations/{video_translation_id}",
+      "path_params": [
+        "video_translation_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_translation_id": {
+            "type": "string",
+            "description": "Translation id."
+          }
+        },
+        "required": [
+          "video_translation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_supported_translation_languages",
+      "description": "List HeyGen v3 video translation target languages.",
+      "method": "GET",
+      "path": "/v3/video-translations/languages",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "create_lipsync",
+      "description": "Create a HeyGen v3 lipsync job by replacing/dubbing audio on a source video. Poll with get_lipsync.",
+      "method": "POST",
+      "path": "/v3/lipsyncs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video": {
+            "type": "object",
+            "description": "Source video asset input."
+          },
+          "audio": {
+            "type": "object",
+            "description": "Replacement audio asset input."
+          },
+          "title": {
+            "type": "string",
+            "description": "Job title."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "speed",
+              "precision"
+            ],
+            "default": "speed"
+          },
+          "callback_url": {
+            "type": "string",
+            "description": "Webhook URL."
+          },
+          "callback_id": {
+            "type": "string",
+            "description": "Callback id."
+          }
+        },
+        "required": [
+          "video",
+          "audio"
+        ]
+      }
+    },
+    {
+      "name": "get_lipsync",
+      "description": "Get/poll a HeyGen v3 lipsync job.",
+      "method": "GET",
+      "path": "/v3/lipsyncs/{lipsync_id}",
+      "path_params": [
+        "lipsync_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "lipsync_id": {
+            "type": "string",
+            "description": "Lipsync job id."
+          }
+        },
+        "required": [
+          "lipsync_id"
+        ]
+      }
+    },
+    {
+      "name": "list_lipsyncs",
+      "description": "List HeyGen v3 lipsync jobs.",
+      "method": "GET",
+      "path": "/v3/lipsyncs",
+      "query_params": [
+        "limit",
+        "token"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "default": 10
+          },
+          "token": {
+            "type": "string",
+            "description": "Pagination token."
+          }
+        }
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-webhook-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/v1/webhook/endpoint.add",
+      "url_field": "url",
+      "events_field": "events",
+      "id_field": "data.endpoint_id",
+      "delete_path": "/v1/webhook/endpoint?endpoint_id={id}",
+      "delete_method": "DELETE"
+    },
+    "events": [
+      {
+        "name": "avatar_video.success",
+        "description": "Avatar video generation completed successfully."
+      },
+      {
+        "name": "avatar_video.fail",
+        "description": "Avatar video generation failed."
+      },
+      {
+        "name": "video_translate.success",
+        "description": "Video translation completed successfully."
+      },
+      {
+        "name": "video_translate.fail",
+        "description": "Video translation failed."
+      },
+      {
+        "name": "personalized_video.success",
+        "description": "Personalized (template) video completed successfully."
+      },
+      {
+        "name": "personalized_video.fail",
+        "description": "Personalized video failed."
+      },
+      {
+        "name": "photo_avatar.success",
+        "description": "Photo avatar generation / training / look completed."
+      },
+      {
+        "name": "photo_avatar.fail",
+        "description": "Photo avatar generation / training / look failed."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_current_user"
+  }
+}

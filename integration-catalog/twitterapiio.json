@@ -1,0 +1,548 @@
+{
+  "slug": "twitterapiio",
+  "name": "Twitter/X (via TwitterAPI.io)",
+  "description": "MCP server for Twitter/X operations including tweet search, user profiles, posting, engagement, and trend analysis via TwitterAPI.io - a cost-effective alternative to the official Twitter API",
+  "logo": "https://www.google.com/s2/favicons?domain=twitter.com&sz=128",
+  "categories": [
+    "twitter",
+    "x",
+    "social-media",
+    "tweets",
+    "posting",
+    "twitterapiio"
+  ],
+  "base_url": "https://api.twitterapi.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "user_info",
+      "description": "Get Twitter user profile information by username including bio, follower count, tweet count, verification status, and profile images",
+      "method": "GET",
+      "path": "/user-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userName": {
+            "type": "string",
+            "description": "Twitter username (without @)"
+          }
+        },
+        "required": [
+          "userName"
+        ]
+      }
+    },
+    {
+      "name": "user_tweets",
+      "description": "Get a user's recent tweets by userId or userName with pagination support",
+      "method": "GET",
+      "path": "/user-tweets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Twitter user ID"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Twitter username (without @)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of tweets to return (default: 20)",
+            "default": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "user_followers",
+      "description": "Get a user's followers list with pagination support",
+      "method": "GET",
+      "path": "/user-followers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Twitter user ID"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Twitter username (without @)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of followers to return (default: 20)",
+            "default": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "user_following",
+      "description": "Get list of users that a user follows with pagination support",
+      "method": "GET",
+      "path": "/user-following",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Twitter user ID"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Twitter username (without @)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of users to return (default: 20)",
+            "default": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "user_mentions",
+      "description": "Get tweets that mention a specific user",
+      "method": "GET",
+      "path": "/user-mentions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Twitter user ID"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Twitter username (without @)"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of mentions to return (default: 20)",
+            "default": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "user_search",
+      "description": "Search for Twitter users by keyword",
+      "method": "GET",
+      "path": "/user-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query for finding users"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of users to return (default: 20)",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "follow_check",
+      "description": "Check if two users follow each other",
+      "method": "GET",
+      "path": "/follow-check",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sourceUserId": {
+            "type": "string",
+            "description": "Source user's Twitter ID"
+          },
+          "sourceUserName": {
+            "type": "string",
+            "description": "Source user's Twitter username"
+          },
+          "targetUserId": {
+            "type": "string",
+            "description": "Target user's Twitter ID"
+          },
+          "targetUserName": {
+            "type": "string",
+            "description": "Target user's Twitter username"
+          }
+        }
+      }
+    },
+    {
+      "name": "tweet_get",
+      "description": "Get tweet(s) by ID - supports single tweet or multiple tweets",
+      "method": "GET",
+      "path": "/tweet-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Single tweet ID"
+          },
+          "tweetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of tweet IDs to fetch multiple tweets"
+          }
+        }
+      }
+    },
+    {
+      "name": "tweet_search",
+      "description": "Search tweets by keyword with advanced filtering. Supports Latest or Top results.",
+      "method": "GET",
+      "path": "/tweet-search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (supports Twitter search operators)"
+          },
+          "queryType": {
+            "type": "string",
+            "enum": [
+              "Latest",
+              "Top"
+            ],
+            "description": "Type of results: Latest (most recent) or Top (most relevant)",
+            "default": "Latest"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of tweets to return (default: 20)",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "tweet_replies",
+      "description": "Get replies to a specific tweet",
+      "method": "GET",
+      "path": "/tweet-replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to get replies for"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of replies to return (default: 20)",
+            "default": 20
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "tweet_quotes",
+      "description": "Get quote tweets of a specific tweet",
+      "method": "GET",
+      "path": "/tweet-quotes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to get quotes for"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of quotes to return (default: 20)",
+            "default": 20
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "tweet_retweets",
+      "description": "Get users who retweeted a specific tweet",
+      "method": "GET",
+      "path": "/tweet-retweets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to get retweeters for"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor for next page"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of retweeters to return (default: 20)",
+            "default": 20
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "tweet_thread",
+      "description": "Get full conversation thread including parent tweets and direct replies",
+      "method": "GET",
+      "path": "/tweet-thread",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to get thread for"
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "trends",
+      "description": "Get current trending topics on Twitter",
+      "method": "GET",
+      "path": "/trends",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "tweet_post",
+      "description": "Post a new tweet. Can also be used to reply to another tweet or include media.",
+      "method": "GET",
+      "path": "/tweet-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Tweet text content (max 280 characters)"
+          },
+          "replyToTweetId": {
+            "type": "string",
+            "description": "Tweet ID to reply to (optional)"
+          },
+          "mediaIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of media IDs to attach (optional)"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "tweet_like",
+      "description": "Like a tweet",
+      "method": "GET",
+      "path": "/tweet-like",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to like"
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "tweet_unlike",
+      "description": "Remove like from a tweet",
+      "method": "GET",
+      "path": "/tweet-unlike",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to unlike"
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "tweet_retweet",
+      "description": "Retweet a tweet",
+      "method": "GET",
+      "path": "/tweet-retweet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to retweet"
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "tweet_delete",
+      "description": "Delete a tweet (must be your own tweet)",
+      "method": "GET",
+      "path": "/tweet-delete",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tweetId": {
+            "type": "string",
+            "description": "Tweet ID to delete"
+          }
+        },
+        "required": [
+          "tweetId"
+        ]
+      }
+    },
+    {
+      "name": "follow_user",
+      "description": "Follow a Twitter user",
+      "method": "GET",
+      "path": "/follow-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Twitter user ID to follow"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Twitter username to follow (without @)"
+          }
+        }
+      }
+    },
+    {
+      "name": "unfollow_user",
+      "description": "Unfollow a Twitter user",
+      "method": "GET",
+      "path": "/unfollow-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "Twitter user ID to unfollow"
+          },
+          "userName": {
+            "type": "string",
+            "description": "Twitter username to unfollow (without @)"
+          }
+        }
+      }
+    },
+    {
+      "name": "dm_send",
+      "description": "Send a direct message to a Twitter user",
+      "method": "GET",
+      "path": "/dm-send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipientId": {
+            "type": "string",
+            "description": "Twitter user ID of the recipient"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text content"
+          },
+          "mediaId": {
+            "type": "string",
+            "description": "Media ID to attach (optional)"
+          }
+        },
+        "required": [
+          "recipientId",
+          "text"
+        ]
+      }
+    }
+  ]
+}

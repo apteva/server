@@ -89,7 +89,7 @@ func (s *Server) handleAdminCORSOrigins(w http.ResponseWriter, r *http.Request) 
 		}
 		writeJSON(w, appCORSOriginRegistration{Key: key, Origins: origins})
 	case http.MethodDelete:
-		if _, err := s.store.db.Exec(`DELETE FROM platform_cors_origins WHERE registration_key=?`, key); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `DELETE FROM platform_cors_origins WHERE registration_key=?`, key); err != nil {
 			http.Error(w, "delete CORS origins", http.StatusInternalServerError)
 			return
 		}
@@ -100,7 +100,7 @@ func (s *Server) handleAdminCORSOrigins(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) replacePlatformCORSOrigins(adminID int64, key string, origins []string) error {
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBegin()
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (s *Server) listPlatformCORSOriginRegistrations(key string) ([]appCORSOrigi
 		args = append(args, key)
 	}
 	query += ` ORDER BY registration_key, origin`
-	rows, err := s.store.db.Query(query, args...)
+	rows, err := s.store.dbQuery(query, args...)
 	if err != nil {
 		return nil, err
 	}

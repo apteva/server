@@ -1,0 +1,254 @@
+{
+  "slug": "twitter-ads",
+  "name": "X Ads",
+  "description": "X Ads API v12 for accounts, campaigns, line items, promoted posts, targeting, creatives, audiences, and analytics.",
+  "logo": "https://www.google.com/s2/favicons?domain=x.com&sz=128",
+  "categories": ["advertising", "marketing", "campaigns", "social-ads", "x"],
+  "base_url": "https://ads-api.x.com/12",
+  "auth": {
+    "types": ["oauth1"],
+    "credential_fields": [
+      {"name": "oauth_token", "label": "OAuth access token", "source": "oauth", "hidden": true},
+      {"name": "oauth_token_secret", "label": "OAuth access token secret", "source": "oauth", "hidden": true},
+      {"name": "user_id", "label": "X user ID", "source": "oauth", "hidden": true, "exposure": "public"},
+      {"name": "screen_name", "label": "X username", "source": "oauth", "hidden": true, "exposure": "public"}
+    ],
+    "oauth1": {
+      "request_token_url": "https://api.x.com/oauth/request_token",
+      "authorize_url": "https://api.x.com/oauth/authorize",
+      "access_token_url": "https://api.x.com/oauth/access_token",
+      "client_id_required": true,
+      "signature_method": "HMAC-SHA1",
+      "setup_url": "https://developer.x.com/en/portal/dashboard",
+      "setup_steps": [
+        "Create an X developer project and app with read and write access.",
+        "Request Standard Ads API Access for the app.",
+        "Add the callback URL shown here to the app authentication settings.",
+        "Use the app API key as client ID and API key secret as client secret."
+      ]
+    },
+    "signers": [{"name": "oauth1"}]
+  },
+  "tools": [
+    {
+      "name": "list_accounts", "description": "List advertising accounts accessible to the authenticated X user.", "method": "GET", "path": "/accounts",
+      "input_schema": {"type": "object", "properties": {"account_ids": {"type": "string"}, "count": {"type": "integer", "minimum": 1, "maximum": 1000}, "cursor": {"type": "string"}}}
+    },
+    {
+      "name": "get_account", "description": "Get an X advertising account.", "method": "GET", "path": "/accounts/{account_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "get_authenticated_user_access", "description": "Get the authenticated user's access level for an account.", "method": "GET", "path": "/accounts/{account_id}/authenticated_user_access",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "list_promotable_users", "description": "List X users that this account may promote.", "method": "GET", "path": "/accounts/{account_id}/promotable_users",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "list_funding_instruments", "description": "List account funding instruments.", "method": "GET", "path": "/accounts/{account_id}/funding_instruments",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "list_campaigns", "description": "List campaigns for an X Ads account.", "method": "GET", "path": "/accounts/{account_id}/campaigns",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "campaign_ids": {"type": "string"}, "count": {"type": "integer", "maximum": 1000}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}, "with_total_count": {"type": "boolean"}, "sort_by": {"type": "string"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "get_campaign", "description": "Get a campaign.", "method": "GET", "path": "/accounts/{account_id}/campaigns/{campaign_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "campaign_id": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id", "campaign_id"]}
+    },
+    {
+      "name": "create_campaign", "description": "Create an X campaign. Monetary values use local currency micros.", "method": "POST", "path": "/accounts/{account_id}/campaigns", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "funding_instrument_id": {"type": "string"}, "name": {"type": "string"}, "entity_status": {"type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"]}, "daily_budget_amount_local_micro": {"type": "integer"}, "total_budget_amount_local_micro": {"type": "integer"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}, "standard_delivery": {"type": "boolean"}, "frequency_cap": {"type": "integer"}}, "required": ["account_id", "funding_instrument_id", "name"]}
+    },
+    {
+      "name": "update_campaign", "description": "Update a campaign or change its status.", "method": "PUT", "path": "/accounts/{account_id}/campaigns/{campaign_id}", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "campaign_id": {"type": "string"}, "name": {"type": "string"}, "entity_status": {"type": "string", "enum": ["ACTIVE", "PAUSED"]}, "daily_budget_amount_local_micro": {"type": "integer"}, "total_budget_amount_local_micro": {"type": "integer"}, "end_time": {"type": "string"}, "frequency_cap": {"type": "integer"}}, "required": ["account_id", "campaign_id"]}
+    },
+    {
+      "name": "delete_campaign", "description": "Delete an X campaign.", "method": "DELETE", "path": "/accounts/{account_id}/campaigns/{campaign_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "campaign_id": {"type": "string"}}, "required": ["account_id", "campaign_id"]}
+    },
+    {
+      "name": "list_line_items", "description": "List line items (ad groups) for an account.", "method": "GET", "path": "/accounts/{account_id}/line_items",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "campaign_ids": {"type": "string"}, "line_item_ids": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "get_line_item", "description": "Get a line item.", "method": "GET", "path": "/accounts/{account_id}/line_items/{line_item_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_id": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id", "line_item_id"]}
+    },
+    {
+      "name": "create_line_item", "description": "Create a line item under a campaign.", "method": "POST", "path": "/accounts/{account_id}/line_items", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "campaign_id": {"type": "string"}, "name": {"type": "string"}, "product_type": {"type": "string"}, "objective": {"type": "string"}, "placements": {"type": "array", "items": {"type": "string"}}, "entity_status": {"type": "string"}, "bid_amount_local_micro": {"type": "integer"}, "bid_type": {"type": "string"}, "total_budget_amount_local_micro": {"type": "integer"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}, "advertiser_domain": {"type": "string"}}, "required": ["account_id", "campaign_id", "product_type", "objective", "placements"]}
+    },
+    {
+      "name": "update_line_item", "description": "Update a line item or change its status.", "method": "PUT", "path": "/accounts/{account_id}/line_items/{line_item_id}", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_id": {"type": "string"}, "name": {"type": "string"}, "entity_status": {"type": "string"}, "bid_amount_local_micro": {"type": "integer"}, "bid_type": {"type": "string"}, "total_budget_amount_local_micro": {"type": "integer"}, "end_time": {"type": "string"}, "advertiser_domain": {"type": "string"}}, "required": ["account_id", "line_item_id"]}
+    },
+    {
+      "name": "delete_line_item", "description": "Delete a line item.", "method": "DELETE", "path": "/accounts/{account_id}/line_items/{line_item_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_id": {"type": "string"}}, "required": ["account_id", "line_item_id"]}
+    },
+    {
+      "name": "list_promoted_tweets", "description": "List promoted post associations.", "method": "GET", "path": "/accounts/{account_id}/promoted_tweets",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_ids": {"type": "string"}, "promoted_tweet_ids": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "get_promoted_tweet", "description": "Get a promoted post association.", "method": "GET", "path": "/accounts/{account_id}/promoted_tweets/{promoted_tweet_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "promoted_tweet_id": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id", "promoted_tweet_id"]}
+    },
+    {
+      "name": "create_promoted_tweet", "description": "Associate one or more X posts with a line item.", "method": "POST", "path": "/accounts/{account_id}/promoted_tweets", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_id": {"type": "string"}, "tweet_ids": {"type": "string"}}, "required": ["account_id", "line_item_id", "tweet_ids"]}
+    },
+    {
+      "name": "delete_promoted_tweet", "description": "Disassociate a promoted post from its line item.", "method": "DELETE", "path": "/accounts/{account_id}/promoted_tweets/{promoted_tweet_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "promoted_tweet_id": {"type": "string"}}, "required": ["account_id", "promoted_tweet_id"]}
+    },
+    {
+      "name": "list_targeting_criteria", "description": "List targeting criteria attached to line items.", "method": "GET", "path": "/accounts/{account_id}/targeting_criteria",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_ids": {"type": "string"}, "targeting_criterion_ids": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "create_targeting_criteria", "description": "Create one or more targeting criteria for a line item.", "method": "POST", "path": "/accounts/{account_id}/targeting_criteria", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_id": {"type": "string"}, "targeting_type": {"type": "string"}, "targeting_value": {"type": "string"}, "operator_type": {"type": "string", "enum": ["INCLUDE", "EXCLUDE"]}}, "required": ["account_id", "line_item_id", "targeting_type", "targeting_value"]}
+    },
+    {
+      "name": "delete_targeting_criteria", "description": "Delete a targeting criterion.", "method": "DELETE", "path": "/accounts/{account_id}/targeting_criteria/{targeting_criterion_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "targeting_criterion_id": {"type": "string"}}, "required": ["account_id", "targeting_criterion_id"]}
+    },
+    {
+      "name": "list_targeting_locations", "description": "Search X targeting locations.", "method": "GET", "path": "/targeting_criteria/locations",
+      "input_schema": {"type": "object", "properties": {"q": {"type": "string"}, "location_type": {"type": "string"}, "country_code": {"type": "string"}}}
+    },
+    {
+      "name": "list_targeting_interests", "description": "List X targeting interests.", "method": "GET", "path": "/targeting_criteria/interests",
+      "input_schema": {"type": "object", "properties": {"count": {"type": "integer"}, "cursor": {"type": "string"}}}
+    },
+    {
+      "name": "list_targeting_languages", "description": "List targetable languages.", "method": "GET", "path": "/targeting_criteria/languages", "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_targeting_platforms", "description": "List targetable platforms.", "method": "GET", "path": "/targeting_criteria/platforms", "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_targeting_devices", "description": "List targetable devices.", "method": "GET", "path": "/targeting_criteria/devices", "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "list_placement_options", "description": "List valid line-item placements.", "method": "GET", "path": "/line_items/placements", "input_schema": {"type": "object", "properties": {"product_type": {"type": "string"}}}
+    },
+    {
+      "name": "list_tweets", "description": "Retrieve X posts owned by a promotable user.", "method": "GET", "path": "/accounts/{account_id}/tweets",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "tweet_ids": {"type": "string"}, "timeline_type": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "create_tweet", "description": "Create a promoted-only X post for this account.", "method": "POST", "path": "/accounts/{account_id}/tweet", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "text": {"type": "string"}, "media_ids": {"type": "string"}, "card_uri": {"type": "string"}, "as_user_id": {"type": "string"}, "nullcast": {"type": "boolean"}}, "required": ["account_id", "text"]}
+    },
+    {
+      "name": "upload_media", "description": "Upload image, GIF, or video bytes for an X creative.", "method": "POST", "base_url": "https://upload.x.com/1.1", "path": "/media/upload.json",
+      "multipart_form": {"file_fields": {"media": "media"}, "field_names": ["media_category", "additional_owners"]},
+      "input_schema": {"type": "object", "properties": {"media": {"type": "string", "description": "Base64, data URL, or blob reference."}, "media_category": {"type": "string"}, "additional_owners": {"type": "string"}}, "required": ["media"]}
+    },
+    {
+      "name": "media_upload_init", "description": "Initialize a chunked GIF or video upload.", "method": "POST", "base_url": "https://upload.x.com/1.1", "path": "/media/upload.json", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"command": {"type": "string", "enum": ["INIT"]}, "total_bytes": {"type": "integer"}, "media_type": {"type": "string"}, "media_category": {"type": "string"}, "additional_owners": {"type": "string"}}, "required": ["command", "total_bytes", "media_type", "media_category"]}
+    },
+    {
+      "name": "media_upload_append", "description": "Append one binary segment to a chunked media upload.", "method": "POST", "base_url": "https://upload.x.com/1.1", "path": "/media/upload.json",
+      "multipart_form": {"file_fields": {"media": "media"}, "field_names": ["command", "media_id", "segment_index"]},
+      "input_schema": {"type": "object", "properties": {"command": {"type": "string", "enum": ["APPEND"]}, "media_id": {"type": "string"}, "segment_index": {"type": "integer"}, "media": {"type": "string"}}, "required": ["command", "media_id", "segment_index", "media"]}
+    },
+    {
+      "name": "media_upload_finalize", "description": "Finalize a chunked media upload and begin processing.", "method": "POST", "base_url": "https://upload.x.com/1.1", "path": "/media/upload.json", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"command": {"type": "string", "enum": ["FINALIZE"]}, "media_id": {"type": "string"}}, "required": ["command", "media_id"]}
+    },
+    {
+      "name": "media_upload_status", "description": "Poll processing status for chunked uploaded media.", "method": "GET", "base_url": "https://upload.x.com/1.1", "path": "/media/upload.json",
+      "input_schema": {"type": "object", "properties": {"command": {"type": "string", "enum": ["STATUS"]}, "media_id": {"type": "string"}}, "required": ["command", "media_id"]}
+    },
+    {
+      "name": "list_media_library", "description": "List reusable creative media in the account library.", "method": "GET", "path": "/accounts/{account_id}/media_library",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "media_type": {"type": "string"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "add_media_to_library", "description": "Add uploaded media to the account media library.", "method": "POST", "path": "/accounts/{account_id}/media_library", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "media_id": {"type": "string"}, "name": {"type": "string"}}, "required": ["account_id", "media_id"]}
+    },
+    {
+      "name": "list_cards", "description": "List generic and carousel cards for an account.", "method": "GET", "path": "/accounts/{account_id}/cards",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "list_all_cards", "description": "List cards of every supported card type.", "method": "GET", "path": "/accounts/{account_id}/cards/all",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "create_card", "description": "Create a website, app, image, video, or carousel card from ordered components.", "method": "POST", "path": "/accounts/{account_id}/cards",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "name": {"type": "string"}, "components": {"type": "array", "items": {"type": "object"}}}, "required": ["account_id", "name", "components"]}
+    },
+    {
+      "name": "list_media_creatives", "description": "List media creatives associated with line items.", "method": "GET", "path": "/accounts/{account_id}/media_creatives",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_ids": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "create_media_creative", "description": "Associate uploaded media with a line item.", "method": "POST", "path": "/accounts/{account_id}/media_creatives", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "line_item_id": {"type": "string"}, "media_id": {"type": "string"}, "landing_url": {"type": "string"}}, "required": ["account_id", "line_item_id", "media_id"]}
+    },
+    {
+      "name": "delete_media_creative", "description": "Delete a media creative association.", "method": "DELETE", "path": "/accounts/{account_id}/media_creatives/{media_creative_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "media_creative_id": {"type": "string"}}, "required": ["account_id", "media_creative_id"]}
+    },
+    {
+      "name": "list_custom_audiences", "description": "List custom audiences.", "method": "GET", "path": "/accounts/{account_id}/custom_audiences",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "count": {"type": "integer"}, "cursor": {"type": "string"}, "with_deleted": {"type": "boolean"}}, "required": ["account_id"]}
+    },
+    {
+      "name": "get_custom_audience", "description": "Get one custom audience.", "method": "GET", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
+    },
+    {
+      "name": "create_custom_audience", "description": "Create a custom audience.", "method": "POST", "path": "/accounts/{account_id}/custom_audiences", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "name": {"type": "string"}, "list_type": {"type": "string"}, "description": {"type": "string"}}, "required": ["account_id", "name", "list_type"]}
+    },
+    {
+      "name": "update_custom_audience", "description": "Update a custom audience.", "method": "PUT", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}", "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
+    },
+    {
+      "name": "delete_custom_audience", "description": "Delete a custom audience.", "method": "DELETE", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
+    },
+    {
+      "name": "add_custom_audience_users", "description": "Add up to 2,500 normalized and SHA-256 hashed identifiers to a custom audience.", "method": "POST", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}/users",
+      "body_root_param": "users",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "users": {"type": "array", "items": {"type": "object"}}}, "required": ["account_id", "custom_audience_id", "users"]}
+    },
+    {
+      "name": "remove_custom_audience_users", "description": "Remove up to 2,500 normalized and SHA-256 hashed identifiers from a custom audience.", "method": "POST", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}/users",
+      "body_root_param": "users",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "users": {"type": "array", "items": {"type": "object"}}}, "required": ["account_id", "custom_audience_id", "users"]}
+    },
+    {
+      "name": "get_custom_audience_usage", "description": "List campaigns and line items targeting a custom audience.", "method": "GET", "path": "/accounts/{account_id}/custom_audiences/{custom_audience_id}/targeted",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "custom_audience_id": {"type": "string"}, "with_active": {"type": "boolean"}, "cursor": {"type": "string"}}, "required": ["account_id", "custom_audience_id"]}
+    },
+    {
+      "name": "get_stats", "description": "Get synchronous X Ads metrics for up to seven days and twenty entity IDs.", "method": "GET", "path": "/stats/accounts/{account_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "entity": {"type": "string"}, "entity_ids": {"type": "string"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}, "granularity": {"type": "string", "enum": ["TOTAL", "DAY", "HOUR"]}, "placement": {"type": "string"}, "metric_groups": {"type": "string"}}, "required": ["account_id", "entity", "entity_ids", "start_time", "end_time", "granularity", "placement", "metric_groups"]}
+    },
+    {
+      "name": "list_active_entities", "description": "List entities active during a time range.", "method": "GET", "path": "/stats/accounts/{account_id}/active_entities",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "entity": {"type": "string"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}}, "required": ["account_id", "entity", "start_time", "end_time"]}
+    },
+    {
+      "name": "create_stats_job", "description": "Create an asynchronous X Ads analytics job for longer or segmented ranges.", "method": "POST", "path": "/stats/jobs/accounts/{account_id}", "query_params": ["entity", "entity_ids", "start_time", "end_time", "granularity", "placement", "metric_groups", "segmentation_type"],
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "entity": {"type": "string"}, "entity_ids": {"type": "string"}, "start_time": {"type": "string"}, "end_time": {"type": "string"}, "granularity": {"type": "string"}, "placement": {"type": "string"}, "metric_groups": {"type": "string"}, "segmentation_type": {"type": "string"}}, "required": ["account_id", "entity", "entity_ids", "start_time", "end_time", "granularity", "placement", "metric_groups"]}
+    },
+    {
+      "name": "get_stats_job", "description": "Get an asynchronous analytics job and its result URL when complete.", "method": "GET", "path": "/stats/jobs/accounts/{account_id}",
+      "input_schema": {"type": "object", "properties": {"account_id": {"type": "string"}, "job_ids": {"type": "string"}}, "required": ["account_id", "job_ids"]}
+    }
+  ]
+}

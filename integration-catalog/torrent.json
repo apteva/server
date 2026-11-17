@@ -1,0 +1,251 @@
+{
+  "slug": "torrent",
+  "name": "Torrent Manager",
+  "description": "Search, download, stream, and manage torrents using ThePirateBay search and WebTorrent technology. Search millions of torrents, add them for download, stream video content, and monitor progress.",
+  "logo": "https://cdn-icons-png.flaticon.com/512/10172/10172632.png",
+  "categories": [
+    "torrent",
+    "webtorrent",
+    "download",
+    "streaming",
+    "p2p",
+    "thepiratebay"
+  ],
+  "base_url": "https://api.torrentapi.org/pubapi_v2.php",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_torrents",
+      "description": "Search for torrents using ThePirateBay API. Returns torrent name, magnet URI, seeders, leechers, size, category, uploader info, and verification status. Results are cached for 1 hour.",
+      "method": "GET",
+      "path": "/search-torrents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query (movie name, TV show, software, etc.)"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "all",
+              "music",
+              "audio",
+              "movies",
+              "video",
+              "tv",
+              "software",
+              "applications",
+              "games",
+              "adult",
+              "other"
+            ],
+            "default": "all",
+            "description": "Filter by category"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Maximum number of results to return"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "add_torrent",
+      "description": "Add a torrent to the download queue using a magnet URI. Creates a database record and starts downloading via WebTorrent service. Returns immediately with 'downloading' status without waiting for completion.",
+      "method": "GET",
+      "path": "/add-torrent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "magnetUri": {
+            "type": "string",
+            "description": "Magnet URI of the torrent (starts with magnet:?xt=urn:btih:)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name for the torrent"
+          },
+          "infoHash": {
+            "type": "string",
+            "description": "40-character SHA1 info hash (extracted from magnet URI if not provided)"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Optional folder ID to organize the torrent"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional metadata (size, seeders, category, etc.)"
+          }
+        },
+        "required": [
+          "magnetUri",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_torrent_status",
+      "description": "Get current status and progress of a torrent download. Returns progress percentage, download/upload speeds, peer count, and file information.",
+      "method": "GET",
+      "path": "/get-torrent-status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "torrent_id": {
+            "type": "integer",
+            "description": "Database ID of the torrent"
+          },
+          "infoHash": {
+            "type": "string",
+            "description": "40-character info hash (alternative to torrent_id)"
+          }
+        }
+      }
+    },
+    {
+      "name": "download_torrent_to_storage",
+      "description": "Download torrent files and save them to permanent storage. WAITS for download to complete, then uploads files to storage system. Updates database with file IDs and creates operation record.",
+      "method": "GET",
+      "path": "/download-torrent-to-storage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "torrent_id": {
+            "type": "integer",
+            "description": "Database ID of the torrent to download"
+          },
+          "infoHash": {
+            "type": "string",
+            "description": "40-character info hash (alternative to torrent_id)"
+          },
+          "bucket_id": {
+            "type": "integer",
+            "description": "Storage bucket ID for file upload"
+          },
+          "folder_id": {
+            "type": "integer",
+            "description": "Folder ID to organize downloaded files"
+          },
+          "access_level": {
+            "type": "string",
+            "enum": [
+              "public",
+              "private"
+            ],
+            "default": "private",
+            "description": "File access level in storage"
+          }
+        },
+        "required": [
+          "torrent_id"
+        ]
+      }
+    },
+    {
+      "name": "stream_torrent",
+      "description": "Get streaming URL for torrent video files. Returns URL pointing to WebTorrent service for direct playback without waiting for full download. Supports range requests for video seeking.",
+      "method": "GET",
+      "path": "/stream-torrent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "torrent_id": {
+            "type": "integer",
+            "description": "Database ID of the torrent"
+          },
+          "infoHash": {
+            "type": "string",
+            "description": "40-character info hash (alternative to torrent_id)"
+          },
+          "file_index": {
+            "type": "integer",
+            "default": 0,
+            "description": "Index of the file to stream (for multi-file torrents)"
+          }
+        }
+      }
+    },
+    {
+      "name": "remove_torrent",
+      "description": "Remove torrent from download queue and optionally delete files. Deletes database record, removes from WebTorrent service, and cancels active operations.",
+      "method": "DELETE",
+      "path": "/remove-torrent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "torrent_id": {
+            "type": "integer",
+            "description": "Database ID of the torrent to remove"
+          },
+          "infoHash": {
+            "type": "string",
+            "description": "40-character info hash (alternative to torrent_id)"
+          },
+          "delete_files": {
+            "type": "boolean",
+            "default": false,
+            "description": "Also delete downloaded files from storage"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_torrents",
+      "description": "List all torrents with optional filtering by status, project, or folder. Returns torrent metadata, progress, and statistics.",
+      "method": "GET",
+      "path": "/list-torrents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "folder_id": {
+            "type": "integer",
+            "description": "Filter by folder ID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "downloading",
+              "completed",
+              "seeding",
+              "paused",
+              "error"
+            ],
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum number of results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          }
+        }
+      }
+    }
+  ]
+}

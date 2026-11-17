@@ -1,0 +1,119 @@
+{
+  "slug": "groq",
+  "name": "Groq",
+  "description": "MCP server for Groq - fast LLM inference (Llama, Mixtral, Gemma) via OpenAI-compatible API",
+  "logo": "https://www.google.com/s2/favicons?domain=groq.com&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "inference",
+    "chat"
+  ],
+  "base_url": "https://api.groq.com/openai/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create a chat completion",
+      "method": "POST",
+      "path": "/chat/completions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "max_tokens": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "tools": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "list_models",
+      "description": "List available models",
+      "method": "GET",
+      "path": "/models",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_model",
+      "description": "Retrieve a specific model",
+      "method": "GET",
+      "path": "/models/{model_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id"
+        ]
+      }
+    },
+    {
+      "name": "create_transcription",
+      "description": "Transcribe audio with Whisper",
+      "method": "POST",
+      "path": "/audio/transcriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "model"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_models"
+  }
+}

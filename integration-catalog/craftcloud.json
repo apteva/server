@@ -1,0 +1,536 @@
+{
+  "slug": "craftcloud",
+  "name": "Craftcloud",
+  "description": "Craftcloud v5 API for uploading 3D models, comparing manufacturing quotes, creating carts and orders, taking payment, and tracking fulfillment.",
+  "logo": "https://www.google.com/s2/favicons?domain=craftcloud3d.com&sz=128",
+  "categories": ["3d-printing", "manufacturing", "price-comparison", "craftcloud", "all3dp"],
+  "base_url": "https://api.craftcloud3d.com",
+  "auth": { "types": ["none"], "headers": {}, "credential_fields": [] },
+  "health_check": { "tool": "health_check" },
+  "tools": [
+    {
+      "name": "health_check",
+      "description": "Check Craftcloud API health.",
+      "method": "GET",
+      "path": "/v5/health_check",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "upload_model",
+      "description": "Upload a model file to Craftcloud. The initial response may not include parsed geometry yet; poll get_model until parsing completes.",
+      "method": "POST",
+      "path": "/v5/model",
+      "multipart_form": {
+        "file_fields": {
+          "file": "file"
+        },
+        "field_names": ["unit", "refresh"]
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "Model file bytes as base64, data URL, or raw string." },
+          "filename": { "type": "string", "description": "Filename with extension." },
+          "unit": { "type": "string", "enum": ["mm", "cm", "in"], "default": "mm" },
+          "refresh": { "type": "boolean", "default": false }
+        },
+        "required": ["file", "filename"]
+      }
+    },
+    {
+      "name": "get_model",
+      "description": "Get a Craftcloud model by id. A 206 response means geometry parsing is still in progress and the request should be retried.",
+      "method": "GET",
+      "path": "/v5/model/{modelId}",
+      "query_params": ["refresh"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string", "description": "Craftcloud model id, usually the SHA-256 hash of the model file." },
+          "refresh": { "type": "boolean", "description": "Force Craftcloud to refresh model processing data." }
+        },
+        "required": ["modelId"]
+      }
+    },
+    {
+      "name": "evolve_model",
+      "description": "Create a new model variant with a different source-file unit. Use the returned model id in configurations and price requests.",
+      "method": "POST",
+      "path": "/v5/model/{modelId}/evolve",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string" },
+          "fileUnit": { "type": "string", "enum": ["mm", "cm", "in"], "default": "mm" }
+        },
+        "required": ["modelId", "fileUnit"]
+      }
+    },
+    {
+      "name": "create_configuration",
+      "description": "Create a product configuration from one or more existing model ids and quantities.",
+      "method": "POST",
+      "path": "/v5/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Models and quantities to manufacture.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "modelId": { "type": "string", "description": "Uploaded model id." },
+                "quantity": { "type": "integer", "minimum": 1 },
+                "scale": { "type": "number", "minimum": 0, "default": 1 }
+              },
+              "required": ["modelId", "quantity"]
+            }
+          }
+        },
+        "required": ["items"]
+      }
+    },
+    {
+      "name": "get_configuration",
+      "description": "Get a Craftcloud configuration by id.",
+      "method": "GET",
+      "path": "/v5/configuration/{configurationId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "configurationId": { "type": "string" }
+        },
+        "required": ["configurationId"]
+      }
+    },
+    {
+      "name": "create_price_request",
+      "description": "Request Craftcloud quotes for one or more model ids, country, currency, and optional material/vendor filters.",
+      "method": "POST",
+      "path": "/v5/price",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CAD", "AUD", "CHF", "NOK", "JPY", "ILS"] },
+          "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$", "description": "ISO 3166-1 alpha-2 destination country." },
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "modelId": { "type": "string" },
+                "quantity": { "type": "integer", "minimum": 1 },
+                "scale": { "type": "number", "minimum": 0, "default": 1 }
+              },
+              "required": ["modelId", "quantity"]
+            }
+          },
+          "materialConfigIds": { "type": "array", "items": { "type": "string" }, "description": "Limit quotes to these material configuration ids." },
+          "vendorIds": { "type": "array", "items": { "type": "string" }, "description": "Limit quotes to these vendor ids." },
+          "cartId": { "type": "string", "description": "Existing cart whose contents affect pricing." },
+          "refresh": { "type": "boolean" },
+          "topMaterialConfigsOnly": { "type": "boolean", "description": "Return only popular material configurations for a smaller result." }
+        },
+        "required": ["currency", "countryCode", "models"]
+      }
+    },
+    {
+      "name": "get_price",
+      "description": "Retrieve prices for a Craftcloud price request id.",
+      "method": "GET",
+      "path": "/v5/price/{priceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": { "type": "string" }
+        },
+        "required": ["priceId"]
+      }
+    },
+    {
+      "name": "get_grouped_prices",
+      "description": "Retrieve prices for a Craftcloud price request grouped by vendor.",
+      "method": "GET",
+      "path": "/v5/price/{priceId}/grouped",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": { "type": "string" }
+        },
+        "required": ["priceId"]
+      }
+    },
+    {
+      "name": "create_multi_model_offer",
+      "description": "Create a multi-model offer using the same body shape as a price request.",
+      "method": "POST",
+      "path": "/v5/multi-model-offer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CAD", "AUD", "CHF", "NOK", "JPY", "ILS"] },
+          "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "modelId": { "type": "string" },
+                "quantity": { "type": "integer", "minimum": 1 },
+                "scale": { "type": "number", "minimum": 0, "default": 1 }
+              },
+              "required": ["modelId", "quantity"]
+            }
+          },
+          "materialConfigIds": { "type": "array", "items": { "type": "string" } },
+          "vendorIds": { "type": "array", "items": { "type": "string" } },
+          "cartId": { "type": "string" },
+          "refresh": { "type": "boolean" },
+          "topMaterialConfigsOnly": { "type": "boolean" }
+        },
+        "required": ["currency", "countryCode", "models"]
+      }
+    },
+    {
+      "name": "get_multi_model_offer",
+      "description": "Get a multi-model offer by price id.",
+      "method": "GET",
+      "path": "/v5/multi-model-offer/{priceId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": { "type": "string" }
+        },
+        "required": ["priceId"]
+      }
+    },
+    {
+      "name": "get_multi_model_offer_stats",
+      "description": "Get quote statistics for each model configuration in a multi-model offer.",
+      "method": "GET",
+      "path": "/v5/multi-model-offer/{priceId}/model-config-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "priceId": { "type": "string" }
+        },
+        "required": ["priceId"]
+      }
+    },
+    {
+      "name": "lookup_multi_model_quote",
+      "description": "Look up one or more multi-model quotes by their ids.",
+      "method": "POST",
+      "path": "/v5/multi-model-quote/lookup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "multiModelQuoteIds": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        },
+        "required": ["multiModelQuoteIds"]
+      }
+    },
+    {
+      "name": "create_offer",
+      "description": "Create a shareable offer from an existing cart.",
+      "method": "POST",
+      "path": "/v5/offer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": { "type": "string" },
+          "expires": { "type": "boolean", "description": "Whether the offer is temporary." }
+        },
+        "required": ["cartId"]
+      }
+    },
+    {
+      "name": "get_offer_cart",
+      "description": "Return a cart object for an offer id.",
+      "method": "GET",
+      "path": "/v5/offer/{offerId}/cart",
+      "query_params": ["currency"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offerId": { "type": "string" },
+          "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CAD", "AUD", "CHF", "NOK", "JPY", "ILS"] }
+        },
+        "required": ["offerId"]
+      }
+    },
+    {
+      "name": "get_offer_configuration",
+      "description": "Return the model configuration for an offer id.",
+      "method": "GET",
+      "path": "/v5/offer/{offerId}/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offerId": { "type": "string" }
+        },
+        "required": ["offerId"]
+      }
+    },
+    {
+      "name": "create_cart",
+      "description": "Create a cart from shipping ids, currency, quote ids, and optional notes/reference/voucher.",
+      "method": "POST",
+      "path": "/v5/cart",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shippingIds": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "currency": { "type": "string", "enum": ["USD", "EUR", "GBP", "CAD", "AUD", "CHF", "NOK", "JPY", "ILS"] },
+          "quotes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "types": { "type": "array", "items": { "type": "string", "enum": ["economy", "expedited", "infill_40", "infill_60", "infill_80", "infill_95", "infill_100", "tolerance_004", "tolerance_003", "tolerance_002", "tolerance_001", "tolerance_tighter_001"] } },
+                "note": { "type": "string", "maxLength": 1024 }
+              },
+              "required": ["id"]
+            }
+          },
+          "note": { "type": "string", "maxLength": 1024 },
+          "customerReference": { "type": "string", "maxLength": 128 },
+          "voucherCode": { "type": "string" }
+        },
+        "required": ["shippingIds", "currency", "quotes"]
+      }
+    },
+    {
+      "name": "create_order",
+      "description": "Create an unpaid order from a cart and customer addresses. This commits the cart; call a payment tool afterwards to pay for production.",
+      "method": "POST",
+      "path": "/v5/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "cartId": { "type": "string" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "emailAddress": { "type": "string", "format": "email" },
+              "shipping": {
+                "type": "object",
+                "properties": {
+                  "firstName": { "type": "string" }, "lastName": { "type": "string" }, "address": { "type": "string" },
+                  "addressLine2": { "type": "string" }, "city": { "type": "string" }, "zipCode": { "type": "string" },
+                  "stateCode": { "type": "string" }, "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" },
+                  "companyName": { "type": "string" }, "phoneNumber": { "type": "string" }
+                },
+                "required": ["firstName", "lastName", "address", "city", "zipCode", "countryCode", "phoneNumber"]
+              },
+              "billing": {
+                "type": "object",
+                "properties": {
+                  "firstName": { "type": "string" }, "lastName": { "type": "string" }, "address": { "type": "string" },
+                  "addressLine2": { "type": "string" }, "city": { "type": "string" }, "zipCode": { "type": "string" },
+                  "stateCode": { "type": "string" }, "countryCode": { "type": "string", "pattern": "^[A-Z]{2}$" },
+                  "companyName": { "type": "string" }, "phoneNumber": { "type": "string" }, "vatId": { "type": "string" },
+                  "isCompany": { "type": "boolean" }
+                },
+                "required": ["firstName", "lastName", "address", "city", "zipCode", "countryCode", "isCompany"]
+              }
+            },
+            "required": ["emailAddress", "shipping", "billing"]
+          },
+          "gaClientId": { "type": "string" },
+          "customsInformation": {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string", "maxLength": 1024 },
+              "industry": { "type": "string", "enum": ["aviation", "aerospace", "automotive", "biotechnology", "chemicals", "construction_and_engineering", "consumer_goods", "electronic_equipment", "healthcare", "household_durables", "industrial_goods", "machinery_and_equipment", "marine", "other"] }
+            }
+          },
+          "appId": { "type": "string", "enum": ["craftcloud", "hp", "teleport"] }
+        },
+        "required": ["cartId", "user"]
+      }
+    },
+    {
+      "name": "create_stripe_payment",
+      "description": "Create a Stripe payment session for an unpaid Craftcloud order. This initiates a billable checkout flow; use the returned URL/client data and do not create another session after an ambiguous response without checking order status.",
+      "method": "POST",
+      "path": "/v5/payment/stripe",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "isTestOrder": { "type": "boolean", "default": false },
+          "additionalCostId": { "type": "string" },
+          "returnUrl": { "type": "string", "format": "uri" },
+          "cancelUrl": { "type": "string", "format": "uri" }
+        },
+        "required": ["orderId", "returnUrl", "cancelUrl"]
+      }
+    },
+    {
+      "name": "create_paypal_payment",
+      "description": "Create a PayPal checkout for an unpaid Craftcloud order. Redirect the payer using the returned approval data, then call capture_paypal_payment exactly once after approval.",
+      "method": "POST",
+      "path": "/v5/payment/paypal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "isTestOrder": { "type": "boolean", "default": false },
+          "additionalCostId": { "type": "string" },
+          "returnUrl": { "type": "string", "format": "uri" },
+          "cancelUrl": { "type": "string", "format": "uri" }
+        },
+        "required": ["orderId", "returnUrl", "cancelUrl"]
+      }
+    },
+    {
+      "name": "capture_paypal_payment",
+      "description": "Capture an approved Craftcloud PayPal order. This charges the payer; call it only after approval and check Craftcloud/PayPal status before retrying an ambiguous response.",
+      "method": "GET",
+      "path": "/v5/payment/paypal/{paypalOrderId}/capture",
+      "input_schema": {
+        "type": "object",
+        "properties": { "paypalOrderId": { "type": "string" } },
+        "required": ["paypalOrderId"]
+      }
+    },
+    {
+      "name": "create_adyen_payment",
+      "description": "Create an Adyen checkout session for an unpaid Craftcloud order.",
+      "method": "POST",
+      "path": "/v5/payment/adyen",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "isTestOrder": { "type": "boolean", "default": false },
+          "additionalCostId": { "type": "string" },
+          "returnUrl": { "type": "string", "format": "uri" }
+        },
+        "required": ["orderId", "returnUrl"]
+      }
+    },
+    {
+      "name": "complete_adyen_payment",
+      "description": "Submit the Adyen session result for a Craftcloud checkout. This can finalize payment; check status before retrying.",
+      "method": "PATCH",
+      "path": "/v5/payment/adyen/{adyenSessionId}/async",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "adyenSessionId": { "type": "string" },
+          "sessionResult": { "type": "string" }
+        },
+        "required": ["adyenSessionId", "sessionResult"]
+      }
+    },
+    {
+      "name": "create_invoice_payment",
+      "description": "Request invoice payment for an order when the Craftcloud account is approved for invoice billing.",
+      "method": "POST",
+      "path": "/v5/payment/invoice",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "isTestOrder": { "type": "boolean", "default": false },
+          "additionalCostId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "verify_invoice_payment",
+      "description": "Verify and execute a prepared Craftcloud invoice payment using its secret token. This commits payment terms; check order status before retrying.",
+      "method": "PATCH",
+      "path": "/v5/payment/invoice/{paymentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "paymentId": { "type": "string" },
+          "token": { "type": "string" },
+          "net30": { "type": "boolean", "description": "Execute under Net 30 terms when enabled for the account." }
+        },
+        "required": ["paymentId", "token"]
+      }
+    },
+    {
+      "name": "create_quote_payment",
+      "description": "Request Craftcloud's quote-based payment flow for an order when enabled for the account.",
+      "method": "POST",
+      "path": "/v5/payment/quote",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "isTestOrder": { "type": "boolean", "default": false }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "get_order_status",
+      "description": "Get Craftcloud order status.",
+      "method": "GET",
+      "path": "/v5/order/{orderId}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "get_order_configuration",
+      "description": "Return the quote configuration for an order id.",
+      "method": "GET",
+      "path": "/v5/order/{orderId}/configuration",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" }
+        },
+        "required": ["orderId"]
+      }
+    },
+    {
+      "name": "validate_address",
+      "description": "Validate a shipping or billing address.",
+      "method": "POST",
+      "path": "/v5/address-validation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "country": { "type": "string", "pattern": "^[A-Z]{2}$" },
+          "state": { "type": "string" },
+          "zip": { "type": "string" },
+          "city": { "type": "string" },
+          "street": { "type": "string" }
+        },
+        "required": ["country", "city", "zip", "street"]
+      }
+    },
+    {
+      "name": "validate_vat",
+      "description": "Validate a VAT id before using it on a company billing address.",
+      "method": "POST",
+      "path": "/v5/vat-validation",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "vatId": { "type": "string" }
+        },
+        "required": ["vatId"]
+      }
+    }
+  ]
+}

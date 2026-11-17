@@ -12,7 +12,7 @@
     "regulatory",
     "public-data"
   ],
-  "base_url": "https://data.sec.gov",
+  "base_url": "https://www.sec.gov",
   "auth": {
     "types": ["none"],
     "headers": {
@@ -37,6 +37,7 @@
       "name": "ticker_to_cik",
       "description": "Resolve a stock ticker to its 10-digit zero-padded SEC CIK (Central Index Key). EVERY other EDGAR call needs a CIK, not a ticker — call this first to look up. The endpoint returns a JSON map of all ~10k SEC-registered companies; the agent can grep for the ticker. Cache aggressively: this file updates daily but doesn't move per request.",
       "method": "GET",
+      "base_url": "https://www.sec.gov",
       "path": "/files/company_tickers.json",
       "input_schema": {
         "type": "object",
@@ -47,6 +48,7 @@
       "name": "company_submissions",
       "description": "All recent filings for a company. Returns a 'filings.recent' object with parallel arrays: accessionNumber, filingDate, reportDate, form (10-K, 10-Q, 8-K, 4, etc.), and primaryDocument. Use this to find what a company has filed lately — earnings reports, material events, insider trades, etc. CIK must be 10 digits, zero-padded (e.g. '0000320193' for Apple, not '320193').",
       "method": "GET",
+      "base_url": "https://data.sec.gov",
       "path": "/submissions/CIK{cik}.json",
       "input_schema": {
         "type": "object",
@@ -57,9 +59,22 @@
       }
     },
     {
+      "name": "submission_archive",
+      "description": "Fetch an older SEC submission archive file listed in company_submissions.filings.files. These files extend company history beyond the recent-feed window.",
+      "method": "GET",
+      "base_url": "https://data.sec.gov",
+      "path": "/submissions/{file}",
+      "input_schema": {
+        "type": "object",
+        "properties": {"file": {"type": "string", "description": "Archive filename, e.g. CIK0000320193-submissions-001.json"}},
+        "required": ["file"]
+      }
+    },
+    {
       "name": "company_facts",
       "description": "All XBRL-tagged financial data for a company — every reported fundamental across every filing. Returns nested 'facts.us-gaap' (and 'facts.dei') with concepts like Revenues, NetIncomeLoss, Assets, Liabilities, OperatingIncomeLoss, etc., each holding a time series of reported values across filings. Massive payload (often >5MB for big issuers); use 'concept' instead when you only need one metric.",
       "method": "GET",
+      "base_url": "https://data.sec.gov",
       "path": "/api/xbrl/companyfacts/CIK{cik}.json",
       "input_schema": {
         "type": "object",
@@ -73,6 +88,7 @@
       "name": "concept",
       "description": "Time series for ONE XBRL concept on ONE company. Use when you know exactly what you want — Revenues, NetIncomeLoss, EarningsPerShareBasic, CommonStockSharesOutstanding, etc. Smaller payload than company_facts. Taxonomy is almost always us-gaap; dei holds entity-level metadata.",
       "method": "GET",
+      "base_url": "https://data.sec.gov",
       "path": "/api/xbrl/companyconcept/CIK{cik}/{taxonomy}/{tag}.json",
       "input_schema": {
         "type": "object",
@@ -88,6 +104,7 @@
       "name": "concept_frame",
       "description": "Cross-section: one XBRL concept across EVERY US public company for a single quarter or year. Use when ranking companies by a metric ('all companies that reported Q1 2026 revenue > $10B') or doing market-wide screens. Frame strings: 'CY2025Q1I' (point-in-time end-Q1-2025), 'CY2025Q1' (cumulative Q1-2025 flow), 'CY2025' (annual).",
       "method": "GET",
+      "base_url": "https://data.sec.gov",
       "path": "/api/xbrl/frames/{taxonomy}/{tag}/{unit}/{frame}.json",
       "input_schema": {
         "type": "object",

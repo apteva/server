@@ -85,7 +85,7 @@ func (s *Server) handleSetConnectionScope(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "begin tx: "+err.Error(), http.StatusInternalServerError)
 		return

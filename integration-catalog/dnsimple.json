@@ -1,0 +1,410 @@
+{
+  "slug": "dnsimple",
+  "name": "DNSimple",
+  "description": "DNSimple domain registration, DNS management, and SSL certificates with a developer-first API",
+  "logo": "https://www.google.com/s2/favicons?domain=dnsimple.com&sz=128",
+  "categories": [
+    "dns",
+    "domains",
+    "registrar",
+    "dnsimple",
+    "devops"
+  ],
+  "base_url": "https://api.dnsimple.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "accessToken",
+        "label": "Access Token",
+        "description": "DNSimple API access token (generate at dnsimple.com/a/{account}/account/access_tokens)"
+      },
+      {
+        "name": "accountId",
+        "label": "Account Id",
+        "description": "DNSimple Account ID (numeric, found in your account URL)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_domains",
+      "description": "List all domains in a DNSimple account with optional sorting and pagination",
+      "method": "GET",
+      "path": "/{accountId}/domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort criteria (e.g., 'name:asc', 'expiration:desc')"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page (default: 30, max: 100)"
+          }
+        },
+        "required": [
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "get_domain",
+      "description": "Retrieve details for a specific domain in a DNSimple account",
+      "method": "GET",
+      "path": "/{accountId}/domains/{domainName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name or domain ID"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName"
+        ]
+      }
+    },
+    {
+      "name": "register_domain",
+      "description": "Register a new domain through DNSimple. Requires a registrant contact ID.",
+      "method": "POST",
+      "path": "/{accountId}/registrar/domains/{domainName}/registrations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name to register"
+          },
+          "registrant_id": {
+            "type": "number",
+            "description": "The ID of the contact to use as registrant"
+          },
+          "period": {
+            "type": "number",
+            "description": "Registration period in years (default: 1)"
+          },
+          "auto_renew": {
+            "type": "boolean",
+            "description": "Enable auto-renewal for the domain"
+          },
+          "privacy": {
+            "type": "boolean",
+            "description": "Enable WHOIS privacy protection"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName",
+          "registrant_id"
+        ]
+      }
+    },
+    {
+      "name": "check_availability",
+      "description": "Check if a domain name is available for registration",
+      "method": "GET",
+      "path": "/{accountId}/registrar/domains/{domainName}/check",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name to check availability for"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName"
+        ]
+      }
+    },
+    {
+      "name": "renew_domain",
+      "description": "Renew a domain registration for an additional period",
+      "method": "POST",
+      "path": "/{accountId}/registrar/domains/{domainName}/renewals",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name to renew"
+          },
+          "period": {
+            "type": "number",
+            "description": "Renewal period in years (default: 1)"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName"
+        ]
+      }
+    },
+    {
+      "name": "transfer_domain",
+      "description": "Transfer a domain to DNSimple from another registrar",
+      "method": "POST",
+      "path": "/{accountId}/registrar/domains/{domainName}/transfers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name to transfer"
+          },
+          "registrant_id": {
+            "type": "number",
+            "description": "The ID of the contact to use as registrant"
+          },
+          "auth_code": {
+            "type": "string",
+            "description": "The authorization code (EPP code) from the current registrar"
+          },
+          "auto_renew": {
+            "type": "boolean",
+            "description": "Enable auto-renewal for the domain"
+          },
+          "privacy": {
+            "type": "boolean",
+            "description": "Enable WHOIS privacy protection"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName",
+          "registrant_id"
+        ]
+      }
+    },
+    {
+      "name": "list_dns_records",
+      "description": "List DNS records for a zone with optional filtering by record type and name",
+      "method": "GET",
+      "path": "/{accountId}/zones/{zoneName}/records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "zoneName": {
+            "type": "string",
+            "description": "The zone name (domain name)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter by record type (e.g., A, AAAA, CNAME, MX, TXT, NS, SRV)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by record name"
+          }
+        },
+        "required": [
+          "accountId",
+          "zoneName"
+        ]
+      }
+    },
+    {
+      "name": "create_dns_record",
+      "description": "Create a new DNS record in a zone",
+      "method": "POST",
+      "path": "/{accountId}/zones/{zoneName}/records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "zoneName": {
+            "type": "string",
+            "description": "The zone name (domain name)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Record name (e.g., 'www', '' for apex)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Record type (e.g., A, AAAA, CNAME, MX, TXT, NS, SRV)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Record content (e.g., IP address, hostname)"
+          },
+          "ttl": {
+            "type": "number",
+            "description": "Time to live in seconds (default: 3600)"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Record priority (required for MX and SRV records)"
+          }
+        },
+        "required": [
+          "accountId",
+          "zoneName",
+          "name",
+          "type",
+          "content"
+        ]
+      }
+    },
+    {
+      "name": "update_dns_record",
+      "description": "Update an existing DNS record in a zone",
+      "method": "PATCH",
+      "path": "/{accountId}/zones/{zoneName}/records/{recordId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "zoneName": {
+            "type": "string",
+            "description": "The zone name (domain name)"
+          },
+          "recordId": {
+            "type": "string",
+            "description": "The DNS record ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated record name"
+          },
+          "content": {
+            "type": "string",
+            "description": "Updated record content"
+          },
+          "ttl": {
+            "type": "number",
+            "description": "Updated time to live in seconds"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Updated record priority"
+          }
+        },
+        "required": [
+          "accountId",
+          "zoneName",
+          "recordId"
+        ]
+      }
+    },
+    {
+      "name": "delete_dns_record",
+      "description": "Delete a DNS record from a zone",
+      "method": "DELETE",
+      "path": "/{accountId}/zones/{zoneName}/records/{recordId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "zoneName": {
+            "type": "string",
+            "description": "The zone name (domain name)"
+          },
+          "recordId": {
+            "type": "string",
+            "description": "The DNS record ID to delete"
+          }
+        },
+        "required": [
+          "accountId",
+          "zoneName",
+          "recordId"
+        ]
+      }
+    },
+    {
+      "name": "get_whois_privacy",
+      "description": "Get the WHOIS privacy status for a domain",
+      "method": "GET",
+      "path": "/{accountId}/registrar/domains/{domainName}/whois_privacy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name to check WHOIS privacy for"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName"
+        ]
+      }
+    },
+    {
+      "name": "enable_whois_privacy",
+      "description": "Enable WHOIS privacy protection for a domain",
+      "method": "PUT",
+      "path": "/{accountId}/registrar/domains/{domainName}/whois_privacy",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "The DNSimple account ID"
+          },
+          "domainName": {
+            "type": "string",
+            "description": "The domain name to enable WHOIS privacy for"
+          }
+        },
+        "required": [
+          "accountId",
+          "domainName"
+        ]
+      }
+    }
+  ]
+}

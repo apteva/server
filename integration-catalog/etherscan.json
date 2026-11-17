@@ -1,0 +1,162 @@
+{
+  "slug": "etherscan",
+  "name": "Etherscan",
+  "description": "Ethereum mainnet block explorer API — on-chain queries about addresses, transactions, ERC-20 transfers, internal calls, gas, and supply. The de-facto canonical source for Ethereum chain reads. Use for whale-wallet watching (track addresses with >$10M positions), tx-history audits, ERC-20 movement detection, and gas-price awareness for time-sensitive trades. Free tier: 5 req/sec (no daily cap). Sign up at https://etherscan.io/apis. Note: all calls go through a single /api endpoint with module + action as query params — that's Etherscan's design, not ours.",
+  "logo": "https://www.google.com/s2/favicons?domain=etherscan.io&sz=128",
+  "categories": [
+    "crypto",
+    "ethereum",
+    "explorer",
+    "on-chain",
+    "defi",
+    "blockchain"
+  ],
+  "base_url": "https://api.etherscan.io",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your Etherscan account dashboard at https://etherscan.io/myapikey. Free tier: 5 req/sec, no daily cap."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "eth_balance",
+      "description": "Native ETH balance for an address, in wei. Divide by 1e18 for ether. Use for tracking whale-wallet net worth movements.",
+      "method": "GET",
+      "path": "/api?module=account&action=balance&tag=latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {"type": "string", "description": "0x-prefixed 40-char hex address."}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "tx_list",
+      "description": "List normal transactions (calls + value transfers) for an address. Returns up to 10k rows per page; paginate via page + offset. Use for full tx-history audits.",
+      "method": "GET",
+      "path": "/api?module=account&action=txlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":    {"type": "string"},
+          "startblock": {"type": "integer", "default": 0},
+          "endblock":   {"type": "integer", "default": 99999999},
+          "page":       {"type": "integer", "default": 1},
+          "offset":     {"type": "integer", "default": 100, "description": "Rows per page, max 10000."},
+          "sort":       {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "internal_tx_list",
+      "description": "Internal transactions (contract-to-contract calls that moved value, not externally-initiated). Critical for tracing where funds actually moved — visible normal txs only show the top-level call.",
+      "method": "GET",
+      "path": "/api?module=account&action=txlistinternal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":    {"type": "string"},
+          "startblock": {"type": "integer", "default": 0},
+          "endblock":   {"type": "integer", "default": 99999999},
+          "page":       {"type": "integer", "default": 1},
+          "offset":     {"type": "integer", "default": 100},
+          "sort":       {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "erc20_transfers",
+      "description": "ERC-20 token transfers involving an address. Filter by contractaddress for one specific token (e.g. USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48). Without contractaddress, returns every token interaction. Critical for following whale flows in/out of major stablecoins or memecoins.",
+      "method": "GET",
+      "path": "/api?module=account&action=tokentx",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":         {"type": "string"},
+          "contractaddress": {"type": "string", "description": "Optional — restrict to one token contract."},
+          "startblock":      {"type": "integer", "default": 0},
+          "endblock":        {"type": "integer", "default": 99999999},
+          "page":            {"type": "integer", "default": 1},
+          "offset":          {"type": "integer", "default": 100},
+          "sort":            {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "erc20_balance",
+      "description": "ERC-20 balance for an address against one specific token contract. Result is in the token's base units; divide by 10^decimals to get human-readable.",
+      "method": "GET",
+      "path": "/api?module=account&action=tokenbalance&tag=latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":         {"type": "string"},
+          "contractaddress": {"type": "string"}
+        },
+        "required": ["address","contractaddress"]
+      }
+    },
+    {
+      "name": "tx_status",
+      "description": "Was a transaction successful? Returns {isError, errDescription}. Use to verify large pending tx outcomes for time-sensitive trading decisions.",
+      "method": "GET",
+      "path": "/api?module=transaction&action=getstatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txhash": {"type": "string"}
+        },
+        "required": ["txhash"]
+      }
+    },
+    {
+      "name": "block_by_time",
+      "description": "Find the closest block number for a given Unix timestamp. Useful for 'what was X's balance at exactly 14:00 UTC yesterday' analysis.",
+      "method": "GET",
+      "path": "/api?module=block&action=getblocknobytime",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timestamp": {"type": "integer"},
+          "closest":   {"type": "string", "enum": ["before","after"], "default": "before"}
+        },
+        "required": ["timestamp"]
+      }
+    },
+    {
+      "name": "gas_oracle",
+      "description": "Current gas prices — SafeGasPrice, ProposeGasPrice, FastGasPrice (in gwei). Use before sending tx to estimate timing + cost.",
+      "method": "GET",
+      "path": "/api?module=gastracker&action=gasoracle",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "eth_price",
+      "description": "Current ETH/BTC and ETH/USD prices according to Etherscan's data feed.",
+      "method": "GET",
+      "path": "/api?module=stats&action=ethprice",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "gas_oracle"
+  }
+}

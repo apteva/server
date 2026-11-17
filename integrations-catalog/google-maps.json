@@ -1,7 +1,7 @@
 {
   "slug": "google-maps",
   "name": "Google Maps",
-  "description": "MCP server for Google Maps Platform APIs including geocoding, directions, distance calculations, elevation, timezone, static maps, and street view",
+  "description": "Google Maps Platform geocoding, elevation, time zone, static maps and Street View. Directions and Distance Matrix tools use the legacy APIs, which require an eligible project with those APIs enabled.",
   "logo": "https://developers.google.com/maps/images/maps-icon.svg",
   "categories": [
     "google-maps",
@@ -17,22 +17,23 @@
     "types": [
       "api_key"
     ],
-    "headers": {
-      "X-API-Key": "{{api_key}}"
-    },
     "credential_fields": [
       {
         "name": "api_key",
-        "label": "apiKey"
+        "label": "API key",
+        "description": "Google Maps Platform API key. Enable billing and each API used by the tools; Directions and Distance Matrix are legacy APIs."
       }
-    ]
+    ],
+    "query_params": {
+      "key": "{{api_key}}"
+    }
   },
   "tools": [
     {
       "name": "geocode_address",
       "description": "Convert an address to geographic coordinates (latitude and longitude)",
       "method": "GET",
-      "path": "/geocode-address",
+      "path": "/geocode/json",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -41,433 +42,388 @@
             "description": "Address to geocode"
           },
           "components": {
-            "type": "object",
-            "description": "Component filters (country, postal_code, etc.)",
-            "properties": {
-              "country": {
-                "type": "string"
-              },
-              "postal_code": {
-                "type": "string"
-              },
-              "locality": {
-                "type": "string"
-              }
-            }
+            "type": "string",
+            "description": "Pipe-separated component filters, e.g. country:FR|locality:Lyon"
           },
           "bounds": {
-            "type": "object",
-            "description": "Viewport bounds for biasing results",
-            "properties": {
-              "northeast": {
-                "type": "object",
-                "properties": {
-                  "lat": {
-                    "type": "number"
-                  },
-                  "lng": {
-                    "type": "number"
-                  }
-                }
-              },
-              "southwest": {
-                "type": "object",
-                "properties": {
-                  "lat": {
-                    "type": "number"
-                  },
-                  "lng": {
-                    "type": "number"
-                  }
-                }
-              }
-            }
+            "type": "string",
+            "description": "Southwest and northeast corners as southLat,southLng|northLat,northLng"
           },
           "region": {
             "type": "string",
-            "description": "Region code for biasing (e.g., 'us', 'uk')"
+            "description": "Two-character ccTLD region bias, e.g. fr or uk"
           },
           "language": {
             "type": "string",
-            "description": "Language code for results"
+            "description": "Language code for results, e.g. en or fr"
           }
         },
         "required": [
           "address"
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "OK",
+          "ZERO_RESULTS"
+        ],
+        "message_path": "error_message"
       }
     },
     {
       "name": "reverse_geocode",
       "description": "Convert geographic coordinates to a human-readable address",
       "method": "GET",
-      "path": "/reverse-geocode",
+      "path": "/geocode/json",
       "input_schema": {
         "type": "object",
         "properties": {
-          "latitude": {
-            "type": "number",
-            "description": "Latitude coordinate"
+          "latlng": {
+            "type": "string",
+            "description": "Latitude,longitude pair, e.g. 45.764,4.8357"
           },
-          "longitude": {
-            "type": "number",
-            "description": "Longitude coordinate"
-          },
-          "result_types": {
-            "type": "array",
-            "description": "Filter results by type (e.g., 'street_address', 'postal_code')",
-            "items": {
-              "type": "string"
-            }
+          "result_type": {
+            "type": "string",
+            "description": "Pipe-separated result types, e.g. street_address|route"
           },
           "location_type": {
             "type": "string",
-            "description": "Filter by location type (ROOFTOP, RANGE_INTERPOLATED, etc.)"
+            "description": "Pipe-separated location types, e.g. ROOFTOP|RANGE_INTERPOLATED"
           },
           "language": {
             "type": "string",
-            "description": "Language code for results"
+            "description": "Language code for results, e.g. en or fr"
           }
         },
         "required": [
-          "latitude",
-          "longitude"
+          "latlng"
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "OK",
+          "ZERO_RESULTS"
+        ],
+        "message_path": "error_message"
       }
     },
     {
       "name": "get_directions",
-      "description": "Get driving, walking, bicycling, or transit directions between locations",
+      "description": "Get driving, walking, bicycling or transit directions using Directions API (Legacy). Requires an eligible project with the legacy API enabled.",
       "method": "GET",
-      "path": "/get-directions",
+      "path": "/directions/json",
       "input_schema": {
         "type": "object",
         "properties": {
           "origin": {
             "type": "string",
-            "description": "Starting point (address, place ID, or lat,lng)"
+            "description": "Starting address, lat,lng, or Place ID prefixed with place_id:"
           },
           "destination": {
             "type": "string",
-            "description": "Ending point (address, place ID, or lat,lng)"
+            "description": "Destination address, lat,lng, or Place ID prefixed with place_id:"
           },
           "mode": {
             "type": "string",
-            "description": "Travel mode: driving (default), walking, bicycling, transit",
             "enum": [
               "driving",
               "walking",
               "bicycling",
               "transit"
             ],
-            "default": "driving"
+            "description": "Travel mode; Google defaults to driving"
           },
           "waypoints": {
-            "type": "array",
-            "description": "Array of waypoints to visit",
-            "items": {
-              "type": "string"
-            }
-          },
-          "optimize_waypoints": {
-            "type": "boolean",
-            "description": "Optimize waypoint order for shortest route",
-            "default": false
+            "type": "string",
+            "description": "Pipe-separated waypoints. To optimize order, prefix with optimize:true|, e.g. optimize:true|Lyon,France|Dijon,France"
           },
           "avoid": {
-            "type": "array",
-            "description": "Features to avoid: tolls, highways, ferries, indoor",
-            "items": {
-              "type": "string",
-              "enum": [
-                "tolls",
-                "highways",
-                "ferries",
-                "indoor"
-              ]
-            }
+            "type": "string",
+            "description": "Pipe-separated features to avoid: tolls|highways|ferries|indoor"
           },
           "units": {
             "type": "string",
-            "description": "Unit system: metric or imperial",
             "enum": [
               "metric",
               "imperial"
             ],
-            "default": "metric"
+            "description": "Distance unit system; Google defaults to metric"
           },
           "alternatives": {
             "type": "boolean",
-            "description": "Request alternative routes",
-            "default": false
+            "description": "Request alternative routes; only supported without intermediate waypoints"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for results, e.g. en or fr"
           }
         },
         "required": [
           "origin",
           "destination"
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "OK",
+          "ZERO_RESULTS"
+        ],
+        "message_path": "error_message"
       }
     },
     {
       "name": "calculate_distances",
-      "description": "Calculate distance and time between multiple origins and destinations",
+      "description": "Calculate travel distances and times using Distance Matrix API (Legacy). Requires an eligible project with the legacy API enabled. Check each rows[].elements[].status as well as the top-level status.",
       "method": "GET",
-      "path": "/calculate-distances",
+      "path": "/distancematrix/json",
       "input_schema": {
         "type": "object",
         "properties": {
           "origins": {
-            "type": "array",
-            "description": "Array of origin locations (addresses or coordinates)",
-            "items": {
-              "type": "string"
-            }
+            "type": "string",
+            "description": "Pipe-separated origins, e.g. Lyon,France|Paris,France; Place IDs need the place_id: prefix"
           },
           "destinations": {
-            "type": "array",
-            "description": "Array of destination locations (addresses or coordinates)",
-            "items": {
-              "type": "string"
-            }
+            "type": "string",
+            "description": "Pipe-separated destinations, e.g. Dijon,France|Marseille,France; Place IDs need the place_id: prefix"
           },
           "mode": {
             "type": "string",
-            "description": "Travel mode: driving, walking, bicycling, transit",
             "enum": [
               "driving",
               "walking",
               "bicycling",
               "transit"
             ],
-            "default": "driving"
+            "description": "Travel mode; Google defaults to driving"
           },
           "units": {
             "type": "string",
-            "description": "Unit system: metric or imperial",
             "enum": [
               "metric",
               "imperial"
             ],
-            "default": "metric"
+            "description": "Distance unit system; Google defaults to metric"
           },
           "avoid": {
-            "type": "array",
-            "description": "Features to avoid: tolls, highways, ferries",
-            "items": {
-              "type": "string",
-              "enum": [
-                "tolls",
-                "highways",
-                "ferries"
-              ]
-            }
+            "type": "string",
+            "description": "Pipe-separated features to avoid: tolls|highways|ferries"
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for results, e.g. en or fr"
           }
         },
         "required": [
           "origins",
           "destinations"
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "OK",
+          "ZERO_RESULTS"
+        ],
+        "message_path": "error_message"
       }
     },
     {
       "name": "get_elevation",
       "description": "Get elevation data for specific locations on Earth",
       "method": "GET",
-      "path": "/get-elevation",
+      "path": "/elevation/json",
       "input_schema": {
         "type": "object",
         "properties": {
           "locations": {
-            "type": "array",
-            "description": "Array of location objects with lat and lng properties",
-            "items": {
-              "type": "object",
-              "properties": {
-                "lat": {
-                  "type": "number"
-                },
-                "lng": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "lat",
-                "lng"
-              ]
-            }
+            "type": "string",
+            "description": "Pipe-separated latitude,longitude pairs, e.g. 45.764,4.8357|48.8566,2.3522; up to 512 locations"
           }
         },
         "required": [
           "locations"
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "OK",
+          "ZERO_RESULTS"
+        ],
+        "message_path": "error_message"
       }
     },
     {
       "name": "get_timezone",
       "description": "Get timezone information for a specific location and time",
       "method": "GET",
-      "path": "/get-timezone",
+      "path": "/timezone/json",
       "input_schema": {
         "type": "object",
         "properties": {
           "location": {
-            "type": "object",
-            "description": "Location object with lat and lng properties",
-            "properties": {
-              "lat": {
-                "type": "number"
-              },
-              "lng": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "lat",
-              "lng"
-            ]
+            "type": "string",
+            "description": "Latitude,longitude pair, e.g. 45.764,4.8357"
           },
           "timestamp": {
             "type": "number",
-            "description": "Unix timestamp in seconds (defaults to current time)"
+            "description": "Required Unix timestamp in seconds; supply the desired time explicitly"
           },
           "language": {
             "type": "string",
-            "description": "Language code for timezone name"
+            "description": "Language code for results, e.g. en or fr"
           }
         },
         "required": [
-          "location"
+          "location",
+          "timestamp"
         ]
+      },
+      "response_error": {
+        "type": "json_status",
+        "code_path": "status",
+        "success_codes": [
+          "OK",
+          "ZERO_RESULTS"
+        ],
+        "message_path": "errorMessage"
       }
     },
     {
       "name": "generate_map",
       "description": "Generate a static map image with markers, paths, and custom styling",
       "method": "GET",
-      "path": "/generate-map",
+      "path": "/staticmap",
       "input_schema": {
         "type": "object",
         "properties": {
           "center": {
             "type": "string",
-            "description": "Center of the map (address or lat,lng)"
+            "description": "Map center as address or latitude,longitude; required with zoom when no markers or path are provided"
           },
           "zoom": {
-            "type": "number",
-            "description": "Zoom level (0-21)",
+            "type": "integer",
             "minimum": 0,
             "maximum": 21,
-            "default": 12
+            "description": "Zoom level; required with center when no markers or path are provided"
           },
           "size": {
-            "type": "object",
-            "description": "Image size with width and height (max 640x640 for free)",
-            "properties": {
-              "width": {
-                "type": "number",
-                "maximum": 640
-              },
-              "height": {
-                "type": "number",
-                "maximum": 640
-              }
-            },
-            "default": {
-              "width": 600,
-              "height": 400
-            }
+            "type": "string",
+            "description": "Image dimensions WIDTHxHEIGHT, e.g. 600x400; standard maximum is 640x640",
+            "pattern": "^[1-9][0-9]*x[1-9][0-9]*$"
           },
           "maptype": {
             "type": "string",
-            "description": "Map type: roadmap, satellite, terrain, hybrid",
             "enum": [
               "roadmap",
               "satellite",
               "terrain",
               "hybrid"
-            ],
-            "default": "roadmap"
+            ]
           },
           "markers": {
-            "type": "array",
-            "description": "Array of marker objects",
-            "items": {
-              "type": "object",
-              "properties": {
-                "color": {
-                  "type": "string"
-                },
-                "size": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string"
-                },
-                "location": {
-                  "type": "string"
-                }
-              }
-            }
+            "type": "string",
+            "description": "Pipe-separated marker style and locations, e.g. color:red|label:L|45.764,4.8357"
+          },
+          "path": {
+            "type": "string",
+            "description": "Pipe-separated path style and points, e.g. color:blue|weight:3|45.764,4.8357|45.75,4.85"
+          },
+          "style": {
+            "type": "string",
+            "description": "Pipe-separated style rules, e.g. feature:road|element:geometry|color:0xffffff"
+          },
+          "scale": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ]
+          },
+          "language": {
+            "type": "string",
+            "description": "Language code for results, e.g. en or fr"
           }
-        }
-      }
+        },
+        "required": [
+          "size"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "center",
+              "zoom"
+            ]
+          },
+          {
+            "required": [
+              "markers"
+            ]
+          },
+          {
+            "required": [
+              "path"
+            ]
+          }
+        ]
+      },
+      "response_type": "binary"
     },
     {
       "name": "get_street_view",
       "description": "Get street view image for a specific location",
       "method": "GET",
-      "path": "/get-street-view",
+      "path": "/streetview",
       "input_schema": {
         "type": "object",
         "properties": {
           "location": {
             "type": "string",
-            "description": "Location as address or lat,lng coordinates"
+            "description": "Location as address or latitude,longitude"
           },
           "size": {
-            "type": "object",
-            "description": "Image size with width and height",
-            "properties": {
-              "width": {
-                "type": "number",
-                "maximum": 640
-              },
-              "height": {
-                "type": "number",
-                "maximum": 640
-              }
-            },
-            "default": {
-              "width": 600,
-              "height": 400
-            }
+            "type": "string",
+            "description": "Image dimensions WIDTHxHEIGHT, e.g. 600x400; standard maximum is 640x640",
+            "pattern": "^[1-9][0-9]*x[1-9][0-9]*$"
           },
           "heading": {
             "type": "number",
-            "description": "Camera heading in degrees (0-360)",
             "minimum": 0,
             "maximum": 360,
-            "default": 0
+            "description": "Camera heading in degrees"
           },
           "pitch": {
             "type": "number",
-            "description": "Camera pitch in degrees (-90 to 90)",
             "minimum": -90,
             "maximum": 90,
-            "default": 0
+            "description": "Camera pitch in degrees"
           },
           "fov": {
             "type": "number",
-            "description": "Field of view in degrees (10-120)",
             "minimum": 10,
             "maximum": 120,
-            "default": 90
+            "description": "Field of view in degrees"
+          },
+          "return_error_code": {
+            "type": "boolean",
+            "description": "Set true to return an HTTP error when imagery is unavailable, instead of a placeholder image"
           }
         },
         "required": [
-          "location"
+          "location",
+          "size"
         ]
-      }
+      },
+      "response_type": "binary"
     }
   ]
 }

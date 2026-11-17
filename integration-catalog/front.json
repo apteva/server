@@ -1,0 +1,645 @@
+{
+  "slug": "front",
+  "name": "Front",
+  "description": "Front customer operations API for shared inboxes, conversations, messages, comments, contacts, accounts, teammates, tags, channels, and rules.",
+  "logo": "https://www.google.com/s2/favicons?domain=front.com&sz=128",
+  "categories": [
+    "customer-support",
+    "shared-inbox",
+    "email",
+    "crm",
+    "collaboration"
+  ],
+  "base_url": "https://api2.frontapp.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Front API Token",
+        "type": "password",
+        "required": true
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_token_identity"
+  },
+  "tools": [
+    {
+      "name": "get_token_identity",
+      "description": "Get the company, teammate, or application represented by the token.",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_inboxes",
+      "description": "List inboxes.",
+      "method": "GET",
+      "path": "/inboxes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_inbox",
+      "description": "Get an inbox.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inbox_id"
+        ]
+      }
+    },
+    {
+      "name": "list_inbox_conversations",
+      "description": "List conversations in an inbox.",
+      "method": "GET",
+      "path": "/inboxes/{inbox_id}/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inbox_id": {
+            "type": "string"
+          },
+          "q": {
+            "type": "string",
+            "description": "Front query JSON/string."
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inbox_id"
+        ]
+      }
+    },
+    {
+      "name": "list_conversations",
+      "description": "List all conversations.",
+      "method": "GET",
+      "path": "/conversations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Filter query."
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "search_conversations",
+      "description": "Search conversations using Front query syntax.",
+      "method": "GET",
+      "path": "/conversations/search/{query}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "URL-safe Front search query."
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_conversation",
+      "description": "Get one conversation.",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "update_conversation",
+      "description": "Update conversation status, assignee, inbox, priority, or ticket status.",
+      "method": "PATCH",
+      "path": "/conversations/{conversation_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "inbox_id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "ticket_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_conversation_messages",
+      "description": "List messages in a conversation.",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "list_conversation_comments",
+      "description": "List internal comments in a conversation.",
+      "method": "GET",
+      "path": "/conversations/{conversation_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ]
+      }
+    },
+    {
+      "name": "create_comment",
+      "description": "Add an internal comment to a conversation.",
+      "method": "POST",
+      "path": "/conversations/{conversation_id}/comments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "author_id": {
+            "type": "string",
+            "description": "Optional teammate author ID."
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Attachment upload IDs.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "conversation_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_channels",
+      "description": "List communication channels.",
+      "method": "GET",
+      "path": "/channels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a new outbound message through a channel, creating a conversation.",
+      "method": "POST",
+      "path": "/channels/{channel_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "to": {
+            "type": "array",
+            "description": "Recipient handles or email addresses.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cc": {
+            "type": "array",
+            "description": "CC recipients.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "description": "BCC recipients.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sender_name": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "description": "Channel-specific options."
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Attachment upload IDs.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "channel_id",
+          "to",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "reply_to_conversation",
+      "description": "Send an outbound reply in an existing conversation.",
+      "method": "POST",
+      "path": "/conversations/{conversation_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "to": {
+            "type": "array",
+            "description": "Recipients.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cc": {
+            "type": "array",
+            "description": "CC recipients.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bcc": {
+            "type": "array",
+            "description": "BCC recipients.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "options": {
+            "type": "object"
+          },
+          "attachments": {
+            "type": "array",
+            "description": "Attachment upload IDs.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "conversation_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_contacts",
+      "description": "List contacts.",
+      "method": "GET",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_contact",
+      "description": "Get a contact.",
+      "method": "GET",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "create_contact",
+      "description": "Create a contact.",
+      "method": "POST",
+      "path": "/contacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "Avatar URL."
+          },
+          "handles": {
+            "type": "array",
+            "description": "Handle objects such as {handle:'a@b.com',source:'email'}.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "group_names": {
+            "type": "array",
+            "description": "Contact group names.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "links": {
+            "type": "array",
+            "description": "External link objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "handles"
+        ]
+      }
+    },
+    {
+      "name": "update_contact",
+      "description": "Update a contact.",
+      "method": "PATCH",
+      "path": "/contacts/{contact_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "avatar": {
+            "type": "string"
+          },
+          "handles": {
+            "type": "array",
+            "description": "Replacement handle objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "group_names": {
+            "type": "array",
+            "description": "Group names.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "links": {
+            "type": "array",
+            "description": "External links.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "contact_id"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List customer accounts.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_account",
+      "description": "Create a customer account.",
+      "method": "POST",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "domains": {
+            "type": "array",
+            "description": "Company domains.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "custom_fields": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_teammates",
+      "description": "List Front teammates.",
+      "method": "GET",
+      "path": "/teammates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_tags",
+      "description": "List company tags.",
+      "method": "GET",
+      "path": "/tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_rules",
+      "description": "List automation rules.",
+      "method": "GET",
+      "path": "/rules",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "page_token": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

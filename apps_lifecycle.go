@@ -30,7 +30,7 @@ import (
 // integration role has a compatible target available. Idempotent;
 // safe to call as often as we like.
 func (s *Server) recomputePendingOptions() {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, COALESCE(i.project_id, ''),
 		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
 		        COALESCE(i.integration_bindings, '{}')
@@ -47,14 +47,28 @@ func (s *Server) recomputePendingOptions() {
 		flag int
 	}
 	var updates []pending
-	for rows.Next() {
-		var (
-			id                                int64
-			projectID, manifestJSON, bindJSON string
-		)
-		if err := rows.Scan(&id, &projectID, &manifestJSON, &bindJSON); err != nil {
-			continue
+	type databaseRecord struct {
+		id           int64
+		projectID    string
+		manifestJSON string
+		bindJSON     string
+	}
+	readRecords, err := collectSQLRows(rows, func(scanner rowScanner) (databaseRecord, error) {
+		var record databaseRecord
+		if err := scanner.Scan(&record.id, &record.projectID, &record.manifestJSON, &record.bindJSON); err != nil {
+			return record, err
 		}
+		return record, nil
+	})
+	if err != nil {
+		return
+	}
+	for _, record := range readRecords {
+		id := record.id
+		projectID := record.projectID
+		manifestJSON := record.manifestJSON
+		bindJSON := record.bindJSON
+
 		var manifest sdk.Manifest
 		if err := json.Unmarshal([]byte(manifestJSON), &manifest); err != nil {
 			continue
@@ -81,8 +95,9 @@ func (s *Server) recomputePendingOptions() {
 		}
 		updates = append(updates, pending{id: id, flag: flag})
 	}
+
 	for _, u := range updates {
-		s.store.db.Exec(
+		s.store.dbExec(
 			`UPDATE app_installs SET has_pending_options = ? WHERE id = ?`,
 			u.flag, u.id,
 		)
@@ -106,7 +121,7 @@ func hasCompatibleTarget(s *Server, projectID string, dep *sdk.IntegrationDep) b
 		// is just a hint to the operator, not an authorization check.
 		// The user_id filter happens later when the operator picks
 		// in the rebind UI.
-		rows, err := s.store.db.Query(
+		rows, err := s.store.dbQuery(
 			`SELECT app_slug FROM connections WHERE project_id = ? AND status = 'active'`,
 			projectID,
 		)
@@ -126,7 +141,7 @@ func hasCompatibleTarget(s *Server, projectID string, dep *sdk.IntegrationDep) b
 	if len(dep.CompatibleAppNames) == 0 {
 		return false
 	}
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT a.name FROM app_installs i JOIN apps a ON a.id=i.app_id
 		 WHERE i.status='running' AND (i.project_id = ? OR i.project_id = '')`,
 		projectID,
@@ -155,7 +170,7 @@ type ConnectionDependent struct {
 }
 
 func (s *Server) dependentsOfConnection(connID int64) ([]ConnectionDependent, error) {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, a.name, COALESCE(i.integration_bindings, '{}')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status = 'running'`,
@@ -192,7 +207,7 @@ func (s *Server) dependentsOfConnection(connID int64) ([]ConnectionDependent, er
 // dependentsOfApp returns the app installs whose integration_bindings
 // reference the given install_id (i.e. depend on it via kind=app).
 func (s *Server) dependentsOfApp(targetInstallID int64) ([]ConnectionDependent, error) {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id, a.name, COALESCE(i.integration_bindings, '{}')
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.status = 'running' AND i.id != ?`,

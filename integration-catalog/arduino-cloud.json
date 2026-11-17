@@ -1,0 +1,301 @@
+{
+  "slug": "arduino-cloud",
+  "name": "Arduino IoT Cloud",
+  "description": "Arduino IoT Cloud for managing IoT devices, things, properties, dashboards, and timeseries data",
+  "logo": "https://www.google.com/s2/favicons?domain=arduino.cc&sz=128",
+  "categories": [
+    "iot",
+    "arduino",
+    "devices",
+    "sensors",
+    "embedded"
+  ],
+  "base_url": "https://api2.arduino.cc",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "client_id",
+        "label": "Client_id",
+        "description": "Arduino IoT Cloud API Client ID (from Arduino Cloud API Keys)"
+      },
+      {
+        "name": "client_secret",
+        "label": "Client_secret",
+        "description": "Arduino IoT Cloud API Client Secret"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_things",
+      "description": "List all Things in Arduino IoT Cloud. A Thing represents a physical device or virtual entity with properties (sensors/actuators).",
+      "method": "GET",
+      "path": "/list-things",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_thing",
+      "description": "Get details of a specific Thing from Arduino IoT Cloud including its properties and configuration.",
+      "method": "GET",
+      "path": "/get-thing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID"
+          }
+        },
+        "required": [
+          "thing_id"
+        ]
+      }
+    },
+    {
+      "name": "create_thing",
+      "description": "Create a new Thing in Arduino IoT Cloud. A Thing is a logical container for properties linked to a device.",
+      "method": "POST",
+      "path": "/create-thing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Thing name"
+          },
+          "device_id": {
+            "type": "string",
+            "description": "Device ID to link (optional)"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone (e.g., America/New_York)",
+            "default": "UTC"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "delete_thing",
+      "description": "Delete a Thing from Arduino IoT Cloud. This will also delete all associated properties.",
+      "method": "DELETE",
+      "path": "/delete-thing",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID to delete"
+          }
+        },
+        "required": [
+          "thing_id"
+        ]
+      }
+    },
+    {
+      "name": "list_properties",
+      "description": "List all properties of a Thing in Arduino IoT Cloud. Properties represent sensor values or actuator states.",
+      "method": "GET",
+      "path": "/list-properties",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID"
+          }
+        },
+        "required": [
+          "thing_id"
+        ]
+      }
+    },
+    {
+      "name": "get_property",
+      "description": "Get the current value of a specific property from Arduino IoT Cloud. Use to read sensor data or device state.",
+      "method": "GET",
+      "path": "/get-property",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID"
+          },
+          "property_id": {
+            "type": "string",
+            "description": "Property ID"
+          }
+        },
+        "required": [
+          "thing_id",
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "update_property",
+      "description": "Update/set a property value in Arduino IoT Cloud. Use to control actuators, set values, or send commands to devices.",
+      "method": "PUT",
+      "path": "/update-property",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID"
+          },
+          "property_id": {
+            "type": "string",
+            "description": "Property ID"
+          },
+          "value": {
+            "description": "New value for the property"
+          }
+        },
+        "required": [
+          "thing_id",
+          "property_id",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "create_property",
+      "description": "Create a new property for a Thing in Arduino IoT Cloud.",
+      "method": "POST",
+      "path": "/create-property",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Property name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Property type (e.g., INT, FLOAT, BOOL, STRING)"
+          },
+          "permission": {
+            "type": "string",
+            "enum": [
+              "READ_ONLY",
+              "READ_WRITE"
+            ],
+            "default": "READ_WRITE"
+          }
+        },
+        "required": [
+          "thing_id",
+          "name",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "list_devices",
+      "description": "List all devices in Arduino IoT Cloud. Devices are physical Arduino boards or compatible hardware.",
+      "method": "GET",
+      "path": "/list-devices",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_device",
+      "description": "Get details of a specific device from Arduino IoT Cloud including connection status and firmware info.",
+      "method": "GET",
+      "path": "/get-device",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "description": "Device ID"
+          }
+        },
+        "required": [
+          "device_id"
+        ]
+      }
+    },
+    {
+      "name": "list_dashboards",
+      "description": "List all dashboards in Arduino IoT Cloud. Dashboards visualize Thing properties.",
+      "method": "GET",
+      "path": "/list-dashboards",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_dashboard",
+      "description": "Get details of a specific dashboard from Arduino IoT Cloud.",
+      "method": "GET",
+      "path": "/get-dashboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dashboard_id": {
+            "type": "string",
+            "description": "Dashboard ID"
+          }
+        },
+        "required": [
+          "dashboard_id"
+        ]
+      }
+    },
+    {
+      "name": "get_timeseries",
+      "description": "Get historical timeseries data for a property. Retrieve sensor readings over time for analysis or charting.",
+      "method": "GET",
+      "path": "/get-timeseries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "thing_id": {
+            "type": "string",
+            "description": "Thing ID"
+          },
+          "property_id": {
+            "type": "string",
+            "description": "Property ID"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start time (ISO 8601)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End time (ISO 8601)"
+          }
+        },
+        "required": [
+          "thing_id",
+          "property_id"
+        ]
+      }
+    }
+  ]
+}

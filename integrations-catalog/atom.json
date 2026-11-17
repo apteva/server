@@ -1,0 +1,67 @@
+{
+  "slug": "atom",
+  "name": "Atom",
+  "description": "Domain appraisal with reasoning and comparable sales, domain discovery, name generation, availability, details and trademark screening through Atom's official hosted MCP server. Sign up with a normal Atom account and authorize domains:read. Tool schemas are discovered from Atom. A one-time public OAuth client registration is needed for this catalog's OAuth setup; no enterprise contract or API key is required. Documentation: https://www.atom.com/atom-mcp-server/docs.",
+  "logo": "https://www.google.com/s2/favicons?domain=atom.com&sz=128",
+  "categories": [
+    "domains",
+    "domain-appraisal",
+    "market-research",
+    "mcp"
+  ],
+  "base_url": "https://mcp.atom.com",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "required": false
+      },
+      {
+        "name": "refresh_token",
+        "label": "Refresh Token",
+        "type": "password",
+        "required": false
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://www.atom.com/oauth/authorize",
+      "token_url": "https://www.atom.com/oauth/token",
+      "scopes": [
+        "domains:read",
+        "offline_access"
+      ],
+      "client_id_required": true,
+      "client_secret_required": false,
+      "pkce": true,
+      "extra_authorize_params": {
+        "resource": "https://mcp.atom.com/mcp"
+      },
+      "setup_url": "https://www.atom.com/atom-mcp-server/docs",
+      "setup_steps": [
+        "Create or use a normal Atom account at https://www.atom.com/.",
+        "Register a public OAuth client once at POST https://www.atom.com/oauth/register with JSON: {\"client_name\":\"Apteva\",\"redirect_uris\":[\"<the exact callback URL shown here>\"],\"grant_types\":[\"authorization_code\",\"refresh_token\"],\"response_types\":[\"code\"],\"token_endpoint_auth_method\":\"none\"}. Metadata is published at https://www.atom.com/.well-known/oauth-authorization-server.",
+        "Enter the returned client_id in this connection's OAuth setup. No client_secret is required. Our catalog OAuth flow uses a registered client; it does not perform Dynamic Client Registration automatically.",
+        "Connect, log in and approve domains:read. The upstream appraise_domain tool is discovered after authorization. This connector requests read access; domain purchasing requires a separately approved domains:register scope.",
+        "Appraisal costs and per-token limits are governed by Atom. Handle 429 responses and Retry-After; no free/unlimited API quota is promised."
+      ]
+    }
+  },
+  "tools": [],
+  "kind": "remote_mcp",
+  "mcp": {
+    "transport": "http",
+    "url": "https://mcp.atom.com/mcp",
+    "auth_header": {
+      "name": "Authorization",
+      "value": "Bearer {{token}}"
+    }
+  }
+}

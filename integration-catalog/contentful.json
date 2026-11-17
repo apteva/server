@@ -1,0 +1,157 @@
+{
+  "slug": "contentful",
+  "name": "Contentful",
+  "description": "MCP server for Contentful - headless CMS entries, assets, content types, environments",
+  "logo": "https://www.google.com/s2/favicons?domain=contentful.com&sz=128",
+  "categories": ["cms", "headless", "content", "publishing"],
+  "base_url": "https://api.contentful.com",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Management API Token" },
+      { "name": "spaceId", "label": "Space ID" },
+      { "name": "environmentId", "label": "Environment", "description": "Default: master" },
+      { "name": "deliveryToken", "label": "Content Delivery API Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_entries",
+      "description": "List entries in an environment",
+      "method": "GET",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "content_type": { "type": "string" },
+          "limit": { "type": "number" },
+          "skip": { "type": "number" }
+        },
+        "required": ["space_id", "environment_id"]
+      }
+    },
+    {
+      "name": "get_entry",
+      "description": "Get an entry",
+      "method": "GET",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries/{entry_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "entry_id": { "type": "string" }
+        },
+        "required": ["space_id", "environment_id", "entry_id"]
+      }
+    },
+    {
+      "name": "create_entry",
+      "description": "Create an entry of a content type",
+      "method": "POST",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "content_type": { "type": "string" },
+          "fields": { "type": "object" }
+        },
+        "required": ["space_id", "environment_id", "content_type", "fields"]
+      }
+    },
+    {
+      "name": "update_entry",
+      "description": "Update an entry (requires X-Contentful-Version header)",
+      "method": "PUT",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries/{entry_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "entry_id": { "type": "string" },
+          "fields": { "type": "object" }
+        },
+        "required": ["space_id", "environment_id", "entry_id", "fields"]
+      }
+    },
+    {
+      "name": "publish_entry",
+      "description": "Publish an entry",
+      "method": "PUT",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries/{entry_id}/published",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "entry_id": { "type": "string" }
+        },
+        "required": ["space_id", "environment_id", "entry_id"]
+      }
+    },
+    {
+      "name": "unpublish_entry",
+      "description": "Unpublish an entry",
+      "method": "DELETE",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries/{entry_id}/published",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "entry_id": { "type": "string" }
+        },
+        "required": ["space_id", "environment_id", "entry_id"]
+      }
+    },
+    {
+      "name": "delete_entry",
+      "description": "Delete an entry",
+      "method": "DELETE",
+      "path": "/spaces/{space_id}/environments/{environment_id}/entries/{entry_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" },
+          "entry_id": { "type": "string" }
+        },
+        "required": ["space_id", "environment_id", "entry_id"]
+      }
+    },
+    {
+      "name": "list_assets",
+      "description": "List assets",
+      "method": "GET",
+      "path": "/spaces/{space_id}/environments/{environment_id}/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" }
+        },
+        "required": ["space_id", "environment_id"]
+      }
+    },
+    {
+      "name": "list_content_types",
+      "description": "List content types",
+      "method": "GET",
+      "path": "/spaces/{space_id}/environments/{environment_id}/content_types",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "string" },
+          "environment_id": { "type": "string" }
+        },
+        "required": ["space_id", "environment_id"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,235 @@
+{
+  "slug": "digitalocean",
+  "name": "DigitalOcean",
+  "description": "MCP server for DigitalOcean - droplets, apps, databases, kubernetes, spaces, domains",
+  "logo": "https://www.google.com/s2/favicons?domain=digitalocean.com&sz=128",
+  "categories": ["hosting", "cloud", "infrastructure", "devops"],
+  "base_url": "https://api.digitalocean.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "Personal Access Token" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_droplets",
+      "description": "List droplets",
+      "method": "GET",
+      "path": "/droplets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tag_name": { "type": "string" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "get_droplet",
+      "description": "Get one droplet by ID",
+      "method": "GET",
+      "path": "/droplets/{droplet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "droplet_id": { "type": "string" } },
+        "required": ["droplet_id"]
+      }
+    },
+    {
+      "name": "list_sizes",
+      "description": "List available Droplet sizes",
+      "method": "GET",
+      "path": "/sizes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "number" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "list_regions",
+      "description": "List available DigitalOcean regions",
+      "method": "GET",
+      "path": "/regions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "number" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "list_images",
+      "description": "List available DigitalOcean images",
+      "method": "GET",
+      "path": "/images",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "public": { "type": "boolean" },
+          "page": { "type": "number" },
+          "per_page": { "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "create_droplet",
+      "description": "Create a droplet",
+      "method": "POST",
+      "path": "/droplets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "size": { "type": "string" },
+          "image": { "type": "string" },
+          "ssh_keys": { "type": "array" },
+          "user_data": { "type": "string" },
+          "backups": { "type": "boolean" }
+        },
+        "required": ["name", "region", "size", "image"]
+      }
+    },
+    {
+      "name": "delete_droplet",
+      "description": "Delete a droplet",
+      "method": "DELETE",
+      "path": "/droplets/{droplet_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "droplet_id": { "type": "string" } },
+        "required": ["droplet_id"]
+      }
+    },
+    {
+      "name": "droplet_action",
+      "description": "Perform an action on a droplet (reboot, power_off, etc.)",
+      "method": "POST",
+      "path": "/droplets/{droplet_id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "droplet_id": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "required": ["droplet_id", "type"]
+      }
+    },
+    {
+      "name": "list_apps",
+      "description": "List App Platform apps",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_app_deployment",
+      "description": "Trigger an app deployment",
+      "method": "POST",
+      "path": "/apps/{app_id}/deployments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "force_build": { "type": "boolean" }
+        },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "list_databases",
+      "description": "List managed databases",
+      "method": "GET",
+      "path": "/databases",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_k8s_clusters",
+      "description": "List Kubernetes clusters",
+      "method": "GET",
+      "path": "/kubernetes/clusters",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_domains",
+      "description": "List domains",
+      "method": "GET",
+      "path": "/domains",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "volume_list",
+      "description": "List block storage volumes, optionally filtered by region or name",
+      "method": "GET",
+      "path": "/volumes",
+      "input_schema": { "type": "object", "properties": { "region": { "type": "string" }, "name": { "type": "string" }, "page": { "type": "integer" }, "per_page": { "type": "integer" } } }
+    },
+    {
+      "name": "volume_get",
+      "description": "Get a block storage volume by UUID",
+      "method": "GET",
+      "path": "/volumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+    },
+    {
+      "name": "volume_create",
+      "description": "Create an empty DigitalOcean block storage volume",
+      "method": "POST",
+      "path": "/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "region": { "type": "string" }, "name": { "type": "string" },
+          "size_gigabytes": { "type": "integer", "minimum": 1 },
+          "description": { "type": "string" }, "filesystem_type": { "type": "string" }, "filesystem_label": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["region", "name", "size_gigabytes"]
+      }
+    },
+    {
+      "name": "volume_delete",
+      "description": "Delete an unattached block storage volume",
+      "method": "DELETE",
+      "path": "/volumes/{volume_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" } }, "required": ["volume_id"] }
+    },
+    {
+      "name": "volume_action",
+      "description": "Attach, detach, or resize a block storage volume",
+      "method": "POST",
+      "path": "/volumes/{volume_id}/actions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "volume_id": { "type": "string" }, "type": { "type": "string", "enum": ["attach", "detach", "resize"] },
+          "droplet_id": { "type": "integer", "description": "Required for attach and detach" },
+          "region": { "type": "string", "description": "Required for attach and resize" },
+          "size_gigabytes": { "type": "integer", "description": "Required for resize; volumes cannot shrink" }
+        },
+        "required": ["volume_id", "type"]
+      }
+    },
+    {
+      "name": "volume_action_get",
+      "description": "Get the status of a volume action",
+      "method": "GET",
+      "path": "/volumes/{volume_id}/actions/{action_id}",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "action_id": { "type": "integer" } }, "required": ["volume_id", "action_id"] }
+    },
+    {
+      "name": "volume_snapshot_create",
+      "description": "Create a snapshot of a block storage volume",
+      "method": "POST",
+      "path": "/volumes/{volume_id}/snapshots",
+      "input_schema": { "type": "object", "properties": { "volume_id": { "type": "string" }, "name": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } }, "required": ["volume_id", "name"] }
+    }
+  ]
+}

@@ -1,0 +1,444 @@
+{
+  "slug": "microsoft-teams",
+  "name": "Microsoft Teams",
+  "description": "Microsoft Teams via Microsoft Graph — list joined teams, manage channels, send and read channel messages, work with 1:1 and group chats. OAuth2 with PKCE.",
+  "logo": "https://www.google.com/s2/favicons?domain=teams.microsoft.com&sz=128",
+  "categories": [
+    "collaboration",
+    "messaging",
+    "teams",
+    "microsoft",
+    "channels",
+    "chat"
+  ],
+  "base_url": "https://graph.microsoft.com/v1.0",
+  "auth": {
+    "types": [
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "User.Read",
+        "Team.ReadBasic.All",
+        "TeamMember.Read.All",
+        "Channel.ReadBasic.All",
+        "ChannelMessage.Send",
+        "ChannelMessage.Read.All",
+        "Chat.Read",
+        "Chat.ReadWrite",
+        "ChatMessage.Send"
+      ],
+      "client_id_required": true,
+      "pkce": true,
+      "extra_authorize_params": {
+        "prompt": "consent"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "list_joined_teams",
+      "description": "List teams the authenticated user is a member of.",
+      "method": "GET",
+      "path": "/me/joinedTeams",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_team",
+      "description": "Get a team's details — display name, description, visibility, member settings, message-channel settings.",
+      "method": "GET",
+      "path": "/teams/{team_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      }
+    },
+    {
+      "name": "list_channels",
+      "description": "List channels in a team. Use $filter='membershipType eq private' to include private channels (the default returns only standard channels for some accounts).",
+      "method": "GET",
+      "path": "/teams/{team_id}/channels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "$filter": {
+            "type": "string"
+          },
+          "$select": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      }
+    },
+    {
+      "name": "get_channel",
+      "description": "Get a single channel's details.",
+      "method": "GET",
+      "path": "/teams/{team_id}/channels/{channel_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "create_channel",
+      "description": "Create a new channel in a team. Standard channels are visible to all team members; private and shared require additional setup.",
+      "method": "POST",
+      "path": "/teams/{team_id}/channels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "membershipType": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "private",
+              "shared"
+            ],
+            "default": "standard"
+          }
+        },
+        "required": [
+          "team_id",
+          "displayName"
+        ]
+      }
+    },
+    {
+      "name": "delete_channel",
+      "description": "Delete a channel. The General channel cannot be deleted.",
+      "method": "DELETE",
+      "path": "/teams/{team_id}/channels/{channel_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "list_team_members",
+      "description": "List members of a team.",
+      "method": "GET",
+      "path": "/teams/{team_id}/members",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id"
+        ]
+      }
+    },
+    {
+      "name": "list_channel_messages",
+      "description": "List messages in a channel (top-level only — replies live under each message). Returns most-recent first.",
+      "method": "GET",
+      "path": "/teams/{team_id}/channels/{channel_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "$top": {
+            "type": "integer",
+            "description": "Page size (max 50)."
+          },
+          "$skiptoken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "name": "get_channel_message",
+      "description": "Get a single channel message by ID.",
+      "method": "GET",
+      "path": "/teams/{team_id}/channels/{channel_id}/messages/{message_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id",
+          "message_id"
+        ]
+      }
+    },
+    {
+      "name": "send_channel_message",
+      "description": "Post a new top-level message in a channel. body.contentType must be 'html' or 'text'; 'html' supports basic formatting and @mentions.",
+      "method": "POST",
+      "path": "/teams/{team_id}/channels/{channel_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "{ contentType: 'html' | 'text', content: '<message body>' }."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Optional subject (shown only in channel headers)."
+          },
+          "importance": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "high",
+              "urgent"
+            ]
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "@mention metadata. Each item: { id: <int>, mentionText, mentioned: { user: { id, displayName, userIdentityType } } }. Reference each mention in body.content as <at id=\"<int>\">name</at>."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_message_replies",
+      "description": "List replies to a channel message (the thread under a top-level message).",
+      "method": "GET",
+      "path": "/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "$top": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id",
+          "message_id"
+        ]
+      }
+    },
+    {
+      "name": "reply_to_channel_message",
+      "description": "Reply to a channel message (creates a threaded reply under the parent).",
+      "method": "POST",
+      "path": "/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "{ contentType, content }."
+          }
+        },
+        "required": [
+          "team_id",
+          "channel_id",
+          "message_id",
+          "body"
+        ]
+      }
+    },
+    {
+      "name": "list_chats",
+      "description": "List the user's 1:1 and group chats (Teams private chats, distinct from team channels).",
+      "method": "GET",
+      "path": "/me/chats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "$expand": {
+            "type": "string",
+            "description": "Embed associations (e.g. 'members', 'lastMessagePreview')."
+          },
+          "$top": {
+            "type": "integer"
+          },
+          "$filter": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_chat_messages",
+      "description": "List messages in a 1:1 or group chat.",
+      "method": "GET",
+      "path": "/chats/{chat_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string"
+          },
+          "$top": {
+            "type": "integer"
+          },
+          "$orderby": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "chat_id"
+        ]
+      }
+    },
+    {
+      "name": "send_chat_message",
+      "description": "Send a message to a 1:1 or group chat (not a channel — see send_channel_message for that).",
+      "method": "POST",
+      "path": "/chats/{chat_id}/messages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chat_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "description": "{ contentType: 'html' | 'text', content }."
+          },
+          "subject": {
+            "type": "string"
+          },
+          "mentions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "chat_id",
+          "body"
+        ]
+      }
+    }
+  ]
+}

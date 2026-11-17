@@ -1,0 +1,543 @@
+{
+  "slug": "surveymonkey",
+  "name": "SurveyMonkey",
+  "description": "SurveyMonkey API for surveys, pages, questions, collectors, responses, contacts, groups, and webhooks.",
+  "logo": "https://www.google.com/s2/favicons?domain=surveymonkey.com&sz=128",
+  "categories": [
+    "surveys",
+    "forms",
+    "feedback",
+    "research"
+  ],
+  "base_url": "https://api.surveymonkey.com/v3",
+  "auth": {
+    "types": [
+      "oauth2",
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "source": "oauth"
+      },
+      {
+        "name": "refresh_token",
+        "label": "Refresh Token",
+        "type": "password",
+        "source": "oauth",
+        "required": false
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://api.surveymonkey.com/oauth/authorize",
+      "token_url": "https://api.surveymonkey.com/oauth/token",
+      "scopes": [
+        "surveys_read",
+        "surveys_write",
+        "responses_read",
+        "responses_write",
+        "collectors_read",
+        "collectors_write",
+        "contacts_read",
+        "contacts_write",
+        "webhooks_read",
+        "webhooks_write"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "health_check": {
+    "tool": "get_me"
+  },
+  "tools": [
+    {
+      "name": "get_me",
+      "description": "Get the authenticated SurveyMonkey user.",
+      "method": "GET",
+      "path": "/users/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_surveys",
+      "description": "List surveys.",
+      "method": "GET",
+      "path": "/surveys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "start_modified_at": {
+            "type": "string"
+          },
+          "end_modified_at": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "sort_by": {
+            "type": "string"
+          },
+          "sort_order": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_survey",
+      "description": "Get survey metadata.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "get_survey_details",
+      "description": "Get the complete survey structure including pages and questions.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "create_survey",
+      "description": "Create a survey.",
+      "method": "POST",
+      "path": "/surveys",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "footer": {
+            "type": "boolean"
+          },
+          "custom_variables": {
+            "type": "object"
+          },
+          "buttons_text": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "update_survey",
+      "description": "Update survey title, language, footer, or custom variables.",
+      "method": "PATCH",
+      "path": "/surveys/{survey_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "footer": {
+            "type": "boolean"
+          },
+          "custom_variables": {
+            "type": "object"
+          },
+          "buttons_text": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List survey pages.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "create_page",
+      "description": "Add a page to a survey.",
+      "method": "POST",
+      "path": "/surveys/{survey_id}/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "position": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "list_questions",
+      "description": "List questions on a survey page.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}/pages/{page_id}/questions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "survey_id",
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "create_question",
+      "description": "Create a survey question with headings, family, subtype, choices, and validation.",
+      "method": "POST",
+      "path": "/surveys/{survey_id}/pages/{page_id}/questions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "headings": {
+            "type": "array",
+            "description": "Question heading objects.",
+            "items": {
+              "type": "object"
+            }
+          },
+          "family": {
+            "type": "string"
+          },
+          "subtype": {
+            "type": "string"
+          },
+          "answers": {
+            "type": "object"
+          },
+          "display_options": {
+            "type": "object"
+          },
+          "validation": {
+            "type": "object"
+          },
+          "forced_ranking": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "survey_id",
+          "page_id",
+          "headings",
+          "family",
+          "subtype"
+        ]
+      }
+    },
+    {
+      "name": "list_collectors",
+      "description": "List survey collectors.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}/collectors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "create_weblink_collector",
+      "description": "Create a web-link collector.",
+      "method": "POST",
+      "path": "/surveys/{survey_id}/collectors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "Use weblink."
+          },
+          "name": {
+            "type": "string"
+          },
+          "thank_you_message": {
+            "type": "string"
+          },
+          "disqualification_message": {
+            "type": "string"
+          },
+          "close_date": {
+            "type": "string"
+          },
+          "redirect_url": {
+            "type": "string"
+          },
+          "edit_response_type": {
+            "type": "string"
+          },
+          "anonymous_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "survey_id",
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "list_responses",
+      "description": "List bulk survey responses.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}/responses/bulk",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "start_created_at": {
+            "type": "string"
+          },
+          "end_created_at": {
+            "type": "string"
+          },
+          "start_modified_at": {
+            "type": "string"
+          },
+          "end_modified_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "collector_ids": {
+            "type": "string"
+          },
+          "total_time_max": {
+            "type": "integer"
+          },
+          "total_time_min": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "survey_id"
+        ]
+      }
+    },
+    {
+      "name": "get_response",
+      "description": "Get one response with page and answer details.",
+      "method": "GET",
+      "path": "/surveys/{survey_id}/responses/{response_id}/details",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "survey_id": {
+            "type": "string"
+          },
+          "response_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "survey_id",
+          "response_id"
+        ]
+      }
+    },
+    {
+      "name": "list_webhooks",
+      "description": "List SurveyMonkey webhooks.",
+      "method": "GET",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_webhook",
+      "description": "Create a webhook subscription.",
+      "method": "POST",
+      "path": "/webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "object_type": {
+            "type": "string"
+          },
+          "object_ids": {
+            "type": "array",
+            "description": "Survey or collector IDs.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subscription_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "event_type",
+          "object_type",
+          "object_ids",
+          "subscription_url"
+        ]
+      }
+    },
+    {
+      "name": "delete_webhook",
+      "description": "Delete a webhook.",
+      "method": "DELETE",
+      "path": "/webhooks/{webhook_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    }
+  ]
+}

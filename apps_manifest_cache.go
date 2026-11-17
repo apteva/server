@@ -27,8 +27,9 @@ import (
 )
 
 type manifestCacheEntry struct {
-	manifest *sdk.Manifest
-	fetched  time.Time
+	manifest   *sdk.Manifest
+	components appComponentDeclarations
+	fetched    time.Time
 }
 
 var (
@@ -47,13 +48,17 @@ var (
 // the cache when fresh and the network otherwise. Returns nil + err
 // for failures so the caller can decide whether to surface them.
 func (s *Server) fetchAndCacheManifest(url string) (*sdk.Manifest, error) {
+	release, err := s.fetchAndCacheAppRelease(url)
+	return release.manifest, err
+}
+func (s *Server) fetchAndCacheAppRelease(url string) (manifestCacheEntry, error) {
 	if url == "" {
-		return nil, fmt.Errorf("empty manifest_url")
+		return manifestCacheEntry{}, fmt.Errorf("empty manifest_url")
 	}
 	manifestCacheMu.RLock()
 	if e, ok := manifestCache[url]; ok && time.Since(e.fetched) < manifestCacheTTL {
 		manifestCacheMu.RUnlock()
-		return e.manifest, nil
+		return e, nil
 	}
 	manifestCacheMu.RUnlock()
 
@@ -63,33 +68,35 @@ func (s *Server) fetchAndCacheManifest(url string) (*sdk.Manifest, error) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return manifestCacheEntry{}, err
 	}
 	req.Header.Set("Accept", "application/json, application/x-yaml, text/yaml, text/plain, */*")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return manifestCacheEntry{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned http %d", url, resp.StatusCode)
+		return manifestCacheEntry{}, fmt.Errorf("%s returned http %d", url, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
 	if err != nil {
-		return nil, err
+		return manifestCacheEntry{}, err
 	}
 	body, err = s.resolveAgentPluginManifestDocument(url, body)
 	if err != nil {
-		return nil, err
+		return manifestCacheEntry{}, err
 	}
-	m, err := sdk.ParseManifest(body)
+	m, err := parseServerAppManifest(body)
 	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", url, err)
+		return manifestCacheEntry{}, fmt.Errorf("parse %s: %w", url, err)
 	}
+	components := m.Components
 	manifestCacheMu.Lock()
-	manifestCache[url] = manifestCacheEntry{manifest: m, fetched: time.Now()}
+	release := manifestCacheEntry{manifest: m, components: components, fetched: time.Now()}
+	manifestCache[url] = release
 	manifestCacheMu.Unlock()
-	return m, nil
+	return release, nil
 }
 
 // CuratedRegistry is the parsed payload of registry.json — same

@@ -147,6 +147,15 @@ func TestFindInstalledApp_NotInstalled(t *testing.T) {
 	}
 }
 
+func TestFindInstalledAppPreservesNormalizedNameCompatibility(t *testing.T) {
+	s := newTestServer(t)
+	want := seedRunningInstall(t, s, "Google Drive", "", sdk.Manifest{Name: "Google Drive"}, nil)
+	got, ok := s.findInstalledApp("google-drive", "")
+	if !ok || got != want {
+		t.Fatalf("normalized lookup got id=%d ok=%v, want id=%d", got, ok, want)
+	}
+}
+
 func TestFindInstalledApp_IgnoresPendingAndErrored(t *testing.T) {
 	s := newTestServer(t)
 	// status defaults to 'pending' for INSERTs that don't set it; we

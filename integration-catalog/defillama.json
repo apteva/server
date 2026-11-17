@@ -1,0 +1,145 @@
+{
+  "slug": "defillama",
+  "name": "DeFi Llama",
+  "description": "DeFi analytics — protocol TVL, yield/APY data, stablecoin stats, DEX volumes, and chain metrics. Free, no API key needed.",
+  "logo": "https://www.google.com/s2/favicons?domain=defillama.com&sz=128",
+  "categories": [
+    "defi",
+    "tvl",
+    "yields",
+    "stablecoins",
+    "dex",
+    "analytics"
+  ],
+  "base_url": "https://api.llama.fi",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Token"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_protocols",
+      "description": "Get TVL, chain breakdown, and metadata for all DeFi protocols tracked by DeFi Llama.",
+      "method": "GET",
+      "path": "/protocols",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_protocol",
+      "description": "Get historical TVL data for a specific protocol (e.g., aave, uniswap, lido, compound).",
+      "method": "GET",
+      "path": "/protocol/{slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Protocol slug (e.g., aave, uniswap, lido, compound, makerdao)"
+          }
+        },
+        "required": [
+          "slug"
+        ]
+      }
+    },
+    {
+      "name": "get_chains",
+      "description": "Get current TVL for all chains (Ethereum, Solana, Arbitrum, etc.).",
+      "method": "GET",
+      "path": "/v2/chains",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_yields",
+      "description": "Get current APY/APR for all tracked yield pools across DeFi. Returns pool, chain, project, TVL, APY, and reward tokens.",
+      "method": "GET",
+      "path": "/pools",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_yield_chart",
+      "description": "Get historical APY data for a specific yield pool by its UUID.",
+      "method": "GET",
+      "path": "/chart/{pool}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pool": {
+            "type": "string",
+            "description": "Pool UUID from the yields endpoint"
+          }
+        },
+        "required": [
+          "pool"
+        ]
+      }
+    },
+    {
+      "name": "get_stablecoins",
+      "description": "Get market cap and chain distribution for all stablecoins.",
+      "method": "GET",
+      "path": "/stablecoins",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_dex_volumes",
+      "description": "Get 24h trading volume for all DEXs across all chains.",
+      "method": "GET",
+      "path": "/overview/dexs",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_fees",
+      "description": "Get fees and revenue data for all protocols.",
+      "method": "GET",
+      "path": "/overview/fees",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_token_prices",
+      "description": "Get current prices for tokens by contract address. Format: chain:address (e.g., ethereum:0xdAC17F958D2ee523a2206206994597C13D831ec7).",
+      "method": "GET",
+      "path": "/prices/current/{coins}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "coins": {
+            "type": "string",
+            "description": "Comma-separated chain:address pairs (e.g., ethereum:0xdAC17F958D2ee523a2206206994597C13D831ec7)"
+          }
+        },
+        "required": [
+          "coins"
+        ]
+      }
+    }
+  ]
+}

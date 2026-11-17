@@ -1,0 +1,186 @@
+{
+  "slug": "amazon-associates",
+  "name": "Amazon Associates",
+  "description": "Amazon Associates Creators API for affiliate product search and product detail retrieval with partner-tag attribution.",
+  "logo": "https://www.google.com/s2/favicons?domain=affiliate-program.amazon.com&sz=128",
+  "categories": ["affiliate", "publisher", "products", "links", "amazon", "marketing"],
+  "base_url": "https://creatorsapi.amazon",
+  "auth": {
+    "types": ["api_key"],
+    "token_exchange": {
+      "url": "https://api.amazon.com/auth/o2/token",
+      "url_selector": {
+        "credential_field": "credential_version",
+        "values": {
+          "3.1": "https://api.amazon.com/auth/o2/token",
+          "3.2": "https://api.amazon.co.uk/auth/o2/token",
+          "3.3": "https://api.amazon.co.jp/auth/o2/token"
+        }
+      },
+      "method": "POST",
+      "content_type": "application/json",
+      "body_params": {
+        "grant_type": "client_credentials",
+        "client_id": "{{credential.credential_id}}",
+        "client_secret": "{{credential.credential_secret}}",
+        "scope": "creatorsapi::default"
+      },
+      "access_token_path": "access_token",
+      "expires_in_path": "expires_in",
+      "expiry_skew_seconds": 60
+    },
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json",
+      "x-marketplace": "{{marketplace}}"
+    },
+    "credential_fields": [
+      {
+        "name": "credential_id",
+        "label": "Credential ID",
+        "description": "Credential ID generated for your application in Associates Central under Tools > Creators API.",
+        "type": "text"
+      },
+      {
+        "name": "credential_secret",
+        "label": "Credential secret",
+        "description": "Credential secret shown when you create the Creators API credential.",
+        "type": "password"
+      },
+      {
+        "name": "credential_version",
+        "label": "Credential version",
+        "description": "Optional version shown with the credential: 3.1, 3.2, or 3.3. Defaults to 3.1 (North America).",
+        "required": false,
+        "default": "3.1",
+        "type": "text"
+      },
+      {
+        "name": "marketplace",
+        "label": "Marketplace",
+        "description": "Optional marketplace domain such as www.amazon.com or www.amazon.co.uk. Defaults to www.amazon.com.",
+        "required": false,
+        "default": "www.amazon.com",
+        "type": "text"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "items_search",
+      "description": "Search Amazon catalog items and return attributed URLs. To expose Best Sellers Rank, request browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank in resources; rank is not copies sold.",
+      "method": "POST",
+      "path": "/catalog/v1/searchItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "keywords": { "type": "string" },
+          "searchIndex": { "type": "string", "default": "All" },
+          "brand": { "type": "string" },
+          "browseNodeId": { "type": "string" },
+          "itemCount": { "type": "integer", "default": 10 },
+          "itemPage": { "type": "integer", "default": 1 },
+          "resources": { "type": "array", "items": { "type": "string" }, "description": "Creators API resource names. For sales rank use browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank.", "examples": [["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"]] }
+        },
+        "required": ["partnerTag"]
+      }
+    },
+    {
+      "name": "items_get",
+      "description": "Retrieve Amazon item details by ASIN. To expose Best Sellers Rank, request browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank in resources; rank is not copies sold.",
+      "method": "POST",
+      "path": "/catalog/v1/getItems",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "itemIds": { "type": "array", "items": { "type": "string" }, "description": "ASINs, up to 10." },
+          "itemIdType": { "type": "string", "default": "ASIN" },
+          "resources": { "type": "array", "items": { "type": "string" }, "description": "Creators API resource names. For sales rank use browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank.", "examples": [["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"]] }
+        },
+        "required": ["partnerTag", "itemIds"]
+      }
+    },
+    {
+      "name": "items_search_sales_rank",
+      "description": "Search Amazon items and automatically return website and category Best Sellers Rank. Rank is relative ordering, not copies sold.",
+      "method": "POST",
+      "path": "/catalog/v1/searchItems",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["partnerTag", "marketplace", "keywords", "searchIndex", "brand", "browseNodeId", "itemCount", "itemPage"],
+        "constants": { "resources": ["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"] }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "keywords": { "type": "string" },
+          "searchIndex": { "type": "string", "default": "All" },
+          "brand": { "type": "string" },
+          "browseNodeId": { "type": "string" },
+          "itemCount": { "type": "integer", "default": 10 },
+          "itemPage": { "type": "integer", "default": 1 }
+        },
+        "required": ["partnerTag", "keywords"]
+      }
+    },
+    {
+      "name": "items_get_sales_rank",
+      "description": "Retrieve up to 10 ASINs and automatically return website and category Best Sellers Rank. Rank is relative ordering, not copies sold.",
+      "method": "POST",
+      "path": "/catalog/v1/getItems",
+      "request_transform": {
+        "type": "json_wrap",
+        "fields": ["partnerTag", "marketplace", "itemIds", "itemIdType"],
+        "constants": { "resources": ["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"] }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "itemIds": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 10 },
+          "itemIdType": { "type": "string", "const": "ASIN", "default": "ASIN" }
+        },
+        "required": ["partnerTag", "itemIds"]
+      }
+    },
+    {
+      "name": "variations_get",
+      "description": "Get product variations for an Amazon parent/child ASIN. Rank resources can compare each variation's category and website Best Sellers Rank.",
+      "method": "POST",
+      "path": "/catalog/v1/getVariations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "asin": { "type": "string" },
+          "resources": { "type": "array", "items": { "type": "string" }, "description": "Creators API resource names. For sales rank use browseNodeInfo.websiteSalesRank and browseNodeInfo.browseNodes.salesRank.", "examples": [["browseNodeInfo.websiteSalesRank", "browseNodeInfo.browseNodes.salesRank"]] }
+        },
+        "required": ["partnerTag", "asin"]
+      }
+    },
+    {
+      "name": "browse_nodes_get",
+      "description": "Fetch Amazon browse node/category information.",
+      "method": "POST",
+      "path": "/catalog/v1/getBrowseNodes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "partnerTag": { "type": "string" },
+          "marketplace": { "type": "string", "default": "www.amazon.com" },
+          "browseNodeIds": { "type": "array", "items": { "type": "string" } },
+          "resources": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["partnerTag", "browseNodeIds"]
+      }
+    }
+  ]
+}

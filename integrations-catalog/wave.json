@@ -1,0 +1,16 @@
+{
+  "slug": "wave",
+  "name": "Wave Accounting",
+  "description": "Wave Accounting GraphQL API for businesses, customers, invoices, products and payments.",
+  "logo": "https://www.google.com/s2/favicons?domain=waveapps.com&sz=128",
+  "categories": ["accounting", "invoicing", "bookkeeping", "finance"],
+  "base_url": "https://gql.waveapps.com/graphql/public",
+  "auth": {"types":["bearer","oauth2"],"headers":{"Authorization":"Bearer {{token}}","Content-Type":"application/json","Accept":"application/json"},"credential_fields":[{"name":"token","label":"Wave access token","required":true}],"oauth2":{"authorize_url":"https://waveapps.com/oauth2/authorize","token_url":"https://waveapps.com/oauth2/token","scopes":["accounting.businesses.read","accounting.customers.read","accounting.invoices.read","accounting.invoices.write"],"client_id_required":true,"pkce":true}},
+  "tools": [
+    {"name":"graphql_query","description":"Run a read-only Wave GraphQL query. Use variables for account or business IDs; never place access tokens in the query.","method":"POST","path":"/","input_schema":{"type":"object","properties":{"query":{"type":"string"},"variables":{"type":"object"}},"required":["query"]}},
+    {"name":"list_businesses","description":"List businesses available to the authenticated Wave user.","method":"POST","path":"/","input_schema":{"type":"object","properties":{},"default_body":{"query":"query { businesses { edges { node { id name } } } }"}}},
+    {"name":"list_customers","description":"List customers for a Wave business.","method":"POST","path":"/","input_schema":{"type":"object","properties":{"business_id":{"type":"string"},"page":{"type":"integer"}},"required":["business_id"]}},
+    {"name":"list_invoices","description":"List invoices for a Wave business.","method":"POST","path":"/","input_schema":{"type":"object","properties":{"business_id":{"type":"string"},"page":{"type":"integer"}},"required":["business_id"]}},
+    {"name":"create_invoice","description":"Create an invoice through Wave GraphQL. Supply the provider's mutation input in input.","method":"POST","path":"/","input_schema":{"type":"object","properties":{"business_id":{"type":"string"},"input":{"type":"object"}},"required":["business_id","input"]}}
+  ]
+}

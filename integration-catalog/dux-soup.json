@@ -1,0 +1,697 @@
+{
+  "slug": "dux-soup",
+  "name": "Dux-Soup",
+  "description": "MCP server for Dux-Soup LinkedIn automation \u2014 visit profiles, send connection requests, message contacts, manage campaigns, and control outreach queues",
+  "logo": "https://www.google.com/s2/favicons?domain=dux-soup.com&sz=128",
+  "categories": [
+    "linkedin",
+    "outreach",
+    "automation",
+    "sales",
+    "leads",
+    "messaging"
+  ],
+  "base_url": "https://app.dux-soup.com/xapi/remote/control",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "X-Dux-Signature": "{{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "api_key"
+      },
+      {
+        "name": "user_id",
+        "label": "user_id"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "visit_profile",
+      "description": "Queue a LinkedIn profile visit. The Dux-Soup extension will open the profile and capture data. Supports scheduling with runafter parameter.",
+      "method": "POST",
+      "path": "/visit-profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "visit",
+            "description": "Must be 'visit'"
+          },
+          "params": {
+            "type": "object",
+            "description": "Action parameters",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL (e.g., https://www.linkedin.com/in/username/)"
+              },
+              "campaignid": {
+                "type": "string",
+                "description": "Campaign ID for tracking"
+              },
+              "force": {
+                "type": "boolean",
+                "description": "Force execution even if duplicate",
+                "default": false
+              },
+              "runafter": {
+                "type": "string",
+                "description": "Schedule for future execution (ISO 8601 date)"
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "connect",
+      "description": "Send a personalized LinkedIn connection request to a 2nd/3rd degree connection. Supports message placeholders: _FN_ (first name), _LN_ (last name), _CN_ (company name), _TL_ (title).",
+      "method": "POST",
+      "path": "/connect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "connect",
+            "description": "Must be 'connect'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL (must be 2nd or 3rd degree connection)"
+              },
+              "messagetext": {
+                "type": "string",
+                "description": "Connection request message. Use placeholders: _FN_ (first name), _LN_ (last name), _CN_ (company), _TL_ (title). Example: 'Hi _FN_, I'd love to connect!'"
+              },
+              "campaignid": {
+                "type": "string",
+                "description": "Campaign ID for tracking"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              },
+              "runafter": {
+                "type": "string",
+                "description": "Schedule (ISO 8601)"
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "message",
+      "description": "Send a direct message to a 1st degree LinkedIn connection. Supports placeholders: _FN_, _LN_, _CN_, _TL_.",
+      "method": "POST",
+      "path": "/message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "message",
+            "description": "Must be 'message'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL (must be 1st degree connection)"
+              },
+              "messagetext": {
+                "type": "string",
+                "description": "Message text. Supports placeholders: _FN_, _LN_, _CN_, _TL_"
+              },
+              "campaignid": {
+                "type": "string",
+                "description": "Campaign ID"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              },
+              "runafter": {
+                "type": "string",
+                "description": "Schedule (ISO 8601)"
+              }
+            },
+            "required": [
+              "profile",
+              "messagetext"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "inmail",
+      "description": "Send a LinkedIn InMail message (requires InMail credits). For profiles you are NOT connected with.",
+      "method": "POST",
+      "path": "/inmail",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "inmail",
+            "description": "Must be 'inmail'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "messagesubject": {
+                "type": "string",
+                "description": "InMail subject line"
+              },
+              "messagetext": {
+                "type": "string",
+                "description": "InMail body text. Supports placeholders."
+              },
+              "campaignid": {
+                "type": "string",
+                "description": "Campaign ID"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              },
+              "runafter": {
+                "type": "string",
+                "description": "Schedule (ISO 8601)"
+              }
+            },
+            "required": [
+              "profile",
+              "messagesubject",
+              "messagetext"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "enroll",
+      "description": "Enroll a LinkedIn profile into a Dux-Soup drip campaign for automated multi-step outreach",
+      "method": "POST",
+      "path": "/enroll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "enroll",
+            "description": "Must be 'enroll'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "campaignid": {
+                "type": "string",
+                "description": "Campaign ID to enroll into"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              },
+              "runafter": {
+                "type": "string",
+                "description": "Schedule (ISO 8601)"
+              }
+            },
+            "required": [
+              "profile",
+              "campaignid"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "follow",
+      "description": "Follow a LinkedIn profile to see their posts in your feed",
+      "method": "POST",
+      "path": "/follow",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "follow",
+            "description": "Must be 'follow'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "campaignid": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "endorse",
+      "description": "Endorse skills on a 1st degree connection's profile (defaults to top 3 skills)",
+      "method": "POST",
+      "path": "/endorse",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "endorse",
+            "description": "Must be 'endorse'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL (must be 1st degree)"
+              },
+              "count": {
+                "type": "integer",
+                "description": "Number of skills to endorse",
+                "default": 3
+              },
+              "campaignid": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "like_post",
+      "description": "Like the most recent post on a LinkedIn profile",
+      "method": "POST",
+      "path": "/like-post",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "likepost",
+            "description": "Must be 'likepost'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "campaignid": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "tag",
+      "description": "Apply tags to a LinkedIn profile for organization and filtering",
+      "method": "POST",
+      "path": "/tag",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "tag",
+            "description": "Must be 'tag'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "tags": {
+                "type": "array",
+                "description": "Array of tag strings to apply",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "campaignid": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "profile",
+              "tags"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "untag",
+      "description": "Remove tags from a LinkedIn profile",
+      "method": "POST",
+      "path": "/untag",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "untag",
+            "description": "Must be 'untag'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "tags": {
+                "type": "array",
+                "description": "Array of tag strings to remove",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "campaignid": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "profile",
+              "tags"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "disconnect",
+      "description": "Remove a 1st degree LinkedIn connection",
+      "method": "POST",
+      "path": "/disconnect",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "default": "disconnect",
+            "description": "Must be 'disconnect'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string",
+                "description": "LinkedIn profile URL (must be 1st degree)"
+              },
+              "campaignid": {
+                "type": "string"
+              },
+              "force": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "command",
+          "params"
+        ]
+      }
+    },
+    {
+      "name": "get_profile",
+      "description": "Get the Dux-Soup user's profile attributes (your own account info)",
+      "method": "GET",
+      "path": "/get-profile",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_prospect_tags",
+      "description": "Get all tags applied to a prospect, including system tags that track campaign progress (enrolled, invited, accepted, responded, etc.)",
+      "method": "GET",
+      "path": "/get-prospect-tags",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": "string",
+            "description": "Dux-Soup profile ID (found in webhook events and CSV exports)"
+          }
+        },
+        "required": [
+          "profileId"
+        ]
+      }
+    },
+    {
+      "name": "queue_size",
+      "description": "Get the number of actions waiting in the queue. Optionally filter by campaign, profile, or command type.",
+      "method": "GET",
+      "path": "/queue-size",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignid": {
+            "type": "string",
+            "description": "Filter by campaign ID"
+          },
+          "profileid": {
+            "type": "string",
+            "description": "Filter by profile ID"
+          },
+          "command": {
+            "type": "string",
+            "description": "Filter by command type (visit, connect, message, etc.)"
+          }
+        }
+      }
+    },
+    {
+      "name": "queue_items",
+      "description": "List actions currently in the queue (max 100 items). Optionally filter by campaign, profile, or command type.",
+      "method": "GET",
+      "path": "/queue-items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignid": {
+            "type": "string",
+            "description": "Filter by campaign ID"
+          },
+          "profileid": {
+            "type": "string",
+            "description": "Filter by profile ID"
+          },
+          "command": {
+            "type": "string",
+            "description": "Filter by command type"
+          }
+        }
+      }
+    },
+    {
+      "name": "queue_clear",
+      "description": "Clear all queued actions. WARNING: This removes all pending visits, messages, connection requests, etc.",
+      "method": "POST",
+      "path": "/queue-clear",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_settings",
+      "description": "Read all Dux-Soup user configuration settings (automation limits, throttling, campaign settings, etc.)",
+      "method": "GET",
+      "path": "/get-settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_settings",
+      "description": "Update Dux-Soup configuration. Common settings: maxvisits, maxinvites, maxmessages, throttletime, autoconnect, autoconnectmessagetext, webhooks, remotecontrolflag.",
+      "method": "POST",
+      "path": "/update-settings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "description": "Key-value pairs of settings to update. Examples: {\"maxvisits\":100, \"maxinvites\":25, \"throttletime\":30, \"autoconnect\":true, \"autoconnectmessagetext\":\"Hi _FN_!\"}"
+          }
+        },
+        "required": [
+          "settings"
+        ]
+      }
+    },
+    {
+      "name": "batch_enroll",
+      "description": "Bulk enroll LinkedIn profiles from a search results URL into a campaign. The extension will process the search page and enroll matching profiles.",
+      "method": "POST",
+      "path": "/batch-enroll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "signal": {
+            "type": "string",
+            "default": "batchEnroll",
+            "description": "Must be 'batchEnroll'"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "searchurl": {
+                "type": "string",
+                "description": "LinkedIn search results URL"
+              },
+              "campaignid": {
+                "type": "string",
+                "description": "Campaign ID to enroll into"
+              },
+              "maxenrolls": {
+                "type": "integer",
+                "description": "Maximum profiles to enroll from search results"
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "cloud"
+                ],
+                "default": "local",
+                "description": "Target: 'local' for Turbo extension, 'cloud' for Cloud session"
+              }
+            },
+            "required": [
+              "searchurl",
+              "target"
+            ]
+          }
+        },
+        "required": [
+          "signal",
+          "params"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_profile"
+  }
+}

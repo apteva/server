@@ -18,6 +18,7 @@ const (
 )
 
 type IngressRoute struct {
+	Mode           string                    `json:"mode,omitempty"`
 	ID             int64                     `json:"id"`
 	Hostname       string                    `json:"hostname"`
 	Target         string                    `json:"target"`
@@ -96,6 +97,7 @@ func (s *Server) ingressRoutesWithCertificates(routes []IngressRoute) []IngressR
 }
 
 type IngressExposeRequest struct {
+	Mode           string `json:"mode,omitempty"`
 	Hostname       string `json:"hostname"`
 	Target         string `json:"target"`
 	ProjectID      string `json:"project_id,omitempty"`
@@ -178,7 +180,7 @@ func ingressInstallProjectID(s *Server, installID int64) string {
 		return ""
 	}
 	var projectID string
-	_ = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&projectID)
+	_ = s.store.dbQueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, installID).Scan(&projectID)
 	return projectID
 }
 
@@ -196,6 +198,38 @@ func (s *Server) ExposeIngressRoute(req IngressExposeRequest) (*IngressRoute, er
 	tlsMode := normalizeIngressTLSMode(req)
 	if tlsMode != "auto" && tlsMode != "off" {
 		return nil, fmt.Errorf("unsupported tls mode %q", tlsMode)
+	}
+	u, _ := url.Parse(req.Target)
+	requestedMode := strings.TrimSpace(req.Mode)
+	if requestedMode != "" && u.Query().Get("ingress_mode") != "" && u.Query().Get("ingress_mode") != requestedMode {
+		return nil, errors.New("conflicting ingress modes")
+	}
+	if requestedMode == "" {
+		requestedMode = u.Query().Get("ingress_mode")
+	}
+	if requestedMode != "" && requestedMode != "http" && requestedMode != "forward_proxy" {
+		return nil, errors.New("unsupported ingress mode")
+	}
+	if requestedMode == "forward_proxy" {
+		if u.Scheme != "app" || req.OwnerInstallID <= 0 || tlsMode != "auto" || req.AllowHTTP {
+			return nil, errors.New("forward proxy requires an app-owned target and native TLS")
+		}
+		if s.installedApps == nil {
+			return nil, errors.New("app registry unavailable")
+		}
+		entry := s.installedApps.GetByNameAndProject(u.Host, u.Query().Get("project_id"))
+		if entry == nil || entry.InstallID != req.OwnerInstallID {
+			return nil, errors.New("forward proxy must target its owning installation")
+		}
+		if u.Path != "/transport" || u.Query().Get("endpoint_id") == "" {
+			return nil, errors.New("forward proxy transport and endpoint_id required")
+		}
+		q := u.Query()
+		q.Set("ingress_mode", "forward_proxy")
+		q.Set("ingress_transport", "1")
+		q.Set("ingress_auth", "app_token")
+		u.RawQuery = q.Encode()
+		req.Target = u.String()
 	}
 	certFQDN := strings.TrimSpace(strings.ToLower(req.CertFQDN))
 	if tlsMode == "auto" && certFQDN == "" {
@@ -222,7 +256,7 @@ func (s *Server) ExposeIngressRoute(req IngressExposeRequest) (*IngressRoute, er
 	}
 
 	var existingOwner int64
-	err = s.store.db.QueryRow(`SELECT owner_install_id FROM ingress_routes WHERE hostname=?`, host).Scan(&existingOwner)
+	err = s.store.dbQueryRow(`SELECT owner_install_id FROM ingress_routes WHERE hostname=?`, host).Scan(&existingOwner)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
@@ -231,7 +265,7 @@ func (s *Server) ExposeIngressRoute(req IngressExposeRequest) (*IngressRoute, er
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	result, err := s.store.db.Exec(`
+	result, err := s.store.dbExec(`
 		INSERT INTO ingress_routes
 			(hostname, target, project_id, owner_install_id, owner_kind, cert_fqdn, allow_http, tls_mode, status, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
@@ -275,14 +309,14 @@ func (s *Server) DeleteIngressRoute(hostname string, ownerInstallID int64) error
 	}
 	if ownerInstallID > 0 {
 		var existingOwner int64
-		if err := s.store.db.QueryRow(`SELECT owner_install_id FROM ingress_routes WHERE hostname=?`, host).Scan(&existingOwner); err != nil {
+		if err := s.store.dbQueryRow(`SELECT owner_install_id FROM ingress_routes WHERE hostname=?`, host).Scan(&existingOwner); err != nil {
 			return err
 		}
 		if existingOwner > 0 && existingOwner != ownerInstallID {
 			return fmt.Errorf("hostname %q is owned by install %d", host, existingOwner)
 		}
 	}
-	if _, err := s.store.db.Exec(`DELETE FROM ingress_routes WHERE hostname=?`, host); err != nil {
+	if _, err := s.store.dbExec(`DELETE FROM ingress_routes WHERE hostname=?`, host); err != nil {
 		return err
 	}
 	if s.routeCache != nil {
@@ -296,7 +330,7 @@ func (s *Server) GetIngressRoute(hostname string) (*IngressRoute, error) {
 	if err != nil {
 		return nil, err
 	}
-	row := s.store.db.QueryRow(`
+	row := s.store.dbQueryRow(`
 		SELECT id, hostname, target, project_id, owner_install_id, owner_kind, cert_fqdn,
 		       allow_http, tls_mode, status, created_at, updated_at
 		FROM ingress_routes WHERE hostname=?
@@ -312,19 +346,19 @@ func (s *Server) ListIngressRoutes(projectID string, ownerInstallID int64) ([]In
 	)
 	switch {
 	case ownerInstallID > 0:
-		rows, err = s.store.db.Query(`
+		rows, err = s.store.dbQuery(`
 			SELECT id, hostname, target, project_id, owner_install_id, owner_kind, cert_fqdn,
 			       allow_http, tls_mode, status, created_at, updated_at
 			FROM ingress_routes WHERE owner_install_id=? ORDER BY hostname
 		`, ownerInstallID)
 	case projectID != "":
-		rows, err = s.store.db.Query(`
+		rows, err = s.store.dbQuery(`
 			SELECT id, hostname, target, project_id, owner_install_id, owner_kind, cert_fqdn,
 			       allow_http, tls_mode, status, created_at, updated_at
 			FROM ingress_routes WHERE project_id=? ORDER BY hostname
 		`, projectID)
 	default:
-		rows, err = s.store.db.Query(`
+		rows, err = s.store.dbQuery(`
 			SELECT id, hostname, target, project_id, owner_install_id, owner_kind, cert_fqdn,
 			       allow_http, tls_mode, status, created_at, updated_at
 			FROM ingress_routes ORDER BY hostname
@@ -376,8 +410,11 @@ func (s *Server) ingressAllowsCertificate(hostname string) bool {
 	if primary, primaryErr := normalizeIngressHostname(stripHostPort(s.primaryHost)); primaryErr == nil && host == primary {
 		return true
 	}
+	if s.instanceHTTPS != nil && s.instanceHTTPS.allowsHost(host) {
+		return true
+	}
 	var n int
-	_ = s.store.db.QueryRow(`
+	_ = s.store.dbQueryRow(`
 		SELECT COUNT(*) FROM ingress_routes
 		WHERE status='active' AND tls_mode!='off' AND (hostname=? OR cert_fqdn=?)
 	`, host, host).Scan(&n)
@@ -398,6 +435,9 @@ func scanIngressRoute(row ingressScanner) (*IngressRoute, error) {
 		return nil, err
 	}
 	r.AllowHTTP = allowHTTP != 0
+	if u, err := url.Parse(r.Target); err == nil {
+		r.Mode = u.Query().Get("ingress_mode")
+	}
 	return &r, nil
 }
 

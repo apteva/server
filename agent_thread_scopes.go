@@ -25,7 +25,7 @@ func (s *Store) BindAgentThreadScope(agentID int64, threadID, projectID string, 
 		return false, fmt.Errorf("invalid project_id")
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.dbBegin()
 	if err != nil {
 		return false, err
 	}
@@ -58,7 +58,7 @@ func (s *Store) AgentThreadProjectForUser(userID, agentID int64, threadID string
 		return "", nil
 	}
 	var projectID string
-	err := s.db.QueryRow(`
+	err := s.dbQueryRow(`
 		SELECT ats.project_id
 		FROM agent_thread_scopes ats
 		JOIN agents a ON a.id=ats.agent_id
@@ -72,8 +72,27 @@ func (s *Store) AgentThreadProjectForUser(userID, agentID int64, threadID string
 }
 
 func (s *Store) DeleteAgentThreadScope(agentID int64, threadID string) error {
-	_, err := s.db.Exec(`DELETE FROM agent_thread_scopes WHERE agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID))
-	return err
+	tx, err := s.dbBegin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`INSERT INTO async_thread_epochs(agent_id,thread_id,epoch) VALUES(?,?,1)
+ ON CONFLICT(agent_id,thread_id) DO UPDATE SET epoch=epoch+1`, agentID, strings.TrimSpace(threadID)); err != nil {
+		return err
+	}
+	// The outbox foreign key removes queued retries in the same transaction.
+	if _, err = tx.Exec(`DELETE FROM subscriptions WHERE kind='ephemeral' AND agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID)); err != nil {
+		return err
+	}
+	// Core-created threads may have grants without an app-owned scope row.
+	// Reusing an opaque thread ID must never resurrect those grants.
+	for _, table := range []string{"app_file_grants", "server_blob_grants", "agent_thread_scopes"} {
+		if _, err = tx.Exec(`DELETE FROM `+table+` WHERE agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // appMCPThreadProject resolves only the identity that Core and the server's
@@ -102,7 +121,7 @@ func (s *Server) appMCPThreadProject(r *http.Request) (string, error) {
 	if !ok || principal.userSession {
 		return "", nil
 	}
-	err = s.store.db.QueryRow(`SELECT ats.project_id FROM agent_thread_scopes ats
+	err = s.store.dbQueryRowContext(r.Context(), `SELECT ats.project_id FROM agent_thread_scopes ats
 		JOIN app_agent_bindings b ON b.agent_id=ats.agent_id AND b.install_id=ats.source_install_id
 		WHERE ats.agent_id=? AND ats.thread_id=? AND ats.source_install_id=? AND b.enabled=1`,
 		agentID, threadID, principal.installID).Scan(&projectID)

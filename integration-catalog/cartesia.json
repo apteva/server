@@ -1,0 +1,200 @@
+{
+  "slug": "cartesia",
+  "name": "Cartesia",
+  "description": "Cartesia Sonic speech platform for low-latency text-to-speech, voice discovery, instant cloning, localization, voice conversion, and voice lifecycle management.",
+  "logo": "https://www.google.com/s2/favicons?domain=cartesia.ai&sz=128",
+  "categories": ["ai", "voice", "text-to-speech", "tts", "voice-cloning", "audio", "speech-synthesis"],
+  "base_url": "https://api.cartesia.ai",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Cartesia-Version": "2026-03-01"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Cartesia server API key (sk_car_...) from https://play.cartesia.ai/keys."
+      }
+    ]
+  },
+  "health_check": { "tool": "list_voices", "input": { "limit": 1, "is_owner": true } },
+  "tools": [
+    {
+      "name": "create_speech",
+      "description": "Generate complete speech audio with Cartesia Sonic. Returns binary audio. Use a voice ID from list_voices and sonic-3.5 for the current general-purpose model.",
+      "method": "POST",
+      "path": "/tts/bytes",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string", "default": "sonic-3.5", "description": "Cartesia TTS model ID. Pin a dated snapshot for strict production reproducibility when required." },
+          "transcript": { "type": "string", "description": "Text or supported SSML to synthesize." },
+          "voice": {
+            "type": "object",
+            "description": "Voice selector. Current API versions use a saved voice ID.",
+            "properties": {
+              "mode": { "type": "string", "enum": ["id"], "default": "id" },
+              "id": { "type": "string", "description": "Cartesia voice ID." }
+            },
+            "required": ["mode", "id"]
+          },
+          "output_format": {
+            "type": "object",
+            "description": "Audio output settings. WAV and raw require encoding; MP3 requires bit_rate.",
+            "properties": {
+              "container": { "type": "string", "enum": ["raw", "wav", "mp3"], "default": "mp3" },
+              "encoding": { "type": "string", "enum": ["pcm_f32le", "pcm_s16le", "pcm_mulaw", "pcm_alaw"], "description": "Required for raw and wav containers." },
+              "sample_rate": { "type": "integer", "enum": [8000, 16000, 22050, 24000, 44100, 48000], "default": 44100 },
+              "bit_rate": { "type": "integer", "description": "MP3 bitrate in bits per second." }
+            },
+            "required": ["container", "sample_rate"]
+          },
+          "language": { "type": "string", "description": "Optional ISO language code such as en, fr, es, de, ja, or zh." },
+          "pronunciation_dict_id": { "type": "string", "description": "Optional pronunciation dictionary ID for Sonic 3 and newer." },
+          "generation_config": {
+            "type": "object",
+            "description": "Sonic 3/3.5 generation controls.",
+            "properties": {
+              "volume": { "type": "number", "minimum": 0.5, "maximum": 2, "default": 1 },
+              "speed": { "type": "number", "minimum": 0.6, "maximum": 1.5, "default": 1 },
+              "emotion": { "type": "string", "description": "Optional model-supported emotion control." }
+            }
+          }
+        },
+        "required": ["model_id", "transcript", "voice", "output_format"]
+      }
+    },
+    {
+      "name": "list_voices",
+      "description": "List Cartesia voices with cursor pagination and filters. Set is_owner=true for account-owned cloned voices. Include expand[]=preview_file_url to receive authenticated preview URLs.",
+      "method": "GET",
+      "path": "/voices",
+      "query_params": ["limit", "starting_after", "ending_before", "q", "is_owner", "gender", "language", "expand[]"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "starting_after": { "type": "string", "description": "Voice ID cursor for the next page." },
+          "ending_before": { "type": "string", "description": "Voice ID cursor for the previous page." },
+          "q": { "type": "string", "description": "Search name, description, or voice ID." },
+          "is_owner": { "type": "boolean", "description": "Only return voices owned by the organization." },
+          "gender": { "type": "string", "enum": ["masculine", "feminine", "gender_neutral"] },
+          "language": { "type": "string", "description": "Language or locale, for example en or en-GB." },
+          "expand[]": { "type": "array", "items": { "type": "string", "enum": ["preview_file_url"] } }
+        }
+      }
+    },
+    {
+      "name": "get_voice",
+      "description": "Get one Cartesia voice. Use expand[]=preview_file_url to include its authenticated preview-audio URL when available.",
+      "method": "GET",
+      "path": "/voices/{voice_id}",
+      "query_param_aliases": { "expand": "expand[]" },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": { "type": "string" },
+          "expand": { "type": "array", "items": { "type": "string", "enum": ["preview_file_url"] } }
+        },
+        "required": ["voice_id"]
+      }
+    },
+    {
+      "name": "clone_voice",
+      "description": "Create a high-similarity Cartesia voice clone from a consented audio clip. A clean clip around five seconds is recommended. Returns the reusable voice ID.",
+      "method": "POST",
+      "path": "/voices/clone",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["name", "language", "description", "base_voice_id"],
+        "file_fields": { "clip": "clip" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clip": { "type": "string", "description": "Audio clip as base64, data URL, blobref, or binary envelope." },
+          "clip_filename": { "type": "string", "description": "Optional original audio filename." },
+          "name": { "type": "string" },
+          "language": { "type": "string", "description": "Language code for the sample, such as en, fr, de, es, pt, zh, ja, hi, it, or ko." },
+          "description": { "type": "string" },
+          "base_voice_id": { "type": "string", "description": "Optional base voice from which to derive the clone." }
+        },
+        "required": ["clip", "name", "language"]
+      }
+    },
+    {
+      "name": "update_voice",
+      "description": "Update an owned Cartesia voice's name, description, gender presentation, or access. Set gender to null to restore the default.",
+      "method": "PATCH",
+      "path": "/voices/{voice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "gender": { "type": ["string", "null"], "enum": ["masculine", "feminine", "gender_neutral", null] },
+          "access": { "type": "object", "properties": { "type": { "type": "string", "enum": ["private", "public"], "default": "private" } } }
+        },
+        "required": ["voice_id"]
+      }
+    },
+    {
+      "name": "delete_voice",
+      "description": "Delete an owned Cartesia voice. This is destructive.",
+      "method": "DELETE",
+      "path": "/voices/{voice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "voice_id": { "type": "string" } },
+        "required": ["voice_id"]
+      }
+    },
+    {
+      "name": "localize_voice",
+      "description": "Create a new Cartesia voice localized from an existing voice into another language and optional dialect.",
+      "method": "POST",
+      "path": "/voices/localize",
+      "timeout_ms": 180000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "voice_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "language": { "type": "string", "enum": ["en", "de", "es", "fr", "ja", "pt", "zh", "hi", "it", "ko", "nl", "pl", "ru", "sv", "tr", "ar", "he", "ta", "te", "th"] },
+          "original_speaker_gender": { "type": "string", "enum": ["male", "female"] },
+          "dialect": { "type": "string", "enum": ["au", "in", "so", "uk", "us", "mx", "pe", "br", "eu", "ca"], "description": "Optional target dialect. Valid values depend on language." }
+        },
+        "required": ["voice_id", "name", "description", "language", "original_speaker_gender"]
+      }
+    },
+    {
+      "name": "change_voice",
+      "description": "Convert an audio clip to a selected Cartesia voice while preserving timing and intonation. Returns binary audio.",
+      "method": "POST",
+      "path": "/voice-changer/bytes",
+      "timeout_ms": 180000,
+      "multipart_form": {
+        "field_names": ["voice[id]", "output_format[container]", "output_format[sample_rate]", "output_format[encoding]", "output_format[bit_rate]"],
+        "file_fields": { "clip": "clip" }
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "clip": { "type": "string", "description": "Source speech audio as base64, data URL, blobref, or binary envelope. Supported formats include FLAC, MP3, OGG, WAV, and WebM." },
+          "clip_filename": { "type": "string" },
+          "voice[id]": { "type": "string", "description": "Target Cartesia voice ID." },
+          "output_format[container]": { "type": "string", "enum": ["raw", "wav", "mp3"], "default": "mp3" },
+          "output_format[sample_rate]": { "type": "integer", "enum": [8000, 16000, 22050, 24000, 44100, 48000], "default": 44100 },
+          "output_format[encoding]": { "type": "string", "enum": ["pcm_f32le", "pcm_s16le", "pcm_mulaw", "pcm_alaw"], "description": "Required for raw and wav." },
+          "output_format[bit_rate]": { "type": "integer", "description": "Required for MP3." }
+        },
+        "required": ["clip", "voice[id]", "output_format[container]", "output_format[sample_rate]"]
+      }
+    }
+  ]
+}

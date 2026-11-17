@@ -1,0 +1,310 @@
+{
+  "slug": "mailgun",
+  "name": "Mailgun",
+  "description": "MCP server for Mailgun email operations - sending, templates, domains, and analytics",
+  "logo": "https://www.google.com/s2/favicons?domain=mailgun.com&sz=128",
+  "categories": [
+    "email",
+    "mailgun",
+    "smtp",
+    "transactional"
+  ],
+  "base_url": "https://api.mailgun.net/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_email",
+      "description": "Send an email via Mailgun",
+      "method": "POST",
+      "path": "/send-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Mailgun domain"
+          },
+          "from": {
+            "type": "string",
+            "description": "From address"
+          },
+          "to": {
+            "type": "string",
+            "description": "To address(es)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "text": {
+            "type": "string",
+            "description": "Plain text body"
+          },
+          "html": {
+            "type": "string",
+            "description": "HTML body"
+          },
+          "cc": {
+            "type": "string",
+            "description": "CC address(es)"
+          },
+          "bcc": {
+            "type": "string",
+            "description": "BCC address(es)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags for tracking"
+          }
+        },
+        "required": [
+          "domain",
+          "from",
+          "to",
+          "subject"
+        ]
+      }
+    },
+    {
+      "name": "send_template",
+      "description": "Send an email using a Mailgun template",
+      "method": "POST",
+      "path": "/send-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Mailgun domain"
+          },
+          "from": {
+            "type": "string",
+            "description": "From address"
+          },
+          "to": {
+            "type": "string",
+            "description": "To address(es)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "template": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "templateVariables": {
+            "type": "object",
+            "description": "Template variables"
+          }
+        },
+        "required": [
+          "domain",
+          "from",
+          "to",
+          "subject",
+          "template"
+        ]
+      }
+    },
+    {
+      "name": "list_domains",
+      "description": "List Mailgun domains",
+      "method": "GET",
+      "path": "/list-domains",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          },
+          "skip": {
+            "type": "number",
+            "description": "Results to skip"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_domain",
+      "description": "Get details for a specific Mailgun domain",
+      "method": "GET",
+      "path": "/get-domain",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List email events from Mailgun",
+      "method": "GET",
+      "path": "/list-events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name"
+          },
+          "event": {
+            "type": "string",
+            "description": "Event type filter"
+          },
+          "recipient": {
+            "type": "string",
+            "description": "Filter by recipient"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start timestamp"
+          },
+          "to": {
+            "type": "string",
+            "description": "End timestamp"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 300
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "get_stats",
+      "description": "Get email statistics from Mailgun",
+      "method": "GET",
+      "path": "/get-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name"
+          },
+          "event": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Event types to include"
+          },
+          "start": {
+            "type": "string",
+            "description": "Start date"
+          },
+          "end": {
+            "type": "string",
+            "description": "End date"
+          },
+          "resolution": {
+            "type": "string",
+            "description": "Resolution (day, hour, month)"
+          },
+          "duration": {
+            "type": "string",
+            "description": "Duration (e.g., 1d, 7d, 30d)"
+          }
+        },
+        "required": [
+          "domain",
+          "event"
+        ]
+      }
+    },
+    {
+      "name": "validate_email",
+      "description": "Validate an email address",
+      "method": "GET",
+      "path": "/validate-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Email address to validate"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      }
+    },
+    {
+      "name": "list_bounces",
+      "description": "List bounced emails",
+      "method": "GET",
+      "path": "/list-bounces",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    },
+    {
+      "name": "list_unsubscribes",
+      "description": "List unsubscribed emails",
+      "method": "GET",
+      "path": "/list-unsubscribes",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Domain name"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results",
+            "default": 100
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      }
+    }
+  ]
+}

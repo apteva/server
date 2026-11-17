@@ -33,8 +33,8 @@ package main
 // Safety:
 //   - Single SQL transaction wraps app_installs + connections
 //     UPDATEs. A crash partway leaves nothing modified.
-//   - Refuses when another install of the same app already occupies
-//     the target scope (UNIQUE(app_id, project_id)).
+//   - Refuses when the same installation key already occupies the target
+//     scope. A moving install yields to the target scope's selected default.
 //   - Sidecar gets stopped + resumed via the existing supervisor
 //     path so WhoAmI returns the new scope (the SDK caches it at
 //     boot — without a restart the sidecar would think it's still
@@ -81,22 +81,27 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := body.ProjectID
+	if s.isOwnedComponent(installID) || s.hasOwnedComponents(installID) {
+		http.Error(w, "remove owned components before changing installation scope", http.StatusConflict)
+		return
+	}
 
 	// Load the install. We need the current scope + the manifest's
 	// scope list to validate the move + the app_id for the UNIQUE
 	// collision check.
 	var (
-		appID        int64
-		oldProjectID string
-		manifestJSON string
-		appName      string
+		appID           int64
+		oldProjectID    string
+		manifestJSON    string
+		appName         string
+		installationKey string
 	)
-	err = s.store.db.QueryRow(
+	err = s.store.dbQueryRowContext(r.Context(),
 		`SELECT i.app_id, COALESCE(i.project_id,''),
-		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.name
+		        COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json), a.name,i.installation_key
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE i.id = ?`, installID,
-	).Scan(&appID, &oldProjectID, &manifestJSON, &appName)
+	).Scan(&appID, &oldProjectID, &manifestJSON, &appName, &installationKey)
 	if err != nil {
 		http.Error(w, "install not found", http.StatusNotFound)
 		return
@@ -144,14 +149,13 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// UNIQUE(app_id, project_id) — refuse if the target scope is
-	// already taken by another install of the same app. Cheap
+	// Refuse if the installation key is already used in the target scope. Cheap
 	// pre-check so the operator gets a real id rather than the raw
 	// SQLite constraint error.
 	var conflictID int64
-	_ = s.store.db.QueryRow(
-		`SELECT id FROM app_installs WHERE app_id = ? AND COALESCE(project_id,'') = ?`,
-		appID, target,
+	_ = s.store.dbQueryRowContext(r.Context(),
+		`SELECT id FROM app_installs WHERE app_id = ? AND COALESCE(project_id,'') = ? AND installation_key=?`,
+		appID, target, installationKey,
 	).Scan(&conflictID)
 	if conflictID != 0 && conflictID != installID {
 		http.Error(w, fmt.Sprintf(
@@ -161,14 +165,30 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.runtimeManaged(installID) {
+		if current, e := s.appRuntimeManager().active(installID); e == nil && !current.Placement.local() {
+			for _, owner := range []int64{current.Placement.Backend.InstallID, current.Placement.Target.InstallID} {
+				var ownerProject string
+				if e = s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, owner).Scan(&ownerProject); e != nil || (ownerProject != "" && ownerProject != target) {
+					http.Error(w, "runtime backend or target is not accessible in the new project", 409)
+					return
+				}
+			}
+		}
+	}
 	// All checks pass. Wrap the two UPDATEs in a transaction so a
 	// crash partway leaves nothing inconsistent. registerAppMCP runs
 	// AFTER commit — it reads the just-committed row and rewrites
 	// mcp_servers; failure there is non-fatal (the row is rebuilt
 	// on next boot's reconcile) so it stays out of the tx.
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "begin tx: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err = tx.Exec(`UPDATE app_installs SET is_default=0 WHERE id=? AND EXISTS(SELECT 1 FROM app_installs WHERE app_id=? AND project_id=? AND is_default=1)`, installID, appID, target); err != nil {
+		tx.Rollback()
+		http.Error(w, "update installation scope default", 500)
 		return
 	}
 	defer func() {
@@ -274,8 +294,12 @@ func (s *Server) handleSetInstallScope(w http.ResponseWriter, r *http.Request) {
 // today. If a second consumer shows up, move to apps_local.go and
 // give it a real signature.
 func (s *Server) restartInstallSidecar(installID int64) error {
-	// Best-effort stop. Stop is idempotent — "not running" is OK.
-	_ = s.localApps.Stop(installID)
+	if s.runtimeManaged(installID) {
+		return s.managedRuntimeRestart(installID)
+	}
+	if err := s.localApps.Stop(installID); err != nil {
+		return fmt.Errorf("stop before scope restart: %w", err)
+	}
 
 	// Re-read the install row + fan out via the existing resume
 	// helper. We don't reuse ResumeLocalInstalls (which scans the
@@ -291,7 +315,7 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		installedVersion string
 		manifestJSON     string
 	)
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT COALESCE(i.local_pid,0), COALESCE(i.local_port,0),
 		        COALESCE(i.local_bin_path,''), a.name, COALESCE(i.project_id,''),
 		        COALESCE(i.config_encrypted,''), COALESCE(i.version,''),
@@ -307,6 +331,9 @@ func (s *Server) restartInstallSidecar(installID int64) error {
 		// restart; the eventual build will pick up the new scope.
 		return nil
 	}
-	go s.resumeOneLocalInstall(installID, pid, port, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON)
+	go func() {
+		s.resumeOneLocalInstall(installID, pid, port, binPath, appName, projectID, cfgEnc, installedVersion, manifestJSON)
+		s.LoadInstalledApps()
+	}()
 	return nil
 }

@@ -13,8 +13,10 @@ import (
 	"io"
 	"log"
 	"math"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	neturl "net/url"
 	"os"
 	"regexp"
@@ -266,7 +268,10 @@ func buildMultipartRequestBody(tool *AppToolDef, input map[string]any, credentia
 				return nil, "", fmt.Errorf("multipart file %q: %w", inputName, err)
 			}
 			filename := multipartFilename(input, inputName, i, len(values))
-			part, err := writer.CreateFormFile(formName, filename)
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": formName, "filename": filename}))
+			header.Set("Content-Type", multipartFileMIMEType(raw))
+			part, err := writer.CreatePart(header)
 			if err != nil {
 				return nil, "", fmt.Errorf("multipart file field %q: %w", formName, err)
 			}
@@ -311,6 +316,30 @@ func multipartFileValues(v any) []any {
 	}
 }
 
+// multipartFileMIMEType preserves the declared type in file envelopes and data URLs.
+func multipartFileMIMEType(v any) string {
+	candidate := ""
+	switch x := v.(type) {
+	case map[string]any:
+		candidate, _ = x["mimeType"].(string)
+		if candidate == "" {
+			for _, field := range []string{"base64", "data"} {
+				if value, ok := x[field].(string); ok && strings.HasPrefix(value, "data:") {
+					return multipartFileMIMEType(value)
+				}
+			}
+		}
+	case string:
+		if comma := strings.Index(x, ","); strings.HasPrefix(x, "data:") && comma >= 0 {
+			candidate = strings.Split(x[5:comma], ";")[0]
+		}
+	}
+	if mediaType, _, err := mime.ParseMediaType(candidate); err == nil && strings.Contains(mediaType, "/") {
+		return mediaType
+	}
+	return "application/octet-stream"
+}
+
 func decodeMultipartFileValue(v any) ([]byte, error) {
 	switch x := v.(type) {
 	case []byte:
@@ -339,7 +368,14 @@ func decodeMultipartFileValue(v any) ([]byte, error) {
 
 func decodeMultipartFileString(s string) []byte {
 	if idx := strings.Index(s, ","); strings.HasPrefix(s, "data:") && idx >= 0 {
+		metadata := s[:idx]
 		s = s[idx+1:]
+		if !strings.Contains(metadata, ";base64") {
+			if decoded, err := neturl.PathUnescape(s); err == nil {
+				return []byte(decoded)
+			}
+			return []byte(s)
+		}
 	}
 	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
 		return decoded
@@ -579,7 +615,7 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	if in.AutoMCP != nil && *in.AutoMCP {
 		autoMCP = 1
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		"INSERT INTO connections (user_id, app_slug, app_name, name, auth_type, encrypted_credentials, status, project_id, source, provider_id, external_id, created_via, owner_app_install_id, credential_management, credential_export_policy, managed_key, auto_mcp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		in.UserID, in.AppSlug, in.AppName, in.Name, in.AuthType, in.EncryptedCreds, in.Status, in.ProjectID, in.Source, in.ProviderID, in.ExternalID, in.CreatedVia, in.OwnerAppInstallID, in.CredentialManagement, in.CredentialExportPolicy, in.ManagedKey, autoMCP,
 	)
@@ -596,7 +632,7 @@ func (s *Store) CreateConnectionExt(in ConnectionInput) (*Connection, error) {
 	//
 	// The WHERE guard makes this a no-op once a primary exists, so adding
 	// a second key never steals the operator's choice.
-	s.db.Exec(`UPDATE connections SET is_primary = 1 WHERE id = ? AND NOT EXISTS (
+	s.dbExec(`UPDATE connections SET is_primary = 1 WHERE id = ? AND NOT EXISTS (
 		SELECT 1 FROM connections other
 		WHERE other.user_id = ? AND other.project_id = ? AND other.app_slug = ?
 		  AND other.is_primary = 1 AND other.id != ?
@@ -627,13 +663,13 @@ func (s *Store) ListConnections(userID int64, projectID ...string) ([]Connection
 		// set. With the v0.15.0 UI, an operator who promotes a
 		// connection to global gets it appearing in every project's
 		// list, which is the whole point.
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
 			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
 			        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
 			 FROM connections WHERE user_id = ? AND (project_id = ? OR project_id = '')`, userID, projectID[0])
 	} else {
-		rows, err = s.db.Query(
+		rows, err = s.dbQuery(
 			`SELECT id, app_slug, app_name, name, auth_type, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
 			        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
 			        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
@@ -662,7 +698,7 @@ func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error)
 	var c Connection
 	var encCreds, createdAt string
 	var autoMCP int
-	err := s.db.QueryRow(
+	err := s.dbQueryRow(
 		`SELECT id, app_slug, app_name, name, auth_type, encrypted_credentials, status, COALESCE(source,'local'), COALESCE(provider_id,0), COALESCE(external_id,''), COALESCE(project_id,''),
 		        COALESCE(created_via,'integration'), COALESCE(owner_app_install_id,0), COALESCE(credential_management,'user'),
 		        COALESCE(credential_export_policy,'bound_app'), COALESCE(managed_key,''), COALESCE(auto_mcp,1), created_at
@@ -680,14 +716,14 @@ func (s *Store) GetConnection(userID, connID int64) (*Connection, string, error)
 
 // UpdateConnectionStatus flips a connection's status (pending → active → failed).
 func (s *Store) UpdateConnectionStatus(connID int64, status string) error {
-	_, err := s.db.Exec("UPDATE connections SET status = ? WHERE id = ?", status, connID)
+	_, err := s.dbExec("UPDATE connections SET status = ? WHERE id = ?", status, connID)
 	return err
 }
 
 // UpdateConnectionCredentials replaces the encrypted credential blob (used after
 // local OAuth token exchange and on refresh).
 func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string) error {
-	_, err := s.db.Exec("UPDATE connections SET encrypted_credentials = ? WHERE id = ?", encryptedCreds, connID)
+	_, err := s.dbExec("UPDATE connections SET encrypted_credentials = ? WHERE id = ?", encryptedCreds, connID)
 	return err
 }
 
@@ -697,7 +733,7 @@ func (s *Store) UpdateConnectionCredentials(connID int64, encryptedCreds string)
 // tokens automatically. New connections already contain api_key and are left
 // untouched, making this safe to run on every boot.
 func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (int, error) {
-	rows, err := s.db.Query(`
+	rows, err := s.dbQuery(`
 		SELECT id, encrypted_credentials
 		FROM connections
 		WHERE app_slug = 'cjdropshipping' AND status != 'failed'`)
@@ -736,7 +772,7 @@ func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (
 		return 0, err
 	}
 	for _, id := range legacyIDs {
-		if _, err := s.db.Exec("UPDATE connections SET status = 'failed' WHERE id = ?", id); err != nil {
+		if _, err := s.dbExec("UPDATE connections SET status = 'failed' WHERE id = ?", id); err != nil {
 			return 0, err
 		}
 	}
@@ -751,12 +787,12 @@ func (s *Store) MarkLegacyCJDropshippingConnectionsForReconnect(secret []byte) (
 // read at call time. Without this, the row's frozen env would keep
 // failing every call until the user manually disconnect/reconnects.
 func (s *Store) UpdateMCPServerEnv(serverID int64, encryptedEnv string) error {
-	_, err := s.db.Exec("UPDATE mcp_servers SET encrypted_env = ? WHERE id = ?", encryptedEnv, serverID)
+	_, err := s.dbExec("UPDATE mcp_servers SET encrypted_env = ? WHERE id = ?", encryptedEnv, serverID)
 	return err
 }
 
 func (s *Store) DeleteConnection(userID, connID int64) error {
-	_, err := s.db.Exec("DELETE FROM connections WHERE id = ? AND user_id = ?", connID, userID)
+	_, err := s.dbExec("DELETE FROM connections WHERE id = ? AND user_id = ?", connID, userID)
 	return err
 }
 
@@ -825,7 +861,7 @@ func (s *Store) CreateMCPServerFromConnectionWithSlug(userID int64, conn *Connec
 	} else if conn.AppName != "" && !strings.HasPrefix(description, conn.AppName) {
 		description = conn.AppName + " " + description
 	}
-	result, err := s.db.Exec(
+	result, err := s.dbExec(
 		"INSERT INTO mcp_servers (user_id, name, description, status, tool_count, source, connection_id, project_id, allowed_tools) VALUES (?, ?, ?, 'running', ?, 'local', ?, ?, ?)",
 		userID, mcpName, description, toolCount, conn.ID, conn.ProjectID, allowedJSON,
 	)
@@ -984,7 +1020,7 @@ func (s *Server) refreshRemoteMcpAuth(serverID int64, connectionID int64, env ma
 	// and the catalog entry (for token_url + auth_header template).
 	var userID int64
 	var appSlug string
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		"SELECT user_id, app_slug FROM connections WHERE id = ?", connectionID,
 	).Scan(&userID, &appSlug); err != nil {
 		return fmt.Errorf("load connection %d: %w", connectionID, err)
@@ -1136,7 +1172,7 @@ func resolveRemoteMcpCredTemplate(template string, creds map[string]string) (str
 func (s *Store) CanonicalMCPNameForConnection(connID int64) string {
 	var name string
 	// Prefer the oldest row (= auto-created default) over scoped copies.
-	s.db.QueryRow(
+	s.dbQueryRow(
 		"SELECT name FROM mcp_servers WHERE connection_id = ? ORDER BY id ASC LIMIT 1",
 		connID,
 	).Scan(&name)
@@ -1145,7 +1181,7 @@ func (s *Store) CanonicalMCPNameForConnection(connID int64) string {
 	}
 	// Fallback: look up the connection's app slug directly.
 	var slug string
-	s.db.QueryRow("SELECT app_slug FROM connections WHERE id = ?", connID).Scan(&slug)
+	s.dbQueryRow("SELECT app_slug FROM connections WHERE id = ?", connID).Scan(&slug)
 	return slug
 }
 
@@ -1194,7 +1230,7 @@ func slugify(s string) string {
 func (s *Store) uniqueMCPName(userID int64, projectID, appSlug string, connID int64) string {
 	nameTaken := func(candidate string) bool {
 		var count int
-		s.db.QueryRow(
+		s.dbQueryRow(
 			"SELECT COUNT(*) FROM mcp_servers WHERE user_id = ? AND project_id = ? AND name = ?",
 			userID, projectID, candidate,
 		).Scan(&count)
@@ -1219,7 +1255,7 @@ func (s *Store) uniqueMCPName(userID int64, projectID, appSlug string, connID in
 }
 
 func (s *Store) DeleteMCPServerByConnection(connID int64) {
-	s.db.Exec("DELETE FROM mcp_servers WHERE connection_id = ?", connID)
+	s.dbExec("DELETE FROM mcp_servers WHERE connection_id = ?", connID)
 }
 
 // --- HTTP Executor ---
@@ -1243,6 +1279,8 @@ var forwardableHeaders = []string{
 	"Location",
 	"Content-Type",
 	"Content-Range",
+	"Range",
+	"Retry-After",
 	"Accept-Ranges",
 	"Etag",
 	"Last-Modified",
@@ -1920,10 +1958,29 @@ func integrationRateLimitCode(value any) string {
 }
 
 func executeIntegrationTool(app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string, parents ...context.Context) (*ExecuteResult, error) {
+	if containsFileReference(input) {
+		return nil, fileProblem(403, "file_context_required", "unresolved file reference requires an authorized dispatch context")
+	}
+
 	requestCtx := integrationRequestContext(parents)
 	if err := requestCtx.Err(); err != nil {
 		return nil, err
 	}
+	fallbackTimeout := 30 * time.Second
+	if app != nil && app.Slug == integrationOpenAICodexSlug {
+		fallbackTimeout = 240 * time.Second
+	}
+	cleanInput, timeout, overridden, err := integrationExecutionInput(input, tool, fallbackTimeout)
+	if err != nil {
+		return nil, err
+	}
+	input = cleanInput
+	if overridden {
+		bounded, cancel := context.WithTimeout(requestCtx, timeout)
+		defer cancel()
+		requestCtx = bounded
+	}
+	requestCtx = context.WithValue(requestCtx, integrationToolTimeoutKey{}, timeout)
 
 	maxRetries := 0
 	if tool != nil && tool.RateLimit != nil {
@@ -1990,6 +2047,24 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 
 	if app != nil && app.Slug == integrationOpenAICodexSlug {
 		return executeOpenAICodexIntegrationTool(app, tool, credentials, input, requestCtx)
+	}
+	if app != nil && app.Slug == "openstreetmap-overpass" {
+		fields := normalizeCredentials(credentials)
+		contact := fields["contact_email"]
+		if strings.ContainsAny(contact, " \t\r\n") || !strings.Contains(contact, "@") {
+			return nil, fmt.Errorf("an operator contact email is required for Overpass requests")
+		}
+		endpoint, err := neturl.Parse(fields["overpass_base_url"])
+		if err != nil || endpoint == nil || endpoint.Scheme != "https" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return nil, fmt.Errorf("a valid Overpass HTTPS base URL is required")
+		}
+	}
+	if app != nil && app.Slug == "openstreetmap-nominatim" {
+		configured := normalizeCredentials(credentials)["nominatim_base_url"]
+		endpoint, err := neturl.Parse(configured)
+		if err != nil || endpoint == nil || endpoint.Scheme != "https" || endpoint.Host == "" || strings.EqualFold(endpoint.Hostname(), "nominatim.openstreetmap.org") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+			return nil, fmt.Errorf("use a self-hosted or licensed Nominatim HTTPS endpoint; the public endpoint cannot be used by this integration")
+		}
 	}
 
 	// Coerce input values to match the tool's schema types.
@@ -2141,13 +2216,17 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		url += sep + encoded
 	}
 
-	transformedBody, hasTransformedBody, err := buildRequestTransformBody(tool.RequestTransform, input)
-	if err != nil {
-		return nil, err
+	var transformedBody any
+	var hasTransformedBody bool
+	if !tool.BodyNone {
+		transformedBody, hasTransformedBody, err = buildRequestTransformBody(tool.RequestTransform, input)
+		if err != nil {
+			return nil, err
+		}
 	}
 	var binaryBody any
 	binaryBodyPresent := false
-	if tool.BodyBinaryParam != "" {
+	if !tool.BodyNone && tool.BodyBinaryParam != "" {
 		binaryBody, binaryBodyPresent = input[tool.BodyBinaryParam]
 		binaryBodyPresent = binaryBodyPresent && binaryBody != nil
 		if !binaryBodyPresent && inputSchemaRequires(tool.InputSchema, tool.BodyBinaryParam) {
@@ -2160,7 +2239,29 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// DNS delete endpoint, require a JSON body on DELETE; keeping the
 	// default DELETE path query-only preserves existing integrations.
 	var bodyReader io.Reader
-	if tool.Method != "GET" && tool.Method != "OPTIONS" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
+	if tool.BodyNone {
+		// Explicitly send no body, and do not move unused body inputs into the
+		// query string: a resumable-upload probe must retain its session URL.
+	} else if tool.MCPTool != "" {
+		args := buildAuthBodyParams(app.Auth.BodyParams, credentials)
+		properties, _ := tool.InputSchema["properties"].(map[string]any)
+		for name := range properties {
+			value, present := input[name]
+			_, reserved := app.Auth.BodyParams[name]
+			if present && !reserved {
+				args[name] = value
+			}
+		}
+		payload, err := json.Marshal(jsonRPCRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: map[string]any{
+			"name": tool.MCPTool, "arguments": args,
+		}})
+		if err != nil {
+			return nil, fmt.Errorf("marshal MCP tool call: %w", err)
+		}
+		bodyReader = bytes.NewReader(payload)
+		headers["Accept"] = "application/json, text/event-stream"
+		headers["Content-Type"] = "application/json"
+	} else if tool.Method != "GET" && tool.Method != "OPTIONS" && (tool.Method != "DELETE" || tool.BodyInput != "" || tool.BodyBinaryParam != "" || tool.BodyRoot != "" || tool.MultipartForm != nil || hasTransformedBody) {
 		// Raw-body path: tool declared a single input field that
 		// carries the request body verbatim (S3 PutObject, R2
 		// PutObject, etc.). Skip the JSON map assembly entirely.
@@ -2188,8 +2289,8 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			if binary, _ := env["_binary"].(bool); !binary {
 				return nil, fmt.Errorf("body_binary_param %q must have _binary=true", tool.BodyBinaryParam)
 			}
-			encoded, _ := env["base64"].(string)
-			if encoded == "" {
+			encoded, hasBase64 := env["base64"].(string)
+			if !hasBase64 {
 				return nil, fmt.Errorf("body_binary_param %q must include base64 data", tool.BodyBinaryParam)
 			}
 			bodyBytes, err := base64.StdEncoding.DecodeString(encoded)
@@ -2421,16 +2522,13 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		}
 	}
 
-	timeout := 30 * time.Second
-	if tool.TimeoutMS > 0 {
-		timeout = time.Duration(tool.TimeoutMS) * time.Millisecond
-		if timeout > 10*time.Minute {
-			timeout = 10 * time.Minute
-		}
-	}
+	timeout := integrationTimeoutFromContext(requestCtx, tool, 30*time.Second)
 	client, err := integrationHTTPClient(app, credentials, timeout)
 	if err != nil {
 		return nil, err
+	}
+	if tool.MCPTool != "" {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
 	if err := waitForIntegrationToolRateLimit(req.Context(), app, tool, credentials); err != nil {
 		return nil, err
@@ -2449,10 +2547,13 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// the TS executor's `maxBinaryBytes` knob; we don't expose a per-tool
 	// override yet because no template needs one.
 	ct := resp.Header.Get("Content-Type")
-	binary := isBinaryContentType(ct)
+	binary := isBinaryContentType(ct) || (tool.ResponseType == "binary" && resp.StatusCode >= 200 && resp.StatusCode < 300)
 	maxBytes := int64(10_000_000)
 	if binary {
 		maxBytes = 200_000_000
+	} else if tool.ResponseTransform != nil && tool.ResponseTransform.Type == "base64_to_binary" && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// JSON carrying encoded files needs space for base64 plus metadata.
+		maxBytes = int64(((maxBase64BinaryBytes+2)/3)*4 + 1024*1024)
 	}
 	hdrs := pickForwardableHeaders(resp.Header)
 	if cl := resp.ContentLength; cl > 0 && cl > maxBytes {
@@ -2484,6 +2585,10 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		}, nil
 	}
 
+	if tool.MCPTool != "" {
+		return decodeCatalogMCPResult(resp.StatusCode, ct, respBody, hdrs, buildAuthBodyParams(app.Auth.BodyParams, credentials)), nil
+	}
+
 	var data any
 	switch {
 	case binary:
@@ -2494,6 +2599,9 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 		mime := ct
 		if i := strings.Index(mime, ";"); i >= 0 {
 			mime = strings.TrimSpace(mime[:i])
+		}
+		if mime == "" {
+			mime = "application/octet-stream"
 		}
 		data = map[string]any{
 			"_binary":  true,
@@ -2581,13 +2689,29 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 			return nil, err
 		}
 		data = transformed
+		if envelope, ok := data.(map[string]any); ok && envelope["_binary"] == true {
+			binary = true
+		}
+	}
+
+	if !binary && len(tool.ResponseHeaderFields) > 0 {
+		mapped, ok := data.(map[string]any)
+		if !ok {
+			mapped = map[string]any{}
+		}
+		for header, field := range tool.ResponseHeaderFields {
+			if value := resp.Header.Get(header); value != "" {
+				mapped[field] = value
+			}
+		}
+		data = mapped
 	}
 
 	// Strip any fields the tool declared we shouldn't expose. Runs
 	// AFTER response_path so the paths are relative to whatever the
 	// agent actually ends up seeing. Silent no-op on unmatched paths
 	// so a minor upstream schema drift doesn't break the tool.
-	if len(tool.ResponseOmit) > 0 && data != nil {
+	if len(tool.ResponseOmit) > 0 && data != nil && !binary {
 		for _, p := range tool.ResponseOmit {
 			data = omitPath(data, p)
 		}
@@ -2958,7 +3082,7 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	// Enforce (user, project, app, name) uniqueness upfront so the user
 	// gets a readable error instead of a raw UNIQUE constraint violation.
 	var existingCount int
-	s.store.db.QueryRow(
+	s.store.dbQueryRowContext(r.Context(),
 		"SELECT COUNT(*) FROM connections WHERE user_id = ? AND project_id = ? AND app_slug = ? AND name = ?",
 		userID, body.ProjectID, body.AppSlug, body.Name,
 	).Scan(&existingCount)
@@ -3200,7 +3324,7 @@ func collectOAuthSupplementalCredentials(app *AppTemplate, credentials map[strin
 // when the column is missing on a freshly-migrated DB.
 func connectionAutoMCPFlag(s *Server, connID int64) bool {
 	var v int
-	if err := s.store.db.QueryRow(
+	if err := s.store.dbQueryRow(
 		`SELECT COALESCE(auto_mcp, 1) FROM connections WHERE id=?`,
 		connID,
 	).Scan(&v); err != nil {
@@ -3211,7 +3335,7 @@ func connectionAutoMCPFlag(s *Server, connID int64) bool {
 
 func hasMCPServerForConnection(s *Server, connID int64) bool {
 	var count int
-	_ = s.store.db.QueryRow(
+	_ = s.store.dbQueryRow(
 		`SELECT COUNT(*) FROM mcp_servers WHERE connection_id=?`,
 		connID,
 	).Scan(&count)
@@ -3321,7 +3445,7 @@ func (s *Server) handleRenameConnection(w http.ResponseWriter, r *http.Request) 
 	// Uniqueness: (user, project, app, name) must stay unique — match the
 	// guard in handleCreateConnection so rename failures are readable.
 	var existing int
-	s.store.db.QueryRow(
+	s.store.dbQueryRowContext(r.Context(),
 		"SELECT COUNT(*) FROM connections WHERE user_id = ? AND project_id = ? AND app_slug = ? AND name = ? AND id != ?",
 		userID, conn.ProjectID, conn.AppSlug, name, connID,
 	).Scan(&existing)
@@ -3329,7 +3453,7 @@ func (s *Server) handleRenameConnection(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "a connection with that name already exists for this app in this project", http.StatusConflict)
 		return
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		"UPDATE connections SET name = ? WHERE id = ? AND user_id = ?",
 		name, connID, userID,
 	); err != nil {

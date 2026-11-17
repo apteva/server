@@ -203,7 +203,11 @@ func (s *Server) componentCatalogFor(projectID string, attachedMCPNames []string
 	// project + globals.
 	if s.installedApps != nil {
 		for _, a := range s.installedApps.ListForProject(projectID) {
-			if !keep(a.AppName) {
+			namespace := a.MCPName
+			if namespace == "" {
+				namespace = a.AppName
+			}
+			if !keep(namespace) {
 				continue
 			}
 			for _, c := range a.Manifest.Provides.UIComponents {
@@ -211,7 +215,7 @@ func (s *Server) componentCatalogFor(projectID string, attachedMCPNames []string
 					continue
 				}
 				out = append(out, componentEntry{
-					App:         a.AppName,
+					App:         namespace,
 					Name:        c.Name,
 					Slots:       append([]string{}, c.Slots...),
 					PropsSchema: c.PropsSchema,
@@ -228,7 +232,7 @@ func (s *Server) componentCatalogFor(projectID string, attachedMCPNames []string
 	// connection at tool-call time, the component itself is invariant.
 	if s.catalog != nil && s.store != nil && projectID != "" {
 		seen := map[string]bool{}
-		rows, err := s.store.db.Query(
+		rows, err := s.store.dbQuery(
 			`SELECT DISTINCT app_slug FROM connections WHERE project_id = ? AND status != 'disabled'`,
 			projectID,
 		)
@@ -324,7 +328,7 @@ func (s *Server) attachAppChannelsToInstance(reg *framework.Registry, instanceID
 // buildInstanceInfo assembles the read-only view apps receive. Returns
 // nil if the instance row doesn't exist (racy deletion case).
 func (s *Server) buildInstanceInfo(instanceID int64) *framework.InstanceInfo {
-	row := s.store.db.QueryRow(
+	row := s.store.dbQueryRow(
 		`SELECT id, name, user_id, COALESCE(project_id,'') FROM agents WHERE id = ?`,
 		instanceID,
 	)
@@ -352,7 +356,7 @@ func (s *Server) stopApps(reg *framework.Registry) {
 // (whose ChannelRegistry was created before the framework existed)
 // and stopped ones (so default rows like chat exist ahead of first use).
 func (s *Server) notifyAppsAboutExistingInstances(reg *framework.Registry) {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT id FROM agents`,
 	)
 	if err != nil {
@@ -865,11 +869,14 @@ func (r *serverResolver) SpawnRealtimeThread(inst framework.InstanceInfo, req sd
 	if err != nil {
 		return nil, fmt.Errorf("read agent behavior: %w", err)
 	}
-	directive = withAgentBehavior(directive, agent.Mode, agent.Proactivity)
+	directive = compileAgentDirective(directive, agent.Mode, agent.Proactivity)
 	body, _ := json.Marshal(map[string]any{
 		"directive":                     directive,
 		"voice":                         req.Voice,
 		"provider":                      req.Provider,
+		"model":                         req.Model,
+		"realtime_execution":            req.RealtimeExecution,
+		"realtime_output":               map[string]any{"media": req.RealtimeMedia},
 		"tools":                         req.Tools,
 		"mcp":                           req.MCP,
 		"turn_detection":                req.TurnDetection,
@@ -1001,6 +1008,15 @@ func (r *serverResolver) RenewRealtimeAudioBridge(inst framework.InstanceInfo, t
 // (the caller's intent, "no live thread by this name", is satisfied
 // either way).
 func (r *serverResolver) KillThread(inst framework.InstanceInfo, threadID string) error {
+	unlock := lockAsyncThreadDelivery(inst.ID, strings.TrimSpace(threadID))
+	defer unlock()
+	if err := r.killThreadRuntime(inst, threadID); err != nil {
+		return err
+	}
+	return r.srv.store.DeleteAgentThreadScope(inst.ID, threadID)
+}
+
+func (r *serverResolver) killThreadRuntime(inst framework.InstanceInfo, threadID string) error {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" || threadID == "main" {
 		return fmt.Errorf("cannot kill main or empty thread")
@@ -1255,7 +1271,7 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 			log.Printf("[APPS] seed builtin %s: update manifest: %v", fm.Slug, err)
 		}
 		var appID int64
-		if err := s.store.db.QueryRow(
+		if err := s.store.dbQueryRow(
 			`SELECT id FROM apps WHERE name = ?`, fm.Slug,
 		).Scan(&appID); err != nil {
 			log.Printf("[APPS] seed builtin %s: lookup id: %v", fm.Slug, err)
@@ -1279,15 +1295,15 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 		// (POST /api/apps/installs/{id}/upgrade). The seed INSERT above
 		// sets the initial version when the row is first created.
 		_ = execWithBusyRetry(s.store.db,
-			`UPDATE app_installs SET status='running' WHERE app_id=? AND project_id=''`,
+			`UPDATE app_installs SET status='running' WHERE app_id=? AND project_id='' AND installation_key='default'`,
 			appID,
 		)
 		// Look up the install id we just seeded + bridge into mcp_servers
 		// so the built-in's tools are visible to agents alongside
 		// sidecar-installed apps.
 		var installID int64
-		if err := s.store.db.QueryRow(
-			`SELECT id FROM app_installs WHERE app_id=? AND project_id=''`, appID,
+		if err := s.store.dbQueryRow(
+			`SELECT id FROM app_installs WHERE app_id=? AND project_id='' AND installation_key='default'`, appID,
 		).Scan(&installID); err == nil && installID > 0 {
 			if err := s.registerAppMCP(installID); err != nil {
 				log.Printf("[APPS-BUILTIN] register MCP %s: %v", fm.Slug, err)
@@ -1303,7 +1319,7 @@ func (s *Server) seedBuiltinInstalls(reg *framework.Registry) {
 // inventory row and any derived bindings are removed. Chat's framework app,
 // routes, SSE hub, channels, and migrations do not depend on this row.
 func (s *Server) removeLegacyInternalInstall(slug string) {
-	rows, err := s.store.db.Query(
+	rows, err := s.store.dbQuery(
 		`SELECT i.id
 		 FROM app_installs i JOIN apps a ON a.id = i.app_id
 		 WHERE a.name = ? AND a.source = 'builtin'`,
@@ -1323,7 +1339,7 @@ func (s *Server) removeLegacyInternalInstall(slug string) {
 	rows.Close()
 
 	for _, installID := range installIDs {
-		tx, err := s.store.db.Begin()
+		tx, err := s.store.dbBegin()
 		if err != nil {
 			log.Printf("[APPS] cleanup internal %s install=%d: begin: %v", slug, installID, err)
 			continue

@@ -1,0 +1,308 @@
+{
+  "slug": "basiq",
+  "name": "Basiq",
+  "description": "MCP server for Basiq open banking - connect Australian bank accounts, fetch accounts, balances, transactions, and account-holder identity. Self-serve dashboard signup with a free tier.",
+  "logo": "https://www.google.com/s2/favicons?domain=basiq.io&sz=128",
+  "categories": [
+    "banking",
+    "open-banking",
+    "cdr",
+    "transactions",
+    "accounts",
+    "australia",
+    "basiq"
+  ],
+  "base_url": "https://au-api.basiq.io",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json",
+      "basiq-version": "3.0"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "description": "Basiq server access_token obtained from the get_access_token tool. Tokens expire after 60 minutes; re-run get_access_token to renew.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "Base64-encoded Basiq API key from the dashboard (dashboard.basiq.io). Used by get_access_token to mint short-lived access tokens.",
+        "required": false,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_access_token",
+      "description": "Mint a short-lived (60 min) server access_token from your Basiq API key. NOTE: this endpoint authenticates with 'Authorization: Basic <api_key>', not the bearer header used by every other tool — pass the api_key explicitly and treat the returned access_token as the 'token' credential for subsequent calls.",
+      "method": "POST",
+      "path": "/token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "Token scope: SERVER_ACCESS (full server-side access) or CLIENT_ACCESS (browser-scoped)",
+            "default": "SERVER_ACCESS"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a Basiq user record. A user represents one end customer whose bank accounts you will connect. Returns a userId.",
+      "method": "POST",
+      "path": "/users",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "End user's email address"
+          },
+          "mobile": {
+            "type": "string",
+            "description": "End user's mobile number in E.164 format (e.g. +61410888666)"
+          },
+          "firstName": {
+            "type": "string",
+            "description": "End user's first name"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "End user's last name"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get a Basiq user record by userId, including linked connections.",
+      "method": "GET",
+      "path": "/users/{userId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "delete_user",
+      "description": "Delete a Basiq user and all of their connections and data.",
+      "method": "DELETE",
+      "path": "/users/{userId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "create_auth_link",
+      "description": "Create an auth_link (hosted consent UI URL) for a user to securely connect their bank. Returns a URL to redirect the user to.",
+      "method": "POST",
+      "path": "/users/{userId}/auth_link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          },
+          "mobile": {
+            "type": "string",
+            "description": "Optional mobile number to pre-fill the consent flow"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "list_institutions",
+      "description": "List all supported financial institutions (banks) with IDs, names, logos, and supported features.",
+      "method": "GET",
+      "path": "/institutions",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_institution",
+      "description": "Get details about a specific financial institution by ID.",
+      "method": "GET",
+      "path": "/institutions/{institutionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "institutionId": {
+            "type": "string",
+            "description": "The Basiq institution ID"
+          }
+        },
+        "required": [
+          "institutionId"
+        ]
+      }
+    },
+    {
+      "name": "list_connections",
+      "description": "List a user's bank connections with their status and last-refresh time.",
+      "method": "GET",
+      "path": "/users/{userId}/connections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "refresh_connection",
+      "description": "Trigger a refresh of a bank connection to pull the latest accounts and transactions.",
+      "method": "POST",
+      "path": "/users/{userId}/connections/{connectionId}/refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          },
+          "connectionId": {
+            "type": "string",
+            "description": "The connection ID from list_connections"
+          }
+        },
+        "required": [
+          "userId",
+          "connectionId"
+        ]
+      }
+    },
+    {
+      "name": "list_accounts",
+      "description": "List all bank accounts for a user across all connections. Returns accountId, name, type, balance, available funds, and account number.",
+      "method": "GET",
+      "path": "/users/{userId}/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "get_account",
+      "description": "Get a single bank account for a user by accountId, including current balance and available funds.",
+      "method": "GET",
+      "path": "/users/{userId}/accounts/{accountId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          },
+          "accountId": {
+            "type": "string",
+            "description": "The account ID from list_accounts"
+          }
+        },
+        "required": [
+          "userId",
+          "accountId"
+        ]
+      }
+    },
+    {
+      "name": "list_transactions",
+      "description": "List a user's transactions across all accounts. Use the filter param to scope by account, date, or status. Returns amount, description, postDate, direction, and enriched merchant/category data.",
+      "method": "GET",
+      "path": "/users/{userId}/transactions",
+      "query_params": [
+        "filter",
+        "limit"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          },
+          "filter": {
+            "type": "string",
+            "description": "Basiq filter expression, e.g. account.id.eq('<accountId>'),transaction.postDate.gt('2026-01-01')"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of transactions per page (max 500)"
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      }
+    },
+    {
+      "name": "get_transaction",
+      "description": "Get a single transaction for a user by transactionId.",
+      "method": "GET",
+      "path": "/users/{userId}/transactions/{transactionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "The Basiq user ID"
+          },
+          "transactionId": {
+            "type": "string",
+            "description": "The transaction ID"
+          }
+        },
+        "required": [
+          "userId",
+          "transactionId"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,346 @@
+{
+  "slug": "zoom",
+  "name": "Zoom",
+  "description": "MCP server for Zoom video conferencing - meetings, webinars, recordings",
+  "logo": "https://www.google.com/s2/favicons?domain=zoom.us&sz=128",
+  "categories": [
+    "video",
+    "conferencing",
+    "meetings",
+    "webinars"
+  ],
+  "base_url": "https://api.zoom.us/v2",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "token_type",
+        "label": "token_type"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://zoom.us/oauth/authorize",
+      "token_url": "https://zoom.us/oauth/token",
+      "scopes": [
+        "meeting:read",
+        "meeting:write",
+        "meeting:update",
+        "meeting:read:admin",
+        "meeting:write:admin",
+        "webinar:read",
+        "webinar:write",
+        "webinar:read:admin",
+        "webinar:write:admin",
+        "recording:read",
+        "recording:write",
+        "recording:read:admin",
+        "recording:write:admin",
+        "user:read",
+        "user:write",
+        "user:read:admin",
+        "user:write:admin",
+        "account:read",
+        "account:write",
+        "report:read:admin",
+        "dashboard:read:admin",
+        "phone:read",
+        "phone:write",
+        "phone:read:admin",
+        "phone:write:admin",
+        "chat_channel:read",
+        "chat_channel:write",
+        "chat_channel:read:admin",
+        "chat_channel:write:admin",
+        "chat_message:read",
+        "chat_message:write",
+        "chat_message:read:admin",
+        "chat_message:write:admin"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "create_meeting",
+      "description": "Create a new Zoom meeting",
+      "method": "POST",
+      "path": "/create-meeting",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "Meeting topic"
+          },
+          "type": {
+            "type": "number",
+            "enum": [
+              1,
+              2,
+              3,
+              8
+            ],
+            "description": "Meeting type: 1=instant, 2=scheduled, 3=recurring no fixed time, 8=recurring fixed time"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Meeting start time (ISO 8601)"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Meeting duration in minutes"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone (e.g., America/New_York)"
+          },
+          "password": {
+            "type": "string",
+            "description": "Meeting password"
+          },
+          "agenda": {
+            "type": "string",
+            "description": "Meeting agenda"
+          }
+        },
+        "required": [
+          "topic"
+        ]
+      }
+    },
+    {
+      "name": "update_meeting",
+      "description": "Update an existing meeting",
+      "method": "PUT",
+      "path": "/update-meeting",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "Meeting ID"
+          },
+          "topic": {
+            "type": "string",
+            "description": "Meeting topic"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Meeting start time (ISO 8601)"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Meeting duration in minutes"
+          },
+          "agenda": {
+            "type": "string",
+            "description": "Meeting agenda"
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      }
+    },
+    {
+      "name": "create_webinar",
+      "description": "Create a new webinar",
+      "method": "POST",
+      "path": "/create-webinar",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "Webinar topic"
+          },
+          "type": {
+            "type": "number",
+            "description": "Webinar type: 5=webinar, 6=recurring no fixed time, 9=recurring fixed time"
+          },
+          "start_time": {
+            "type": "string",
+            "description": "Webinar start time (ISO 8601)"
+          },
+          "duration": {
+            "type": "number",
+            "description": "Webinar duration in minutes"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone"
+          }
+        },
+        "required": [
+          "topic"
+        ]
+      }
+    },
+    {
+      "name": "add_registrant",
+      "description": "Add a registrant to a meeting or webinar",
+      "method": "GET",
+      "path": "/add-registrant",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "Meeting or webinar ID"
+          },
+          "email": {
+            "type": "string",
+            "description": "Registrant email"
+          },
+          "first_name": {
+            "type": "string",
+            "description": "First name"
+          },
+          "last_name": {
+            "type": "string",
+            "description": "Last name"
+          }
+        },
+        "required": [
+          "meeting_id",
+          "email",
+          "first_name"
+        ]
+      }
+    },
+    {
+      "name": "list_recordings",
+      "description": "List cloud recordings",
+      "method": "GET",
+      "path": "/list-recordings",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User ID (default: me)"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_reports",
+      "description": "Get meeting/webinar reports",
+      "method": "GET",
+      "path": "/get-reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "Meeting ID"
+          },
+          "report_type": {
+            "type": "string",
+            "enum": [
+              "participants",
+              "polls",
+              "qa"
+            ],
+            "description": "Type of report"
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      }
+    },
+    {
+      "name": "download_recording",
+      "description": "Get download URLs for Zoom cloud recording files (video, audio, transcript)",
+      "method": "GET",
+      "path": "/download-recording",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "Meeting ID or UUID"
+          },
+          "recording_id": {
+            "type": "string",
+            "description": "Specific recording file ID (optional)"
+          },
+          "file_type": {
+            "type": "string",
+            "enum": [
+              "MP4",
+              "M4A",
+              "TIMELINE",
+              "TRANSCRIPT",
+              "CHAT",
+              "CC",
+              "CSV"
+            ],
+            "description": "Filter by file type"
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      }
+    },
+    {
+      "name": "get_transcript",
+      "description": "Get transcript or VTT closed caption file from a Zoom cloud recording",
+      "method": "GET",
+      "path": "/get-transcript",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "Meeting ID or UUID"
+          },
+          "recording_id": {
+            "type": "string",
+            "description": "Specific transcript file ID (optional)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "vtt",
+              "transcript"
+            ],
+            "description": "Transcript format"
+          }
+        },
+        "required": [
+          "meeting_id"
+        ]
+      }
+    }
+  ]
+}

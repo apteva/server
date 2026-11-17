@@ -1,0 +1,60 @@
+{
+  "slug": "yahoo-finance",
+  "name": "Yahoo Finance",
+  "description": "Free, no-auth market data — stocks, ETFs, indices, currencies, and crypto. Backed by Yahoo's public chart endpoint, the same source the `yfinance` Python library uses. Use for stock quotes, historical OHLCV bars, and symbol search. Note: Yahoo's TOS prohibits unauthorized commercial use and they reserve the right to throttle or change the response shape at any time — best for development, demos, and consumer-grade workloads. For production-grade SLA-backed data, bind a paid provider (Alpaca Market Data, Polygon, IEX).",
+  "logo": "https://www.google.com/s2/favicons?domain=finance.yahoo.com&sz=128",
+  "categories": [
+    "finance",
+    "stocks",
+    "market-data",
+    "etf",
+    "yahoo",
+    "public"
+  ],
+  "base_url": "https://query1.finance.yahoo.com",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (compatible; Apteva-Trading/0.4)",
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "tools": [
+    {
+      "name": "stock_chart",
+      "description": "Get OHLCV bars + meta (current price, prev close, day range, market state) for a single symbol over a configurable range. Returns timestamps, open/high/low/close/volume arrays. Use for charting, historical analysis, or as a one-shot 'real-time quote' (the meta.regularMarketPrice carries the latest price). Range + interval combinations: 1d/5m, 5d/30m, 1mo/1h, 3mo/1d, 1y/1d, 5y/1wk, max/1mo.",
+      "method": "GET",
+      "path": "/v8/finance/chart/{symbol}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "symbol":   {"type": "string", "description": "Ticker (AAPL, MSFT, ^GSPC for S&P500, BTC-USD, EURUSD=X)."},
+          "range":    {"type": "string", "enum": ["1d","5d","1mo","3mo","6mo","1y","2y","5y","10y","ytd","max"], "default": "1d"},
+          "interval": {"type": "string", "enum": ["1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo"], "default": "5m"},
+          "includePrePost": {"type": "boolean", "description": "Include pre/post-market data."}
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "stock_search",
+      "description": "Search Yahoo's symbol directory by free-text query. Returns matching tickers with name + exchange + asset class. Use to resolve 'apple' → AAPL, 'sp500' → ^GSPC, 'btc' → BTC-USD, etc., before calling stock_chart.",
+      "method": "GET",
+      "path": "/v1/finance/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q":          {"type": "string", "description": "Free-text query — company name or partial ticker."},
+          "quotesCount": {"type": "integer", "description": "Max symbol matches (default 10)."},
+          "newsCount":   {"type": "integer", "description": "Max news matches (default 0 — saves payload)."}
+        },
+        "required": ["q"]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "stock_chart",
+    "args": {"symbol": "AAPL", "range": "1d", "interval": "5m"}
+  }
+}

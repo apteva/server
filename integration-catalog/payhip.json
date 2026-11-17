@@ -1,0 +1,162 @@
+{
+  "slug": "payhip",
+  "name": "Payhip",
+  "description": "Payhip creator-commerce API for coupons and license-key management. Payhip is useful for selling digital products through its hosted storefront, but its public API does not create products or upload downloadable audio files.",
+  "logo": "https://www.google.com/s2/favicons?domain=payhip.com&sz=128",
+  "categories": ["payments", "commerce", "creator-economy", "digital-products", "coupons", "licenses"],
+  "base_url": "https://payhip.com",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "payhip-api-key": "{{apiKey}}",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "apiKey",
+        "label": "API Key",
+        "description": "Payhip API key from your Payhip account settings."
+      },
+      {
+        "name": "productSecretKey",
+        "label": "Product Secret Key",
+        "required": false,
+        "description": "Optional product secret key used by Payhip's license-key endpoints."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_coupons"
+  },
+  "tools": [
+    {
+      "name": "create_coupon",
+      "description": "Create a Payhip coupon. Use coupon_type='single' with product_key for one product, 'collection' with collection_id, or 'all' for all products.",
+      "method": "POST",
+      "path": "/api/v2/coupons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "coupon_type": { "type": "string", "enum": ["single", "all", "collection"] },
+          "percent_off": { "type": "number" },
+          "amount_off": { "type": "number" },
+          "product_key": { "type": "string" },
+          "collection_id": { "type": "string" },
+          "start_date": { "type": "string", "description": "Start date accepted by Payhip, for example YYYY-MM-DD." },
+          "end_date": { "type": "string", "description": "End date accepted by Payhip, for example YYYY-MM-DD." },
+          "minimum_purchase_amount": { "type": "number" },
+          "number_of_uses": { "type": "integer" },
+          "note": { "type": "string" }
+        },
+        "required": ["code", "coupon_type"]
+      }
+    },
+    {
+      "name": "list_coupons",
+      "description": "List Payhip coupons.",
+      "method": "GET",
+      "path": "/api/v2/coupons",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "get_coupon",
+      "description": "Retrieve one Payhip coupon.",
+      "method": "GET",
+      "path": "/api/v2/coupons/{coupon_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "coupon_id": { "type": "string" }
+        },
+        "required": ["coupon_id"]
+      }
+    },
+    {
+      "name": "verify_license",
+      "description": "Verify a Payhip product license key. Requires the Product Secret Key credential.",
+      "method": "GET",
+      "path": "/api/v2/license/verify",
+      "headers": {
+        "product-secret-key": "{{productSecretKey}}"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string" }
+        },
+        "required": ["license_key"]
+      }
+    },
+    {
+      "name": "disable_license",
+      "description": "Disable a Payhip license key. Requires the Product Secret Key credential.",
+      "method": "PUT",
+      "path": "/api/v2/license/disable",
+      "headers": {
+        "product-secret-key": "{{productSecretKey}}"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string" }
+        },
+        "required": ["license_key"]
+      }
+    },
+    {
+      "name": "enable_license",
+      "description": "Enable a Payhip license key. Requires the Product Secret Key credential.",
+      "method": "PUT",
+      "path": "/api/v2/license/enable",
+      "headers": {
+        "product-secret-key": "{{productSecretKey}}"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string" }
+        },
+        "required": ["license_key"]
+      }
+    },
+    {
+      "name": "increase_license_usage",
+      "description": "Increase or record usage for a Payhip license key. Requires the Product Secret Key credential.",
+      "method": "PUT",
+      "path": "/api/v2/license/usage",
+      "headers": {
+        "product-secret-key": "{{productSecretKey}}"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string" }
+        },
+        "required": ["license_key"]
+      }
+    },
+    {
+      "name": "decrease_license_usage",
+      "description": "Decrease usage for a Payhip license key. Requires the Product Secret Key credential.",
+      "method": "PUT",
+      "path": "/api/v2/license/decrease",
+      "headers": {
+        "product-secret-key": "{{productSecretKey}}"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "license_key": { "type": "string" }
+        },
+        "required": ["license_key"]
+      }
+    }
+  ]
+}

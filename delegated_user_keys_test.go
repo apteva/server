@@ -8,9 +8,12 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 func TestDelegatedUserKeyMintAndAppMCPPrincipalForwarding(t *testing.T) {
+	t.Setenv("APTEVA_APP_TOKEN", "catalog-install-token")
 	s := newTestServer(t)
 	s.installedApps = NewInstalledAppsRegistry()
 	user, err := s.store.CreateUser("issuer@example.com", "hash")
@@ -46,12 +49,17 @@ func TestDelegatedUserKeyMintAndAppMCPPrincipalForwarding(t *testing.T) {
 		t.Fatalf("expected project %q, got %q", project.ID, mint.ProjectID)
 	}
 
-	var seenSubjectID, seenSubjectEmail, seenOrgSlug, seenAuth string
+	var seenSubjectID, seenSubjectEmail, seenOrgSlug, seenAuth, seenOperator, seenIssuer, seenScopes string
+	var seenPrincipal *sdk.TrustedPrincipal
 	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seenSubjectID = r.Header.Get("X-Apteva-Subject-ID")
 		seenSubjectEmail = r.Header.Get("X-Apteva-Subject-Email")
 		seenOrgSlug = r.Header.Get("X-Apteva-Organization-Slug")
 		seenAuth = r.Header.Get("Authorization")
+		seenOperator = r.Header.Get("X-Apteva-Operator-ID")
+		seenIssuer = r.Header.Get("X-Apteva-Issuer-App")
+		seenScopes = r.Header.Get("X-Apteva-Scopes")
+		seenPrincipal, _ = sdk.PrincipalFromRequest(r)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"ok\":true}"}]}}`))
 	}))
@@ -73,6 +81,12 @@ func TestDelegatedUserKeyMintAndAppMCPPrincipalForwarding(t *testing.T) {
 	}
 	if seenSubjectID != "auth-user-1" || seenSubjectEmail != "user@example.com" || seenOrgSlug != "default" {
 		t.Fatalf("principal headers not forwarded: subject=%q email=%q org=%q", seenSubjectID, seenSubjectEmail, seenOrgSlug)
+	}
+	if seenOperator != "" || seenPrincipal == nil || seenPrincipal.SubjectID != "auth-user-1" || seenPrincipal.ProjectID != project.ID {
+		t.Fatalf("delegated identity confused with operator: operator=%q principal=%+v", seenOperator, seenPrincipal)
+	}
+	if seenIssuer != "auth" || !strings.Contains(seenScopes, `"type":"app_user"`) {
+		t.Fatalf("delegated issuer/scopes lost: issuer=%q scopes=%q", seenIssuer, seenScopes)
 	}
 }
 

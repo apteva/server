@@ -1,0 +1,1237 @@
+{
+  "slug": "paidkit",
+  "name": "PaidKit",
+  "description": "PaidKit cross-platform ad management — create and manage campaigns, ad groups, ads, creatives, audiences, and track performance across Facebook, Google, LinkedIn, and Pinterest from a single unified API",
+  "logo": "https://www.google.com/s2/favicons?domain=paidkit.com&sz=128",
+  "categories": [
+    "advertising",
+    "ads",
+    "campaigns",
+    "facebook-ads",
+    "google-ads",
+    "linkedin-ads",
+    "pinterest-ads",
+    "marketing",
+    "cross-platform",
+    "performance"
+  ],
+  "base_url": "https://api.paidkit.com",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "PaidKit API Key (from your PaidKit dashboard under API Keys)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "account_list",
+      "description": "List all connected ad accounts across platforms (Facebook, Google, LinkedIn, Pinterest). Returns account name, platform, status, currency, and sync info.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ],
+            "description": "Filter by platform"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "description": "Max results to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "List ad campaigns across all connected platforms. Filter by platform, status, objective, or ad account. Returns campaign name, status, budget, dates, and platform data.",
+      "method": "GET",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ],
+            "description": "Filter by platform"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "DELETED",
+              "ARCHIVED"
+            ],
+            "description": "Filter by campaign status"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "AWARENESS",
+              "TRAFFIC",
+              "ENGAGEMENT",
+              "LEADS",
+              "SALES",
+              "APP_PROMOTION",
+              "VIDEO",
+              "PERFORMANCE_MAX"
+            ],
+            "description": "Filter by campaign objective"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Max results"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Pagination offset"
+          },
+          "sort": {
+            "type": "string",
+            "default": "created_at:desc",
+            "description": "Sort field and direction (e.g. created_at:desc)"
+          }
+        }
+      }
+    },
+    {
+      "name": "campaign_get",
+      "description": "Get a single campaign by ID with full details including platform data, budget, dates, and sync status.",
+      "method": "GET",
+      "path": "/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "campaign_create",
+      "description": "Create a new ad campaign. Specify the ad account, platform, name, objective, budget, and dates. PaidKit creates the campaign on the target platform and stores it locally.",
+      "method": "POST",
+      "path": "/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list, NOT the platform's native account ID)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Campaign name"
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "AWARENESS",
+              "TRAFFIC",
+              "ENGAGEMENT",
+              "LEADS",
+              "SALES",
+              "APP_PROMOTION",
+              "VIDEO",
+              "PERFORMANCE_MAX"
+            ],
+            "description": "Campaign objective — automatically mapped to the platform-specific objective"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED",
+            "description": "Initial campaign status"
+          },
+          "daily_budget_cents": {
+            "type": "integer",
+            "description": "Daily budget in cents (e.g. 5000 = $50.00)"
+          },
+          "lifetime_budget_cents": {
+            "type": "integer",
+            "description": "Lifetime budget in cents (alternative to daily budget)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (ISO 8601 format)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (ISO 8601 format)"
+          },
+          "bid_strategy": {
+            "type": "string",
+            "description": "Bid strategy (e.g. LOWEST_COST, COST_CAP)"
+          },
+          "platform_data": {
+            "type": "object",
+            "description": "Platform-specific campaign settings (passed directly to the platform API)"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "name",
+          "objective"
+        ]
+      }
+    },
+    {
+      "name": "campaign_update",
+      "description": "Update an existing campaign's name, status, budget, dates, or bid strategy. Changes are synced to the platform.",
+      "method": "PUT",
+      "path": "/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New campaign name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "description": "New campaign status"
+          },
+          "daily_budget_cents": {
+            "type": "integer",
+            "description": "New daily budget in cents"
+          },
+          "lifetime_budget_cents": {
+            "type": "integer",
+            "description": "New lifetime budget in cents"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "New end date"
+          },
+          "bid_strategy": {
+            "type": "string",
+            "description": "New bid strategy"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "campaign_delete",
+      "description": "Delete a campaign from the platform and remove it locally.",
+      "method": "DELETE",
+      "path": "/campaigns/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "campaign_sync",
+      "description": "Sync a campaign's data from the ad platform to the local database. Pulls latest status, budget, and platform data.",
+      "method": "POST",
+      "path": "/campaigns/{id}/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Campaign ID to sync"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "adgroup_list",
+      "description": "List ad groups (ad sets) with optional filtering by campaign, platform, or status.",
+      "method": "GET",
+      "path": "/adgroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "description": "Filter by campaign ID"
+          },
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ],
+            "description": "Filter by platform"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "DELETED"
+            ],
+            "description": "Filter by status"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "adgroup_create",
+      "description": "Create an ad group (Facebook: ad set) under a campaign. REQUIRED for Facebook: optimization_goal matching the campaign objective. Objective→optimization_goal mapping: AWARENESS→REACH, TRAFFIC→LINK_CLICKS, ENGAGEMENT→PAGE_LIKES (page likes) or POST_ENGAGEMENT (post engagement), LEADS→LEAD_GENERATION, SALES→OFFSITE_CONVERSIONS, APP_PROMOTION→APP_INSTALLS, VIDEO→THRUPLAY. Default billing_event is IMPRESSIONS. IMPORTANT platform_data requirements for Facebook: (1) PAGE_LIKES or POST_ENGAGEMENT goals MUST include {promotedObject:{page_id:'FACEBOOK_PAGE_ID'}} — use paidkit-page-list to get available page IDs. (2) OFFSITE_CONVERSIONS or VALUE goals MUST include {promotedObject:{pixel_id:'PIXEL_ID',custom_event_type:'Purchase'}} — use paidkit-pixel-list to get pixel IDs. The destination_type is auto-set from optimization_goal (PAGE_LIKES→ON_PAGE, POST_ENGAGEMENT→ON_POST, LINK_CLICKS→WEBSITE, LANDING_PAGE_VIEWS→WEBSITE, OFFSITE_CONVERSIONS→WEBSITE, EVENT_RESPONSES→ON_EVENT, CONVERSATIONS→MESSENGER). Targeting defaults to US if omitted.",
+      "method": "POST",
+      "path": "/adgroups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list, NOT the platform's native account ID)"
+          },
+          "campaign_id": {
+            "type": "string",
+            "description": "PaidKit campaign ID (from paidkit-campaign-list or paidkit-campaign-create)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Ad group name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED"
+          },
+          "daily_budget_cents": {
+            "type": "integer",
+            "description": "Daily budget in cents (e.g. 5000 = $50.00). Not needed if campaign uses Campaign Budget Optimization (CBO)"
+          },
+          "lifetime_budget_cents": {
+            "type": "integer",
+            "description": "Lifetime budget in cents (alternative to daily budget)"
+          },
+          "bid_amount_cents": {
+            "type": "integer",
+            "description": "Manual bid amount in cents (optional, defaults to automatic bidding)"
+          },
+          "optimization_goal": {
+            "type": "string",
+            "enum": [
+              "REACH",
+              "LINK_CLICKS",
+              "PAGE_LIKES",
+              "POST_ENGAGEMENT",
+              "EVENT_RESPONSES",
+              "LEAD_GENERATION",
+              "OFFSITE_CONVERSIONS",
+              "APP_INSTALLS",
+              "THRUPLAY",
+              "VIDEO_VIEWS",
+              "LANDING_PAGE_VIEWS",
+              "CONVERSATIONS",
+              "IMPRESSIONS",
+              "VALUE",
+              "VISIT_INSTAGRAM_PROFILE"
+            ],
+            "description": "REQUIRED for Facebook. Must match campaign objective: AWARENESS→REACH, TRAFFIC→LINK_CLICKS, ENGAGEMENT→POST_ENGAGEMENT or PAGE_LIKES (page likes) or VISIT_INSTAGRAM_PROFILE (Instagram follower/profile visit campaigns), LEADS→LEAD_GENERATION, SALES→OFFSITE_CONVERSIONS, APP_PROMOTION→APP_INSTALLS, VIDEO→THRUPLAY. NOTE: POST_ENGAGEMENT and PAGE_LIKES require platform_data.promotedObject.page_id (from paidkit-page-list). VISIT_INSTAGRAM_PROFILE requires platform_data.promotedObject.instagram_profile_id (from paidkit-instagram-account-list). OFFSITE_CONVERSIONS requires platform_data.promotedObject.pixel_id (from paidkit-pixel-list). Defaults to LINK_CLICKS if omitted"
+          },
+          "billing_event": {
+            "type": "string",
+            "enum": [
+              "IMPRESSIONS",
+              "LINK_CLICKS",
+              "THRUPLAY",
+              "PAGE_LIKES",
+              "POST_ENGAGEMENT",
+              "VIDEO_VIEWS"
+            ],
+            "description": "How you are charged. Use IMPRESSIONS for most goals (default). Use THRUPLAY only with THRUPLAY optimization_goal"
+          },
+          "targeting": {
+            "type": "object",
+            "description": "Targeting config. Defaults to {geoLocations:{countries:['US']}} if omitted. Full format: {geoLocations:{countries:['US','CA']}, ageMin:18, ageMax:65, genders:[1,2], interests:[{id:'6003139266461',name:'Music'}]}"
+          },
+          "platform_data": {
+            "type": "object",
+            "description": "Platform-specific settings passed directly to the ad platform. REQUIRED for Facebook engagement/conversion goals. For PAGE_LIKES or POST_ENGAGEMENT: {promotedObject:{page_id:'YOUR_FACEBOOK_PAGE_ID'}} — get page_id from paidkit-page-list. For VISIT_INSTAGRAM_PROFILE: {promotedObject:{instagram_profile_id:'YOUR_IG_PROFILE_ID'}} — get instagram_profile_id from paidkit-instagram-account-list. For OFFSITE_CONVERSIONS or VALUE: {promotedObject:{pixel_id:'YOUR_PIXEL_ID',custom_event_type:'Purchase'}} — get pixel_id from paidkit-pixel-list, custom_event_type can be Purchase, Lead, CompleteRegistration, AddToCart, ViewContent, Search, InitiateCheckout, AddPaymentInfo, Subscribe, StartTrial. destination_type is auto-set from optimization_goal"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "campaign_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "adgroup_update",
+      "description": "Update an ad group's name, status, budget, bid, or targeting.",
+      "method": "PUT",
+      "path": "/adgroups/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Ad group ID to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ]
+          },
+          "daily_budget_cents": {
+            "type": "integer"
+          },
+          "bid_amount_cents": {
+            "type": "integer"
+          },
+          "platform_data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "adgroup_delete",
+      "description": "Delete an ad group from the platform and locally.",
+      "method": "DELETE",
+      "path": "/adgroups/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Ad group ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "ad_list",
+      "description": "List ads with optional filtering by campaign, ad group, platform, or status.",
+      "method": "GET",
+      "path": "/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "description": "Filter by campaign ID"
+          },
+          "ad_group_id": {
+            "type": "string",
+            "description": "Filter by ad group ID"
+          },
+          "ad_account_id": {
+            "type": "string",
+            "description": "Filter by PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "DELETED"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "ad_create",
+      "description": "Create a new ad under an ad group. Optionally auto-creates a creative on the platform from provided image/video URLs, headlines, and descriptions.",
+      "method": "POST",
+      "path": "/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "campaign_id": {
+            "type": "string",
+            "description": "Campaign ID"
+          },
+          "ad_group_id": {
+            "type": "string",
+            "description": "Ad group ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Ad name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ],
+            "default": "PAUSED"
+          },
+          "tracking_url": {
+            "type": "string",
+            "description": "Final/tracking URL for the ad"
+          },
+          "creative_type": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "VIDEO",
+              "CAROUSEL"
+            ],
+            "description": "Type of creative to auto-create"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Image URL for auto-creative creation"
+          },
+          "video_id": {
+            "type": "string",
+            "description": "Video asset ID for video ads"
+          },
+          "page_id": {
+            "type": "string",
+            "description": "Facebook Page ID (required for Facebook ads)"
+          },
+          "platform_data": {
+            "type": "object",
+            "description": "Platform-specific ad settings (adType, headlines, descriptions, finalUrls, etc.)"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "campaign_id",
+          "ad_group_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "ad_update",
+      "description": "Update an ad's name, status, tracking URL, or platform data.",
+      "method": "PUT",
+      "path": "/ads/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Ad ID to update"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED"
+            ]
+          },
+          "tracking_url": {
+            "type": "string"
+          },
+          "platform_data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "ad_delete",
+      "description": "Delete an ad from the platform and locally.",
+      "method": "DELETE",
+      "path": "/ads/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Ad ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "creative_list",
+      "description": "List ad creatives with optional filtering by ad account or platform.",
+      "method": "GET",
+      "path": "/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "creative_create",
+      "description": "Create a new ad creative with headline, body text, call to action, destination URL, and media (image or video).",
+      "method": "POST",
+      "path": "/creatives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Creative name"
+          },
+          "creative_type": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "VIDEO",
+              "CAROUSEL"
+            ],
+            "description": "Creative type"
+          },
+          "headline": {
+            "type": "string",
+            "description": "Ad headline"
+          },
+          "body_text": {
+            "type": "string",
+            "description": "Ad body text"
+          },
+          "call_to_action": {
+            "type": "string",
+            "description": "CTA (e.g. LEARN_MORE, SIGN_UP, SHOP_NOW)"
+          },
+          "destination_url": {
+            "type": "string",
+            "description": "Landing page URL"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Image URL (for IMAGE type)"
+          },
+          "video_id": {
+            "type": "string",
+            "description": "Video asset ID (for VIDEO type)"
+          },
+          "platform_data": {
+            "type": "object",
+            "description": "Platform-specific creative settings"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "name",
+          "creative_type"
+        ]
+      }
+    },
+    {
+      "name": "creative_delete",
+      "description": "Delete an ad creative.",
+      "method": "DELETE",
+      "path": "/creatives/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Creative ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "audience_list",
+      "description": "List custom audiences and lookalikes across platforms.",
+      "method": "GET",
+      "path": "/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "audience_type": {
+            "type": "string",
+            "enum": [
+              "CUSTOM",
+              "LOOKALIKE",
+              "SAVED"
+            ],
+            "description": "Filter by audience type"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "audience_create",
+      "description": "Create a custom audience or lookalike on the platform.",
+      "method": "POST",
+      "path": "/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Audience name"
+          },
+          "audience_type": {
+            "type": "string",
+            "enum": [
+              "CUSTOM",
+              "LOOKALIKE",
+              "SAVED"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "Audience description"
+          },
+          "source_audience_id": {
+            "type": "string",
+            "description": "Source audience ID (for lookalikes)"
+          },
+          "rules": {
+            "type": "object",
+            "description": "Audience rules/criteria"
+          },
+          "platform_data": {
+            "type": "object",
+            "description": "Platform-specific audience settings"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "name",
+          "audience_type"
+        ]
+      }
+    },
+    {
+      "name": "audience_delete",
+      "description": "Delete an audience from the platform and locally.",
+      "method": "DELETE",
+      "path": "/audiences/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Audience ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "performance_get",
+      "description": "Get performance metrics (impressions, clicks, spend, conversions, ROAS, CTR, CPC, CPM) for campaigns, ad groups, or ads over a date range.",
+      "method": "GET",
+      "path": "/performance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "campaign",
+              "adgroup",
+              "ad"
+            ],
+            "description": "Type of entity to get performance for"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Specific entity ID"
+          },
+          "ad_account_id": {
+            "type": "string",
+            "description": "Filter by ad account"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "performance_sync",
+      "description": "Pull latest performance metrics from the ad platform for a specific ad account and date range.",
+      "method": "POST",
+      "path": "/performance/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "Ad account ID to sync performance for"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    },
+    {
+      "name": "asset_list",
+      "description": "List uploaded media assets (images, videos) for an ad account.",
+      "method": "GET",
+      "path": "/assets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "asset_type": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "VIDEO"
+            ],
+            "description": "Filter by asset type"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "asset_upload",
+      "description": "Upload an image or video asset to an ad account for use in creatives.",
+      "method": "POST",
+      "path": "/assets/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Asset name"
+          },
+          "asset_type": {
+            "type": "string",
+            "enum": [
+              "IMAGE",
+              "VIDEO"
+            ]
+          },
+          "source_url": {
+            "type": "string",
+            "description": "URL of the image/video to upload"
+          },
+          "file_id": {
+            "type": "string",
+            "description": "Storage file ID (alternative to source_url)"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "name",
+          "asset_type"
+        ]
+      }
+    },
+    {
+      "name": "conversion_list",
+      "description": "List conversion actions (tracking goals) for an ad account. Shows what conversions are being tracked — e.g. YouTube subscribers, website purchases, leads, app installs.",
+      "method": "GET",
+      "path": "/conversions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "facebook",
+              "google",
+              "linkedin",
+              "pinterest"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ENABLED",
+              "HIDDEN",
+              "REMOVED"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "conversion_create",
+      "description": "Create a conversion tracking action on the ad platform. For Google Ads: creates a ConversionAction (e.g. YOUTUBE_SUBSCRIBE for subscriber tracking, WEBPAGE for website purchases, UPLOAD for offline conversions). For Facebook: creates a tracking pixel. The conversion action must exist before campaigns can report conversions.",
+      "method": "POST",
+      "path": "/conversions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          },
+          "name": {
+            "type": "string",
+            "description": "Conversion action name (e.g. 'YouTube Subscribers', 'Website Purchase', 'Lead Form Submit')"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "WEBPAGE",
+              "UPLOAD",
+              "CLICK_TO_CALL",
+              "AD_CALL",
+              "YOUTUBE_SUBSCRIBE",
+              "YOUTUBE_VIEW",
+              "STORE_VISIT",
+              "IMPORT_FROM_GOOGLE_ANALYTICS_4"
+            ],
+            "description": "Google Ads conversion type. Use YOUTUBE_SUBSCRIBE for YouTube subscriber campaigns, WEBPAGE for website conversions, UPLOAD for offline/imported conversions"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "DEFAULT",
+              "PURCHASE",
+              "SUBSCRIBE",
+              "LEAD",
+              "SIGN_UP",
+              "ADD_TO_CART",
+              "PAGE_VIEW",
+              "DOWNLOAD",
+              "OTHER"
+            ],
+            "description": "Conversion category for reporting"
+          },
+          "counting_type": {
+            "type": "string",
+            "enum": [
+              "ONE_PER_CLICK",
+              "MANY_PER_CLICK"
+            ],
+            "description": "ONE_PER_CLICK for unique conversions (leads, subscribers), MANY_PER_CLICK for repeatable (purchases)"
+          },
+          "default_value": {
+            "type": "number",
+            "description": "Default monetary value per conversion (e.g. 5.00 for $5 per subscriber)"
+          },
+          "currency_code": {
+            "type": "string",
+            "description": "Currency for conversion value (e.g. USD, EUR)"
+          },
+          "attribution_window_days": {
+            "type": "integer",
+            "description": "Click-through attribution window in days (1-90, default 30)"
+          }
+        },
+        "required": [
+          "ad_account_id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "conversion_delete",
+      "description": "Remove a conversion action. This stops tracking for that conversion type.",
+      "method": "DELETE",
+      "path": "/conversions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Conversion action ID to delete"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "conversion_sync",
+      "description": "Pull conversion actions from the ad platform into PaidKit. Use this to import existing conversion actions that were created directly on the platform (e.g. via Google Ads UI).",
+      "method": "POST",
+      "path": "/conversions/sync",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID to sync conversion actions for"
+          }
+        },
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    },
+    {
+      "name": "page_list",
+      "description": "List pages/profiles linked to an ad account. Returns Facebook Pages, LinkedIn Company Pages, etc. depending on the account's platform. Use this to find page IDs needed for ad creation (e.g. PAGE_LIKES campaigns require a page_id).",
+      "method": "GET",
+      "path": "/accounts/{ad_account_id}/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          }
+        },
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    },
+    {
+      "name": "instagram_account_list",
+      "description": "List Instagram business accounts linked to a Facebook ad account. Returns Instagram profile IDs needed for VISIT_INSTAGRAM_PROFILE (Instagram follower/profile visit) campaigns. Each account includes id, username, follower count, and linked Facebook page.",
+      "method": "GET",
+      "path": "/facebook/instagram-accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list). Must be a Facebook account."
+          }
+        },
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    },
+    {
+      "name": "pixel_list",
+      "description": "List tracking pixels/tags for an ad account. Returns Meta Pixels for Facebook accounts, LinkedIn Insight Tags for LinkedIn accounts, etc. Use this to find pixel IDs for conversion tracking setup.",
+      "method": "GET",
+      "path": "/accounts/{ad_account_id}/pixels",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "ad_account_id": {
+            "type": "string",
+            "description": "PaidKit ad account ID (from paidkit-account-list)"
+          }
+        },
+        "required": [
+          "ad_account_id"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "slug": "pagespeed-insights",
+  "name": "Google PageSpeed Insights",
+  "description": "Run Google's official Lighthouse audit against any URL. Returns full Lighthouse JSON (Performance, Accessibility, SEO, Best Practices, PWA) PLUS real-user Core Web Vitals data from the Chrome User Experience Report (CrUX) when available. Same engine that powers PageSpeed.web.dev. Free with generous rate limits — works without an API key (anonymous, rate-limited) or with a Google Cloud API key for higher quota.",
+  "logo": "https://www.google.com/s2/favicons?domain=pagespeed.web.dev&sz=128",
+  "categories": ["performance", "seo", "lighthouse", "audit", "google", "web-vitals"],
+  "base_url": "https://www.googleapis.com/pagespeedonline/v5",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {},
+    "query_params": {
+      "key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Google Cloud API key (optional — leave blank for the anonymous tier)",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "run_pagespeed",
+      "description": "Run Lighthouse + CrUX against a URL and return the full audit. Set strategy='mobile' (default) for the mobile audit or 'desktop' for desktop. Pass `category` once per category you want — performance, accessibility, best-practices, seo, pwa. Default is just performance, which is fastest. Returns the full Lighthouse result JSON nested under `lighthouseResult` and Core Web Vitals under `loadingExperience` (origin-level) and `originLoadingExperience` (URL-level). The agent should pull `lighthouseResult.categories.<cat>.score` for the headline 0-1 score per category, and `lighthouseResult.audits.*` for individual issue details.",
+      "method": "GET",
+      "path": "/runPagespeed",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to audit"
+          },
+          "strategy": {
+            "type": "string",
+            "enum": ["mobile", "desktop"],
+            "default": "mobile",
+            "description": "Device emulation profile. Mobile is throttled to a slow 4G + mid-tier device; desktop is unthrottled."
+          },
+          "category": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["performance", "accessibility", "best-practices", "seo", "pwa"]
+            },
+            "default": ["performance"],
+            "description": "Which Lighthouse categories to run. Each adds latency. Performance only ≈ 15-30s; all five ≈ 30-60s."
+          },
+          "locale": {
+            "type": "string",
+            "description": "BCP-47 language code for the audit messages (e.g. 'en', 'fr', 'es', 'ja')"
+          },
+          "utm_source": { "type": "string", "description": "Optional UTM source for analytics" },
+          "utm_campaign": { "type": "string", "description": "Optional UTM campaign for analytics" },
+          "captchaToken": { "type": "string", "description": "reCAPTCHA token if the API requires one (rare)" }
+        },
+        "required": ["url"]
+      },
+      "query_params": [
+        "url", "strategy", "category", "locale",
+        "utm_source", "utm_campaign", "captchaToken"
+      ]
+    }
+  ]
+}

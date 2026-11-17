@@ -1,0 +1,85 @@
+{
+  "slug": "phantombuster",
+  "name": "PhantomBuster",
+  "description": "Cloud automations (Phantoms) for LinkedIn, Sales Navigator, Twitter, Instagram, Google Maps, etc. Run a Phantom (e.g. 'Sales Navigator Search Export') with arguments and pull the result CSV. Use for LinkedIn-side prospection that bare APIs can't do.",
+  "logo": "https://www.google.com/s2/favicons?domain=phantombuster.com&sz=128",
+  "categories": ["automation", "linkedin", "scraping", "social", "prospecting"],
+  "base_url": "https://api.phantombuster.com/api/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "X-Phantombuster-Key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "PhantomBuster API key from phantombuster.com → Account Settings → API key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_agents",
+      "description": "List all your Phantoms (agents). Returns id + name + script id.",
+      "method": "GET",
+      "path": "/agents/fetch-all",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_agent",
+      "description": "Get a single Phantom's config (current arguments, last run, schedule).",
+      "method": "GET",
+      "path": "/agents/fetch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Phantom (agent) id" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "launch_agent",
+      "description": "Launch a Phantom with optional override arguments. Returns a containerId — poll get_container_output.",
+      "method": "POST",
+      "path": "/agents/launch",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Phantom id to launch" },
+          "argument": { "type": "object", "description": "Arguments to pass to the Phantom (overrides saved config)" },
+          "saveArgument": { "type": "boolean", "default": false }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "get_container_output",
+      "description": "Fetch the output of a running/finished Phantom container. Use after launch_agent.",
+      "method": "GET",
+      "path": "/containers/fetch-output",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Container id from launch_agent" },
+          "mode": { "type": "string", "enum": ["last", "first", "size"], "default": "last" }
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "fetch_result_object",
+      "description": "Fetch a Phantom's structured result object (typically JSON / CSV-as-JSON of scraped data).",
+      "method": "GET",
+      "path": "/agents/fetch-output",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "Phantom id" }
+        },
+        "required": ["id"]
+      }
+    }
+  ]
+}

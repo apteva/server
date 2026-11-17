@@ -17,17 +17,28 @@
       "api_key"
     ],
     "headers": {
-      "Authorization": "{{api_key}}"
+      "Authorization": "Basic {{basic_auth}}"
     },
     "credential_fields": [
       {
         "name": "api_key",
-        "label": "API Key",
-        "description": "Trading 212 Public API key from the Trading 212 app. The integration sends it directly in the Authorization header.",
+        "label": "API Key ID",
+        "description": "Trading 212 Public API Key ID from the Trading 212 app. Used as the HTTP Basic username.",
+        "required": true,
+        "type": "password"
+      },
+      {
+        "name": "api_secret",
+        "label": "API Secret",
+        "description": "Secret paired with the Trading 212 API Key ID. Used as the HTTP Basic password.",
         "required": true,
         "type": "password"
       }
     ]
+  },
+  "health_check": {
+    "tool": "get_account_summary",
+    "input": {}
   },
   "tools": [
     {

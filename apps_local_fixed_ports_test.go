@@ -146,6 +146,7 @@ func TestFixedPortFailedRollbackIsNotReportedAsRunning(t *testing.T) {
 	// The running OLD stays healthy, but its captured restart specification is
 	// made unhealthy to model a previous binary that can no longer recover.
 	sup.currentProc(22).spec.env["TEST_SIDECAR_FAIL_HEALTH"] = "1"
+	sup.currentProc(22).spec.startupTimeout = 500 * time.Millisecond
 
 	badSpec := localSidecarSpec(t, 22, "mqtt", copyFixtureBinary(t, bin, "v2"), fixedPort, map[string]string{
 		"TEST_SIDECAR_ID":          "new",
@@ -303,12 +304,15 @@ func buildLocalSidecarFixture(t *testing.T) string {
 	dir := t.TempDir()
 	source := `package main
 import (
+  "encoding/json"
   "fmt"
   "net"
   "net/http"
   "os"
   "os/signal"
   "syscall"
+  "sync/atomic"
+  "strconv"
   "time"
 )
 func event(kind string) {
@@ -318,6 +322,10 @@ func event(kind string) {
   if err == nil { fmt.Fprintf(f, "%s %s\n", kind, os.Getenv("TEST_SIDECAR_ID")); f.Close() }
 }
 func main() {
+  // Model application-configured listeners, absent from runtime.ports.
+  var config map[string]string
+  json.Unmarshal([]byte(os.Getenv("APTEVA_APP_CONFIG")), &config)
+  for k,v := range config { if os.Getenv(k) == "" { os.Setenv(k,v) } }
   var fixed net.Listener
   if raw := os.Getenv("TEST_SIDECAR_FIXED_PORT"); raw != "" {
     var err error
@@ -327,11 +335,26 @@ func main() {
   }
   started := time.Now()
   delay,_ := time.ParseDuration(os.Getenv("TEST_STARTUP_DELAY"))
+  var admitting atomic.Bool
+  admitting.Store(os.Getenv("APTEVA_RUNTIME_MODE")!="standby")
   mux := http.NewServeMux()
   mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
     if time.Since(started) < delay { w.WriteHeader(503); fmt.Fprint(w, "{\"status\":\"initializing\",\"phase\":\"tables\",\"completed\":1,\"total\":55}"); return }
     if os.Getenv("TEST_SIDECAR_FAIL_HEALTH") == "1" { http.Error(w, "not ready", 503); return }
     w.WriteHeader(200)
+  })
+  mux.HandleFunc("/_apteva/runtime/app/describe", func(w http.ResponseWriter, r *http.Request) {
+    json.NewEncoder(w).Encode(map[string]any{"passive_start":true,"drain":true,"routing":"key"})
+  })
+  mux.HandleFunc("/_apteva/runtime/app/drain", func(w http.ResponseWriter, r *http.Request) {
+    event("drain");admitting.Store(false)
+    json.NewEncoder(w).Encode(map[string]bool{"drained":true})
+  })
+  mux.HandleFunc("/_apteva/runtime/app/activate", func(w http.ResponseWriter, r *http.Request) { event("activate");admitting.Store(true); w.WriteHeader(200) })
+  mux.HandleFunc("/_apteva/runtime/app/status",func(w http.ResponseWriter,r *http.Request){
+    generation,_:=strconv.ParseInt(os.Getenv("APTEVA_DEPLOYMENT_GENERATION"),10,64)
+    active:=admitting.Load();state:="standby";if active {state="active"}
+    json.NewEncoder(w).Encode(map[string]any{"deployment_id":os.Getenv("APTEVA_DEPLOYMENT_ID"),"generation":generation,"state":state,"admitting":active})
   })
   server := &http.Server{Addr: "127.0.0.1:"+os.Getenv("APTEVA_APP_PORT"), Handler: mux}
   httpListener, err := net.Listen("tcp", server.Addr)

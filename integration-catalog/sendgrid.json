@@ -1,0 +1,384 @@
+{
+  "slug": "sendgrid",
+  "name": "SendGrid",
+  "description": "MCP server for SendGrid email delivery, templates, campaigns, contact lists, and analytics",
+  "logo": "https://www.google.com/s2/favicons?domain=sendgrid.com&sz=128",
+  "categories": [
+    "email",
+    "marketing",
+    "transactional",
+    "messaging",
+    "sendgrid",
+    "delivery",
+    "templates"
+  ],
+  "base_url": "https://api.sendgrid.com/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your SendGrid API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "send_email",
+      "description": "Send an email via SendGrid",
+      "method": "POST",
+      "path": "/send-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "array",
+            "description": "Recipient email addresses",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "from": {
+            "type": "object",
+            "description": "Sender information",
+            "properties": {
+              "email": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "content": {
+            "type": "array",
+            "description": "Email content",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "html": {
+            "type": "string",
+            "description": "HTML content"
+          },
+          "text": {
+            "type": "string",
+            "description": "Plain text content"
+          },
+          "template_id": {
+            "type": "string",
+            "description": "SendGrid template ID"
+          },
+          "dynamic_template_data": {
+            "type": "object",
+            "description": "Template variables"
+          }
+        },
+        "required": [
+          "to",
+          "from",
+          "subject"
+        ]
+      }
+    },
+    {
+      "name": "create_template",
+      "description": "Create a new email template in SendGrid",
+      "method": "POST",
+      "path": "/create-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Template name"
+          },
+          "generation": {
+            "type": "string",
+            "description": "Template generation",
+            "enum": [
+              "legacy",
+              "dynamic"
+            ],
+            "default": "dynamic"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "get_templates",
+      "description": "Retrieve email templates from SendGrid",
+      "method": "GET",
+      "path": "/get-templates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "generations": {
+            "type": "string",
+            "description": "Template generation filter",
+            "enum": [
+              "legacy",
+              "dynamic"
+            ]
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Number of templates per page",
+            "default": 200,
+            "maximum": 200
+          }
+        }
+      }
+    },
+    {
+      "name": "add_contact",
+      "description": "Add a contact to SendGrid",
+      "method": "GET",
+      "path": "/add-contact",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "description": "Contact information",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "first_name": {
+                  "type": "string"
+                },
+                "last_name": {
+                  "type": "string"
+                },
+                "custom_fields": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "list_ids": {
+            "type": "array",
+            "description": "List IDs to add contacts to",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "contacts"
+        ]
+      }
+    },
+    {
+      "name": "get_stats",
+      "description": "Retrieve email delivery statistics from SendGrid",
+      "method": "GET",
+      "path": "/get-stats",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          },
+          "aggregated_by": {
+            "type": "string",
+            "description": "Aggregation method",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ]
+          }
+        },
+        "required": [
+          "start_date"
+        ]
+      }
+    },
+    {
+      "name": "send_template",
+      "description": "Send using a template",
+      "method": "POST",
+      "path": "/send-template",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "dynamic_template_data": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "to",
+          "from",
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a marketing campaign",
+      "method": "POST",
+      "path": "/create-campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "sender_id": {
+            "type": "number"
+          },
+          "list_ids": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "title",
+          "subject",
+          "sender_id"
+        ]
+      }
+    },
+    {
+      "name": "manage_list",
+      "description": "Manage contact lists",
+      "method": "GET",
+      "path": "/manage-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "verify_sender",
+      "description": "Verify sender identity",
+      "method": "GET",
+      "path": "/verify-sender",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string"
+          },
+          "from_email": {
+            "type": "string"
+          },
+          "from_name": {
+            "type": "string"
+          },
+          "reply_to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nickname",
+          "from_email",
+          "from_name"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "x-sendgrid-signature",
+    "events": [
+      {
+        "name": "email.processed",
+        "description": "Email accepted for delivery"
+      },
+      {
+        "name": "email.delivered",
+        "description": "Email delivered to recipient"
+      },
+      {
+        "name": "email.opened",
+        "description": "Email opened by recipient"
+      },
+      {
+        "name": "email.clicked",
+        "description": "Link clicked in email"
+      },
+      {
+        "name": "email.bounced",
+        "description": "Email bounced"
+      },
+      {
+        "name": "email.dropped",
+        "description": "Email dropped (suppressed)"
+      },
+      {
+        "name": "email.deferred",
+        "description": "Email delivery deferred"
+      },
+      {
+        "name": "email.spam_report",
+        "description": "Email marked as spam"
+      },
+      {
+        "name": "email.unsubscribe",
+        "description": "Recipient unsubscribed"
+      }
+    ]
+  }
+}

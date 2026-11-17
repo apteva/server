@@ -1,0 +1,251 @@
+{
+  "slug": "quora-ads",
+  "name": "Quora Ads",
+  "description": "Quora Ads Manager API — manage ad accounts, campaigns, ad sets, ads, audiences, and pull performance reports for Quora's question-and-answer ad placements.",
+  "logo": "https://www.google.com/s2/favicons?domain=ads.quora.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "social-ads",
+    "quora",
+    "b2b",
+    "intent-targeting"
+  ],
+  "base_url": "https://ads-api.quora.com/v1",
+  "auth": {
+    "types": [
+      "bearer",
+      "oauth2"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "access_token",
+        "type": "password"
+      },
+      {
+        "name": "refresh_token",
+        "label": "refresh_token",
+        "type": "password"
+      },
+      {
+        "name": "expires_in",
+        "label": "expires_in"
+      },
+      {
+        "name": "account_id",
+        "label": "Default Ad Account ID"
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://ads.quora.com/oauth/authorize",
+      "token_url": "https://ads.quora.com/oauth/token",
+      "scopes": [
+        "ads.read",
+        "ads.write",
+        "reports.read"
+      ],
+      "client_id_required": true,
+      "pkce": false
+    }
+  },
+  "tools": [
+    {
+      "name": "list_accounts",
+      "description": "List ad accounts the authenticated user can access.",
+      "method": "GET",
+      "path": "/accounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an ad account.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DELETED", "DRAFT"] },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Required: name, objective (AWARENESS|TRAFFIC|CONVERSIONS|APP_INSTALLS|LEAD_GEN), budget {amount, currency, type: DAILY|LIFETIME}, start_date (yyyy-MM-dd), status.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/campaigns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "name": { "type": "string" },
+          "objective": { "type": "string", "enum": ["AWARENESS", "TRAFFIC", "CONVERSIONS", "APP_INSTALLS", "LEAD_GEN", "VIDEO_VIEWS"] },
+          "budget": { "type": "object", "description": "{\"amount\": 100, \"currency\": \"USD\", \"type\": \"DAILY\"}" },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["account_id", "name", "objective", "budget", "start_date"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a campaign by id (PATCH).",
+      "method": "PATCH",
+      "path": "/accounts/{account_id}/campaigns/{campaign_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "name": { "type": "string" },
+          "budget": { "type": "object" },
+          "end_date": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DELETED"] }
+        },
+        "required": ["account_id", "campaign_id"]
+      }
+    },
+    {
+      "name": "list_ad_sets",
+      "description": "List ad sets under a campaign.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/campaigns/{campaign_id}/ad_sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "status": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["account_id", "campaign_id"]
+      }
+    },
+    {
+      "name": "create_ad_set",
+      "description": "Create an ad set. Targeting types: CONTEXTUAL_TARGETING (questions/topics/keywords), AUDIENCE_TARGETING (interests, behavior), BROAD_TARGETING. bid_type: CPC|CPM|oCPC. Required: name, campaign_id, targeting, bid {type, amount}, locations[], devices[].",
+      "method": "POST",
+      "path": "/accounts/{account_id}/campaigns/{campaign_id}/ad_sets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "campaign_id": { "type": "string" },
+          "name": { "type": "string" },
+          "targeting": { "type": "object" },
+          "bid": { "type": "object" },
+          "locations": { "type": "array", "items": { "type": "string" } },
+          "devices": { "type": "array", "items": { "type": "string", "enum": ["DESKTOP", "MOBILE", "TABLET"] } },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["account_id", "campaign_id", "name", "targeting", "bid"]
+      }
+    },
+    {
+      "name": "list_ads",
+      "description": "List ads under an ad set.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/ad_sets/{ad_set_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "ad_set_id": { "type": "string" },
+          "status": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["account_id", "ad_set_id"]
+      }
+    },
+    {
+      "name": "create_ad",
+      "description": "Create an ad. format: TEXT|IMAGE|PROMOTED_ANSWER. For TEXT/IMAGE: business_name, headline, body, click_url, image_url. For PROMOTED_ANSWER: answer_url (URL of the existing Quora answer to promote).",
+      "method": "POST",
+      "path": "/accounts/{account_id}/ad_sets/{ad_set_id}/ads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "ad_set_id": { "type": "string" },
+          "name": { "type": "string" },
+          "format": { "type": "string", "enum": ["TEXT", "IMAGE", "PROMOTED_ANSWER"] },
+          "business_name": { "type": "string" },
+          "headline": { "type": "string" },
+          "body": { "type": "string" },
+          "click_url": { "type": "string" },
+          "image_url": { "type": "string" },
+          "answer_url": { "type": "string" },
+          "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "DRAFT"], "default": "DRAFT" }
+        },
+        "required": ["account_id", "ad_set_id", "name", "format"]
+      }
+    },
+    {
+      "name": "list_audiences",
+      "description": "List audiences (custom segments) for an account.",
+      "method": "GET",
+      "path": "/accounts/{account_id}/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "limit": { "type": "integer", "default": 50 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["account_id"]
+      }
+    },
+    {
+      "name": "create_audience",
+      "description": "Create an audience. type: WEBSITE_TRAFFIC (pixel-based), CUSTOMER_LIST (CRM upload), LOOKALIKE.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/audiences",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["WEBSITE_TRAFFIC", "CUSTOMER_LIST", "LOOKALIKE"] },
+          "rules": { "type": "object", "description": "Type-specific rules object" }
+        },
+        "required": ["account_id", "name", "type"]
+      }
+    },
+    {
+      "name": "report",
+      "description": "Pull a performance report. dimensions: campaign|ad_set|ad|day|week|country|device|gender. metrics: impressions, clicks, ctr, spend, cpm, cpc, conversions, conversion_value, leads, video_p25/p50/p75/p100.",
+      "method": "POST",
+      "path": "/accounts/{account_id}/reports",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "account_id": { "type": "string" },
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "metrics": { "type": "array", "items": { "type": "string" } },
+          "start_date": { "type": "string" },
+          "end_date": { "type": "string" },
+          "filters": { "type": "object" }
+        },
+        "required": ["account_id", "dimensions", "metrics", "start_date", "end_date"]
+      }
+    }
+  ]
+}

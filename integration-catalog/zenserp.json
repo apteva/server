@@ -1,0 +1,99 @@
+{
+  "slug": "zenserp",
+  "name": "Zenserp",
+  "description": "Real-time SERP API by Zenscrape \u2014 Google + Bing + Yandex search results with location, device, and custom UULE targeting. Free tier available.",
+  "logo": "https://www.google.com/s2/favicons?domain=zenserp.com&sz=128",
+  "categories": [
+    "seo",
+    "serp",
+    "search",
+    "google",
+    "bing",
+    "yandex",
+    "scraping"
+  ],
+  "base_url": "https://app.zenserp.com/api/v2",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "apikey": "{{apikey}}"
+    },
+    "credential_fields": [
+      {
+        "name": "apikey",
+        "label": "API Key",
+        "description": "Get from app.zenserp.com"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "search",
+      "description": "Run a SERP query (Google, Bing, Yandex, Baidu, etc.)",
+      "method": "GET",
+      "path": "/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          },
+          "search_engine": {
+            "type": "string",
+            "description": "google.com|bing.com|yandex.com|baidu.com (and country variants)"
+          },
+          "tbm": {
+            "type": "string",
+            "description": "isch|nws|vid|shop"
+          },
+          "location": {
+            "type": "string"
+          },
+          "gl": {
+            "type": "string"
+          },
+          "hl": {
+            "type": "string"
+          },
+          "num": {
+            "type": "number"
+          },
+          "device": {
+            "type": "string"
+          },
+          "uule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      }
+    },
+    {
+      "name": "search_engines",
+      "description": "List supported search engines",
+      "method": "GET",
+      "path": "/search_engines",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "status",
+      "description": "Account status and remaining quota",
+      "method": "GET",
+      "path": "/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "status"
+  }
+}

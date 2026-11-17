@@ -1,0 +1,321 @@
+{
+  "slug": "blynk",
+  "name": "Blynk IoT",
+  "description": "Blynk IoT platform for managing connected devices, datastreams, and notifications",
+  "logo": "https://www.google.com/s2/favicons?domain=blynk.io&sz=128",
+  "categories": [
+    "iot",
+    "blynk",
+    "devices",
+    "sensors",
+    "embedded",
+    "arduino"
+  ],
+  "base_url": "{{server_url}}/external/api",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "auth_token",
+        "label": "Auth_token",
+        "description": "Blynk Auth Token (from device template or organization settings)"
+      },
+      {
+        "name": "server_url",
+        "label": "Server_url",
+        "description": "Blynk server URL (default: blynk.cloud)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_device_info",
+      "description": "Get Blynk device information including connection status and metadata. Use this to check device health and configuration.",
+      "method": "GET",
+      "path": "/get-device-info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        }
+      }
+    },
+    {
+      "name": "is_connected",
+      "description": "Check if a Blynk device is currently online and connected. Returns true/false connection status.",
+      "method": "GET",
+      "path": "/is-connected",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_value",
+      "description": "Get the current value of a datastream/virtual pin from a Blynk device. Use to read sensor data or device state.",
+      "method": "GET",
+      "path": "/get-value",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "description": "Virtual pin (e.g., 'v1', 'v2', 'V5')"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "pin"
+        ]
+      }
+    },
+    {
+      "name": "update_value",
+      "description": "Update/set a datastream value on a Blynk device. Use to control actuators, set values, or send commands.",
+      "method": "PUT",
+      "path": "/update-value",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "description": "Virtual pin (e.g., 'v1', 'v2', 'V5')"
+          },
+          "value": {
+            "description": "Value to set (string, number, or boolean)"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "pin",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "update_multiple",
+      "description": "Update multiple datastream values on a Blynk device in a single call. Efficient for batch updates.",
+      "method": "PUT",
+      "path": "/update-multiple",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "object",
+            "description": "Object with pin:value pairs (e.g., {v1: 100, v2: 'hello', v3: true})"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "values"
+        ]
+      }
+    },
+    {
+      "name": "get_history",
+      "description": "Get historical timeseries data for a Blynk datastream. Retrieve sensor readings over time for analysis or charting.",
+      "method": "GET",
+      "path": "/get-history",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "description": "Virtual pin (e.g., 'V1', 'V2')"
+          },
+          "period": {
+            "type": "string",
+            "description": "Time period: HOUR, DAY, WEEK, MONTH, 3_MONTHS",
+            "enum": [
+              "HOUR",
+              "DAY",
+              "WEEK",
+              "MONTH",
+              "3_MONTHS"
+            ],
+            "default": "DAY"
+          },
+          "granularity": {
+            "type": "number",
+            "description": "Data aggregation interval in seconds (e.g., 60)"
+          },
+          "aggregation": {
+            "type": "string",
+            "description": "Aggregation type: RAW, AVG, MIN, MAX, SUM, COUNT",
+            "enum": [
+              "RAW",
+              "AVG",
+              "MIN",
+              "MAX",
+              "SUM",
+              "COUNT"
+            ]
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "pin"
+        ]
+      }
+    },
+    {
+      "name": "get_metadata",
+      "description": "Get device metadata from Blynk. Metadata includes custom device attributes like location, model, or firmware version.",
+      "method": "GET",
+      "path": "/get-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Metadata field name (optional, returns all if not specified)"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        }
+      }
+    },
+    {
+      "name": "update_metadata",
+      "description": "Update device metadata in Blynk. Use to set custom device attributes like location or configuration.",
+      "method": "PUT",
+      "path": "/update-metadata",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Metadata field name"
+          },
+          "value": {
+            "description": "Metadata value"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "update_property",
+      "description": "Update a widget/datastream property in Blynk. Properties include: label, color, isHidden, min, max, step, url.",
+      "method": "PUT",
+      "path": "/update-property",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "description": "Virtual pin (e.g., 'v1', 'v2')"
+          },
+          "property": {
+            "type": "string",
+            "description": "Property name (e.g., 'label', 'color', 'isHidden', 'min', 'max')"
+          },
+          "value": {
+            "description": "Property value"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "pin",
+          "property",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "log_event",
+      "description": "Log/send an event from a Blynk device. Events must be pre-defined in the Blynk console. Use for notifications and triggers.",
+      "method": "GET",
+      "path": "/log-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_code": {
+            "type": "string",
+            "description": "Event code (must be pre-defined in Blynk console)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Event description/message"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "event_code"
+        ]
+      }
+    },
+    {
+      "name": "send_email",
+      "description": "Send email notification via Blynk. Use for alerts, reports, or notifications from IoT devices.",
+      "method": "POST",
+      "path": "/send-email",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Recipient email address"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body content"
+          },
+          "server": {
+            "type": "string",
+            "description": "Blynk server (default: blynk.cloud)"
+          }
+        },
+        "required": [
+          "to",
+          "subject",
+          "body"
+        ]
+      }
+    }
+  ]
+}

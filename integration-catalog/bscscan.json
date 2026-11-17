@@ -1,0 +1,150 @@
+{
+  "slug": "bscscan",
+  "name": "BscScan",
+  "description": "BNB Smart Chain (BSC) block explorer API. Same shape as Etherscan / Polygonscan, different chain. Use for whale watching on BNB-chain markets, BEP-20 token movements, and PancakeSwap-related on-chain activity. Free tier: 5 req/sec, no daily cap. Sign up at https://bscscan.com/apis.",
+  "logo": "https://www.google.com/s2/favicons?domain=bscscan.com&sz=128",
+  "categories": [
+    "crypto",
+    "bsc",
+    "explorer",
+    "on-chain",
+    "binance-smart-chain",
+    "bnb",
+    "blockchain"
+  ],
+  "base_url": "https://api.bscscan.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "apikey": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key",
+        "description": "From your BscScan account dashboard at https://bscscan.com/myapikey. Distinct from Etherscan / Polygonscan keys (each domain mints its own)."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "bnb_balance",
+      "description": "Native BNB balance for an address, in wei.",
+      "method": "GET",
+      "path": "/api?module=account&action=balance&tag=latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address": {"type": "string"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "tx_list",
+      "description": "Normal transactions for an address on BSC.",
+      "method": "GET",
+      "path": "/api?module=account&action=txlist",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":    {"type": "string"},
+          "startblock": {"type": "integer", "default": 0},
+          "endblock":   {"type": "integer", "default": 99999999},
+          "page":       {"type": "integer", "default": 1},
+          "offset":     {"type": "integer", "default": 100},
+          "sort":       {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "internal_tx_list",
+      "description": "Internal transactions for an address on BSC.",
+      "method": "GET",
+      "path": "/api?module=account&action=txlistinternal",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":    {"type": "string"},
+          "startblock": {"type": "integer", "default": 0},
+          "endblock":   {"type": "integer", "default": 99999999},
+          "page":       {"type": "integer", "default": 1},
+          "offset":     {"type": "integer", "default": 100},
+          "sort":       {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "bep20_transfers",
+      "description": "BEP-20 token transfers for an address. BSC USDT contract is 0x55d398326f99059fF775485246999027B3197955. Filter by contractaddress for one specific token.",
+      "method": "GET",
+      "path": "/api?module=account&action=tokentx",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":         {"type": "string"},
+          "contractaddress": {"type": "string"},
+          "startblock":      {"type": "integer", "default": 0},
+          "endblock":        {"type": "integer", "default": 99999999},
+          "page":            {"type": "integer", "default": 1},
+          "offset":          {"type": "integer", "default": 100},
+          "sort":            {"type": "string", "enum": ["asc","desc"], "default": "desc"}
+        },
+        "required": ["address"]
+      }
+    },
+    {
+      "name": "bep20_balance",
+      "description": "BEP-20 balance for an address against one specific token contract on BSC.",
+      "method": "GET",
+      "path": "/api?module=account&action=tokenbalance&tag=latest",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "address":         {"type": "string"},
+          "contractaddress": {"type": "string"}
+        },
+        "required": ["address","contractaddress"]
+      }
+    },
+    {
+      "name": "tx_status",
+      "description": "BSC transaction success/failure status.",
+      "method": "GET",
+      "path": "/api?module=transaction&action=getstatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "txhash": {"type": "string"}
+        },
+        "required": ["txhash"]
+      }
+    },
+    {
+      "name": "block_by_time",
+      "description": "Find the closest BSC block number for a given Unix timestamp.",
+      "method": "GET",
+      "path": "/api?module=block&action=getblocknobytime",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timestamp": {"type": "integer"},
+          "closest":   {"type": "string", "enum": ["before","after"], "default": "before"}
+        },
+        "required": ["timestamp"]
+      }
+    },
+    {
+      "name": "bnb_price",
+      "description": "Current BNB/BTC and BNB/USD prices via BscScan's feed.",
+      "method": "GET",
+      "path": "/api?module=stats&action=bnbprice",
+      "input_schema": {"type": "object", "properties": {}}
+    }
+  ],
+  "health_check": {
+    "tool": "bnb_price"
+  }
+}

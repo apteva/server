@@ -1,0 +1,744 @@
+{
+  "slug": "ovhcloud-telecom",
+  "name": "OVHcloud Telecom",
+  "description": "OVHcloud telephony for numbers, SIP lines, live calls, click-to-call, recordings, IVR hunting queues, agents, monitoring, and call control",
+  "logo": "https://www.google.com/s2/favicons?domain=ovhcloud.com&sz=128",
+  "categories": ["telephony", "voice", "sip", "pbx", "europe"],
+  "base_url": "https://eu.api.ovh.com/1.0",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{access_token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "access_token",
+        "label": "OAuth2 Access Token",
+        "secret": true,
+        "description": "OVHcloud OAuth2 service-account access token with access to the telephony API"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_billing_accounts",
+    "description": "Verify the OAuth2 token and list accessible telephony billing accounts"
+  },
+  "tools": [
+    {
+      "name": "list_billing_accounts",
+      "description": "List telephony billing-account identifiers available to this OVHcloud account. Start here before using line, number, or PBX tools.",
+      "method": "GET",
+      "path": "/telephony",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "get_billing_account",
+      "description": "Get a telephony billing account and its configuration.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "billingAccount": { "type": "string" } },
+        "required": ["billingAccount"]
+      }
+    },
+    {
+      "name": "list_lines",
+      "description": "List SIP/VoIP line service names under a billing account.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line",
+      "input_schema": {
+        "type": "object",
+        "properties": { "billingAccount": { "type": "string" } },
+        "required": ["billingAccount"]
+      }
+    },
+    {
+      "name": "get_line",
+      "description": "Get a SIP/VoIP line configuration.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "list_line_calls",
+      "description": "List calls currently attached to a line. Returned call IDs can be used with live control tools.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "get_line_call",
+      "description": "Get the current state and routing details of one live line call.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    },
+    {
+      "name": "eavesdrop_line_call",
+      "description": "Listen to a live line call from another OVHcloud phone number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}/eavesdrop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" },
+          "number": { "type": "string", "description": "OVHcloud phone number that will receive the monitoring call" }
+        },
+        "required": ["billingAccount", "serviceName", "id", "number"]
+      }
+    },
+    {
+      "name": "hangup_line_call",
+      "description": "Hang up a live line call.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}/hangup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    },
+    {
+      "name": "hold_line_call",
+      "description": "Put a live line call on hold.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}/hold",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    },
+    {
+      "name": "intercept_line_call",
+      "description": "Intercept a live line call on another OVHcloud number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}/intercept",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "id", "number"]
+      }
+    },
+    {
+      "name": "transfer_line_call",
+      "description": "Transfer a live line call to a phone number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}/transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "id", "number"]
+      }
+    },
+    {
+      "name": "whisper_line_call",
+      "description": "Whisper into a live line call from another OVHcloud number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/calls/{id}/whisper",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" },
+          "whisperingMode": { "type": "string", "description": "OVHcloud whisper mode accepted by the line" }
+        },
+        "required": ["billingAccount", "serviceName", "id", "number", "whisperingMode"]
+      }
+    },
+    {
+      "name": "click_to_call",
+      "description": "Originate a call from an OVHcloud line to a destination number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/click2Call",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "calledNumber": { "type": "string" },
+          "callingNumber": { "type": "string" },
+          "intercom": { "type": "boolean" }
+        },
+        "required": ["billingAccount", "serviceName", "calledNumber"]
+      }
+    },
+    {
+      "name": "get_line_registrations",
+      "description": "Get the most recent SIP registrations for a line.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/lastRegistrations",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "get_line_statistics",
+      "description": "Get line call statistics for a timeframe and metric type.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/statistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "timeframe": { "type": "string" },
+          "type": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "timeframe", "type"]
+      }
+    },
+    {
+      "name": "list_line_recordings",
+      "description": "List recording IDs for a line.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "get_line_recording",
+      "description": "Get a line recording and its temporary file URL.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/records/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    },
+    {
+      "name": "delete_line_recording",
+      "description": "Permanently delete a line recording.",
+      "method": "DELETE",
+      "path": "/telephony/{billingAccount}/line/{serviceName}/records/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    },
+    {
+      "name": "list_numbers",
+      "description": "List phone-number service names under a billing account.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/number",
+      "input_schema": {
+        "type": "object",
+        "properties": { "billingAccount": { "type": "string" } },
+        "required": ["billingAccount"]
+      }
+    },
+    {
+      "name": "get_number",
+      "description": "Get a phone number and its routing configuration.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/number/{serviceName}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "list_easy_huntings",
+      "description": "List Easy Hunting/OVH PABX service names under a billing account.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting",
+      "input_schema": {
+        "type": "object",
+        "properties": { "billingAccount": { "type": "string" } },
+        "required": ["billingAccount"]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List agent IDs configured on an Easy Hunting service.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "create_agent",
+      "description": "Create an agent on an Easy Hunting service.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "number": { "type": "string" },
+          "simultaneousLines": { "type": "integer" },
+          "status": { "type": "string" },
+          "timeout": { "type": "integer" },
+          "wrapUpTime": { "type": "integer" },
+          "description": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "number", "simultaneousLines", "status", "timeout", "wrapUpTime"]
+      }
+    },
+    {
+      "name": "get_agent",
+      "description": "Get an Easy Hunting agent.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent/{agentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "agentId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "agentId"]
+      }
+    },
+    {
+      "name": "update_agent",
+      "description": "Update an Easy Hunting agent. Supply only fields that should change.",
+      "method": "PUT",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent/{agentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "agentId": { "type": "integer" },
+          "number": { "type": "string" },
+          "simultaneousLines": { "type": "integer" },
+          "status": { "type": "string" },
+          "timeout": { "type": "integer" },
+          "wrapUpTime": { "type": "integer" },
+          "description": { "type": "string" },
+          "breakStatus": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "agentId"]
+      }
+    },
+    {
+      "name": "delete_agent",
+      "description": "Delete an Easy Hunting agent.",
+      "method": "DELETE",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent/{agentId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "agentId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "agentId"]
+      }
+    },
+    {
+      "name": "get_agent_live_status",
+      "description": "Get an agent's live availability and call status.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent/{agentId}/liveStatus",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "agentId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "agentId"]
+      }
+    },
+    {
+      "name": "list_queues",
+      "description": "List hunting queue IDs on an Easy Hunting service.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "create_queue",
+      "description": "Create a hunting queue. Strategy is an OVHcloud queue strategy such as sequentially or simultaneously.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "strategy": { "type": "string" },
+          "description": { "type": "string" },
+          "maxMember": { "type": "integer" },
+          "maxWaitTime": { "type": "integer" },
+          "record": { "type": "boolean" },
+          "soundOnHold": { "type": "integer" },
+          "actionOnClosure": { "type": "string" },
+          "actionOnClosureParam": { "type": "string" },
+          "actionOnOverflow": { "type": "string" },
+          "actionOnOverflowParam": { "type": "string" },
+          "askForRecordDisabling": { "type": "boolean" },
+          "recordDisablingDigit": { "type": "string" },
+          "recordDisablingLanguage": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "strategy"]
+      }
+    },
+    {
+      "name": "get_queue",
+      "description": "Get a hunting queue configuration.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId"]
+      }
+    },
+    {
+      "name": "update_queue",
+      "description": "Update a hunting queue. Supply only fields that should change.",
+      "method": "PUT",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "strategy": { "type": "string" },
+          "description": { "type": "string" },
+          "maxMember": { "type": "integer" },
+          "maxWaitTime": { "type": "integer" },
+          "record": { "type": "boolean" },
+          "soundOnHold": { "type": "integer" },
+          "actionOnClosure": { "type": "string" },
+          "actionOnClosureParam": { "type": "string" },
+          "actionOnOverflow": { "type": "string" },
+          "actionOnOverflowParam": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId"]
+      }
+    },
+    {
+      "name": "delete_queue",
+      "description": "Delete a hunting queue.",
+      "method": "DELETE",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId"]
+      }
+    },
+    {
+      "name": "assign_agent_to_queue",
+      "description": "Assign an existing agent to a hunting queue at a queue position.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent/{agentId}/queue",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "agentId": { "type": "integer" },
+          "queueId": { "type": "integer" },
+          "position": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "agentId", "queueId", "position"]
+      }
+    },
+    {
+      "name": "remove_agent_from_queue",
+      "description": "Remove an agent from a hunting queue without deleting the agent or queue.",
+      "method": "DELETE",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/agent/{agentId}/queue/{queueId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "agentId": { "type": "integer" },
+          "queueId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "agentId", "queueId"]
+      }
+    },
+    {
+      "name": "list_queue_live_calls",
+      "description": "List calls currently waiting in or connected through a hunting queue.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId"]
+      }
+    },
+    {
+      "name": "get_queue_live_call",
+      "description": "Get one live hunting-queue call and its agent, caller, state, and routing details.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id"]
+      }
+    },
+    {
+      "name": "get_queue_live_statistics",
+      "description": "Get real-time queue statistics.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveStatistics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId"]
+      }
+    },
+    {
+      "name": "eavesdrop_queue_call",
+      "description": "Listen to a live queue call from another OVHcloud phone number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}/eavesdrop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id", "number"]
+      }
+    },
+    {
+      "name": "hangup_queue_call",
+      "description": "Hang up a live hunting-queue call.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}/hangup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id"]
+      }
+    },
+    {
+      "name": "hold_queue_call",
+      "description": "Put a live hunting-queue call on hold.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}/hold",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id"]
+      }
+    },
+    {
+      "name": "intercept_queue_call",
+      "description": "Intercept a live hunting-queue call on another OVHcloud number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}/intercept",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id", "number"]
+      }
+    },
+    {
+      "name": "transfer_queue_call",
+      "description": "Transfer a live hunting-queue call to a phone number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}/transfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id", "number"]
+      }
+    },
+    {
+      "name": "whisper_queue_call",
+      "description": "Whisper into a live hunting-queue call from another OVHcloud number.",
+      "method": "POST",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/hunting/queue/{queueId}/liveCalls/{id}/whisper",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "queueId": { "type": "integer" },
+          "id": { "type": "integer" },
+          "number": { "type": "string" },
+          "whisperingMode": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName", "queueId", "id", "number", "whisperingMode"]
+      }
+    },
+    {
+      "name": "list_pabx_recordings",
+      "description": "List call recording IDs produced by an Easy Hunting service.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/records",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" }
+        },
+        "required": ["billingAccount", "serviceName"]
+      }
+    },
+    {
+      "name": "get_pabx_recording",
+      "description": "Get an Easy Hunting recording, call metadata, and its temporary file URL.",
+      "method": "GET",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/records/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    },
+    {
+      "name": "delete_pabx_recording",
+      "description": "Permanently delete an Easy Hunting call recording.",
+      "method": "DELETE",
+      "path": "/telephony/{billingAccount}/easyHunting/{serviceName}/records/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "billingAccount": { "type": "string" },
+          "serviceName": { "type": "string" },
+          "id": { "type": "integer" }
+        },
+        "required": ["billingAccount", "serviceName", "id"]
+      }
+    }
+  ]
+}

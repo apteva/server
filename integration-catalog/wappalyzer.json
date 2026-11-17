@@ -1,0 +1,65 @@
+{
+  "slug": "wappalyzer",
+  "name": "Wappalyzer",
+  "description": "Tech-stack detection. Cheaper alternative to BuiltWith for the basics. Lookup the tech profile of any domain, or query their dataset for sites running specific technologies.",
+  "logo": "https://www.google.com/s2/favicons?domain=wappalyzer.com&sz=128",
+  "categories": ["technographics", "enrichment", "tech-stack", "prospecting"],
+  "base_url": "https://api.wappalyzer.com/v2",
+  "auth": {
+    "types": ["api_key"],
+    "headers": {
+      "x-api-key": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API key",
+        "description": "Wappalyzer API key from wappalyzer.com/api"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "lookup",
+      "description": "Get the tech profile (CMS, analytics, payment, marketing, hosting, etc.) for one or more domains.",
+      "method": "GET",
+      "path": "/lookup/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "urls": { "type": "string", "description": "Comma-separated list of URLs, e.g. 'example.com,acme.com'" },
+          "live": { "type": "string", "enum": ["true", "false"], "default": "false", "description": "Force a live re-scan instead of cached" },
+          "recursive": { "type": "string", "enum": ["true", "false"], "default": "false" },
+          "extract": { "type": "string", "description": "Comma-separated extra fields: 'meta', 'companyName', 'employees', 'industry'" }
+        },
+        "required": ["urls"]
+      }
+    },
+    {
+      "name": "technologies",
+      "description": "List the entire taxonomy of technologies Wappalyzer can detect. Use to validate technology slugs before lookups.",
+      "method": "GET",
+      "path": "/technologies/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_websites_using",
+      "description": "List all known websites running a given technology. Lead-list query.",
+      "method": "GET",
+      "path": "/lookup-by-technologies/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "technologies": { "type": "string", "description": "Comma-separated tech slugs, e.g. 'shopify,klaviyo'" },
+          "country": { "type": "string", "description": "ISO country code" },
+          "limit": { "type": "integer", "default": 100 },
+          "offset": { "type": "integer", "default": 0 }
+        },
+        "required": ["technologies"]
+      }
+    }
+  ]
+}

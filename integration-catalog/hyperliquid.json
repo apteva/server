@@ -1,0 +1,129 @@
+{
+  "slug": "hyperliquid",
+  "name": "Hyperliquid",
+  "description": "On-chain perpetuals DEX — real-time market data, orderbooks, candles, funding rates, user positions, and trade history. Info endpoints are free.",
+  "logo": "https://www.google.com/s2/favicons?domain=hyperliquid.xyz&sz=128",
+  "categories": [
+    "perpetuals",
+    "dex",
+    "defi",
+    "trading",
+    "derivatives"
+  ],
+  "base_url": "https://api.hyperliquid.xyz",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "wallet_address",
+        "label": "Wallet_address",
+        "description": "Your Ethereum wallet address for querying positions (optional for market data)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_meta",
+      "description": "Get metadata for all perpetual markets — symbols, max leverage, tick sizes, and contract specs.",
+      "method": "POST",
+      "path": "/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_all_mids",
+      "description": "Get current mid prices for all perpetual markets.",
+      "method": "POST",
+      "path": "/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_orderbook",
+      "description": "Get L2 order book for a perpetual market.",
+      "method": "POST",
+      "path": "/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "coin": {
+            "type": "string",
+            "description": "Market symbol (e.g., BTC, ETH, SOL)"
+          }
+        },
+        "required": [
+          "coin"
+        ]
+      }
+    },
+    {
+      "name": "get_candles",
+      "description": "Get OHLCV candle data for a perpetual market.",
+      "method": "POST",
+      "path": "/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "coin": {
+            "type": "string",
+            "description": "Market symbol (e.g., BTC, ETH)"
+          },
+          "interval": {
+            "type": "string",
+            "description": "Candle interval (1m, 5m, 15m, 1h, 4h, 1d)",
+            "default": "1h"
+          },
+          "startTime": {
+            "type": "integer",
+            "description": "Start time (Unix ms)"
+          },
+          "endTime": {
+            "type": "integer",
+            "description": "End time (Unix ms)"
+          }
+        },
+        "required": [
+          "coin",
+          "interval"
+        ]
+      }
+    },
+    {
+      "name": "get_user_state",
+      "description": "Get open positions, margin, and account value for a wallet address.",
+      "method": "POST",
+      "path": "/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "type": "string",
+            "description": "Wallet address (0x...)"
+          }
+        },
+        "required": [
+          "user"
+        ]
+      }
+    },
+    {
+      "name": "get_funding",
+      "description": "Get current and historical funding rates for perpetual markets.",
+      "method": "POST",
+      "path": "/info",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

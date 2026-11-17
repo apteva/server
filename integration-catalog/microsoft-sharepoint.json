@@ -1,0 +1,664 @@
+{
+  "slug": "microsoft-sharepoint",
+  "name": "Microsoft SharePoint",
+  "description": "Microsoft SharePoint sites, lists, list items, pages, document libraries, permissions, and search through Microsoft Graph.",
+  "logo": "https://www.google.com/s2/favicons?domain=sharepoint.com&sz=128",
+  "categories": [
+    "storage",
+    "documents",
+    "collaboration",
+    "microsoft",
+    "sharepoint"
+  ],
+  "base_url": "https://graph.microsoft.com/v1.0",
+  "auth": {
+    "types": [
+      "oauth2",
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "type": "password",
+        "source": "oauth"
+      },
+      {
+        "name": "refresh_token",
+        "label": "Refresh Token",
+        "type": "password",
+        "source": "oauth",
+        "required": false
+      }
+    ],
+    "oauth2": {
+      "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "scopes": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "User.Read",
+        "Sites.ReadWrite.All",
+        "Files.ReadWrite.All"
+      ],
+      "client_id_required": true,
+      "pkce": true,
+      "extra_authorize_params": {
+        "prompt": "consent"
+      }
+    }
+  },
+  "health_check": {
+    "tool": "get_root_site"
+  },
+  "tools": [
+    {
+      "name": "get_root_site",
+      "description": "Get the tenant root SharePoint site.",
+      "method": "GET",
+      "path": "/sites/root",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_sites",
+      "description": "Search SharePoint sites visible to the user. Use a non-empty search phrase.",
+      "method": "GET",
+      "path": "/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "search": {
+            "type": "string",
+            "description": "Site name or keyword."
+          },
+          "$top": {
+            "type": "integer",
+            "description": "Maximum results."
+          },
+          "$select": {
+            "type": "string",
+            "description": "Comma-separated fields."
+          }
+        },
+        "required": [
+          "search"
+        ]
+      }
+    },
+    {
+      "name": "get_site",
+      "description": "Get a SharePoint site by Graph site ID.",
+      "method": "GET",
+      "path": "/sites/{site_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Graph site ID."
+          },
+          "$select": {
+            "type": "string",
+            "description": "Comma-separated fields."
+          },
+          "$expand": {
+            "type": "string",
+            "description": "Relationships to expand."
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_site_by_path",
+      "description": "Resolve a SharePoint site by hostname and server-relative path.",
+      "method": "GET",
+      "path": "/sites/{hostname}:/{site_path}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "description": "SharePoint hostname, for example contoso.sharepoint.com."
+          },
+          "site_path": {
+            "type": "string",
+            "description": "Server-relative site path, for example teams/engineering."
+          }
+        },
+        "required": [
+          "hostname",
+          "site_path"
+        ]
+      }
+    },
+    {
+      "name": "list_subsites",
+      "description": "List child sites under a SharePoint site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/sites",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Graph site ID."
+          },
+          "$top": {
+            "type": "integer",
+            "description": "Maximum results."
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "list_site_drives",
+      "description": "List document libraries exposed as drives for a SharePoint site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/drives",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Graph site ID."
+          },
+          "$top": {
+            "type": "integer",
+            "description": "Maximum results."
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "list_lists",
+      "description": "List lists and document libraries in a SharePoint site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string",
+            "description": "Graph site ID."
+          },
+          "$top": {
+            "type": "integer",
+            "description": "Maximum results."
+          },
+          "$select": {
+            "type": "string",
+            "description": "Fields to return."
+          },
+          "$expand": {
+            "type": "string",
+            "description": "Relationships such as columns."
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_list",
+      "description": "Get one SharePoint list and optionally expand columns.",
+      "method": "GET",
+      "path": "/sites/{site_id}/lists/{list_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "$expand": {
+            "type": "string",
+            "description": "For example columns."
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "create_list",
+      "description": "Create a SharePoint list with an explicit schema.",
+      "method": "POST",
+      "path": "/sites/{site_id}/lists",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "List name."
+          },
+          "description": {
+            "type": "string"
+          },
+          "list": {
+            "type": "object",
+            "description": "List template configuration, for example {template:'genericList'}."
+          },
+          "columns": {
+            "type": "array",
+            "description": "Column definitions.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "site_id",
+          "displayName",
+          "list"
+        ]
+      }
+    },
+    {
+      "name": "update_list",
+      "description": "Update a SharePoint list's display name or description.",
+      "method": "PATCH",
+      "path": "/sites/{site_id}/lists/{list_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_list",
+      "description": "Permanently delete a SharePoint list.",
+      "method": "DELETE",
+      "path": "/sites/{site_id}/lists/{list_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "list_list_items",
+      "description": "List SharePoint list items. Expand fields to retrieve column values.",
+      "method": "GET",
+      "path": "/sites/{site_id}/lists/{list_id}/items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "$top": {
+            "type": "integer"
+          },
+          "$filter": {
+            "type": "string",
+            "description": "OData filter."
+          },
+          "$expand": {
+            "type": "string",
+            "description": "Usually fields."
+          },
+          "$select": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id"
+        ]
+      }
+    },
+    {
+      "name": "get_list_item",
+      "description": "Get one SharePoint list item.",
+      "method": "GET",
+      "path": "/sites/{site_id}/lists/{list_id}/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "$expand": {
+            "type": "string",
+            "description": "Usually fields."
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "create_list_item",
+      "description": "Create a SharePoint list item using column names and values.",
+      "method": "POST",
+      "path": "/sites/{site_id}/lists/{list_id}/items",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Map of SharePoint column names to values."
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id",
+          "fields"
+        ]
+      }
+    },
+    {
+      "name": "update_list_item_fields",
+      "description": "Update fields on a SharePoint list item.",
+      "method": "PATCH",
+      "path": "/sites/{site_id}/lists/{list_id}/items/{item_id}/fields",
+      "body_root_param": "fields",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Column/value map to update."
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_list_item",
+      "description": "Delete a SharePoint list item.",
+      "method": "DELETE",
+      "path": "/sites/{site_id}/lists/{list_id}/items/{item_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "list_id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "list_id",
+          "item_id"
+        ]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List modern site pages.",
+      "method": "GET",
+      "path": "/sites/{site_id}/pages/microsoft.graph.sitePage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "$top": {
+            "type": "integer"
+          },
+          "$select": {
+            "type": "string"
+          },
+          "$expand": {
+            "type": "string",
+            "description": "For example canvasLayout."
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "get_page",
+      "description": "Get a modern SharePoint site page.",
+      "method": "GET",
+      "path": "/sites/{site_id}/pages/{page_id}/microsoft.graph.sitePage",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "$expand": {
+            "type": "string",
+            "description": "For example canvasLayout."
+          }
+        },
+        "required": [
+          "site_id",
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "create_page",
+      "description": "Create a modern SharePoint site page.",
+      "method": "POST",
+      "path": "/sites/{site_id}/pages",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Page filename ending in .aspx."
+          },
+          "title": {
+            "type": "string"
+          },
+          "pageLayout": {
+            "type": "string",
+            "description": "Usually article."
+          },
+          "showComments": {
+            "type": "boolean"
+          },
+          "showInSiteNavigation": {
+            "type": "boolean"
+          },
+          "canvasLayout": {
+            "type": "object",
+            "description": "Graph canvasLayout structure."
+          },
+          "promotionKind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "name",
+          "title",
+          "pageLayout"
+        ]
+      }
+    },
+    {
+      "name": "publish_page",
+      "description": "Publish a draft SharePoint site page.",
+      "method": "POST",
+      "path": "/sites/{site_id}/pages/{page_id}/microsoft.graph.sitePage/publish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "page_id"
+        ]
+      }
+    },
+    {
+      "name": "list_site_permissions",
+      "description": "List permissions granted to applications on a SharePoint site.",
+      "method": "GET",
+      "path": "/sites/{site_id}/permissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id"
+        ]
+      }
+    },
+    {
+      "name": "create_site_permission",
+      "description": "Grant application access to a SharePoint site.",
+      "method": "POST",
+      "path": "/sites/{site_id}/permissions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "description": "Permission roles such as read or write.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "grantedToIdentities": {
+            "type": "array",
+            "description": "Application identity objects.",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "site_id",
+          "roles",
+          "grantedToIdentities"
+        ]
+      }
+    },
+    {
+      "name": "delete_site_permission",
+      "description": "Remove an application permission from a SharePoint site.",
+      "method": "DELETE",
+      "path": "/sites/{site_id}/permissions/{permission_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "permission_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site_id",
+          "permission_id"
+        ]
+      }
+    }
+  ]
+}

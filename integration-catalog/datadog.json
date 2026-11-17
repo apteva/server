@@ -1,0 +1,401 @@
+{
+  "slug": "datadog",
+  "name": "Datadog",
+  "description": "MCP server for Datadog monitoring operations - metrics, monitors, dashboards, events, and logs",
+  "logo": "https://www.google.com/s2/favicons?domain=datadoghq.com&sz=128",
+  "categories": [
+    "monitoring",
+    "datadog",
+    "metrics",
+    "observability",
+    "apm"
+  ],
+  "base_url": "https://api.datadoghq.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_metrics",
+      "description": "List available metrics from Datadog",
+      "method": "GET",
+      "path": "/list-metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query for metrics"
+          },
+          "from": {
+            "type": "number",
+            "description": "Start timestamp"
+          }
+        }
+      }
+    },
+    {
+      "name": "query_metrics",
+      "description": "Query metrics from Datadog",
+      "method": "GET",
+      "path": "/query-metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Metrics query"
+          },
+          "from": {
+            "type": "number",
+            "description": "Start timestamp"
+          },
+          "to": {
+            "type": "number",
+            "description": "End timestamp"
+          }
+        },
+        "required": [
+          "query",
+          "from",
+          "to"
+        ]
+      }
+    },
+    {
+      "name": "submit_metrics",
+      "description": "Submit metrics to Datadog",
+      "method": "GET",
+      "path": "/submit-metrics",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "series": {
+            "type": "array",
+            "description": "Array of metric series to submit"
+          }
+        },
+        "required": [
+          "series"
+        ]
+      }
+    },
+    {
+      "name": "list_monitors",
+      "description": "List monitors from Datadog",
+      "method": "GET",
+      "path": "/list-monitors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "groupStates": {
+            "type": "string",
+            "description": "Filter by group states"
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by name"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Filter by tags"
+          },
+          "monitorTags": {
+            "type": "string",
+            "description": "Filter by monitor tags"
+          },
+          "pageSize": {
+            "type": "number",
+            "description": "Page size",
+            "default": 100
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number",
+            "default": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "get_monitor",
+      "description": "Get a specific monitor from Datadog",
+      "method": "GET",
+      "path": "/get-monitor",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "monitorId": {
+            "type": "string",
+            "description": "Monitor ID"
+          },
+          "groupStates": {
+            "type": "string",
+            "description": "Include group states"
+          }
+        },
+        "required": [
+          "monitorId"
+        ]
+      }
+    },
+    {
+      "name": "create_monitor",
+      "description": "Create a new monitor in Datadog",
+      "method": "POST",
+      "path": "/create-monitor",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Monitor name"
+          },
+          "type": {
+            "type": "string",
+            "description": "Monitor type"
+          },
+          "query": {
+            "type": "string",
+            "description": "Monitor query"
+          },
+          "message": {
+            "type": "string",
+            "description": "Alert message"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags"
+          },
+          "priority": {
+            "type": "number",
+            "description": "Priority (1-5)"
+          },
+          "options": {
+            "type": "object",
+            "description": "Monitor options"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "list_dashboards",
+      "description": "List dashboards from Datadog",
+      "method": "GET",
+      "path": "/list-dashboards",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filterShared": {
+            "type": "boolean",
+            "description": "Filter shared dashboards"
+          },
+          "filterDeletedAt": {
+            "type": "string",
+            "description": "Filter deleted dashboards"
+          },
+          "count": {
+            "type": "number",
+            "description": "Maximum results"
+          },
+          "start": {
+            "type": "number",
+            "description": "Start index"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dashboard",
+      "description": "Get a specific dashboard from Datadog",
+      "method": "GET",
+      "path": "/get-dashboard",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "dashboardId": {
+            "type": "string",
+            "description": "Dashboard ID"
+          }
+        },
+        "required": [
+          "dashboardId"
+        ]
+      }
+    },
+    {
+      "name": "list_events",
+      "description": "List events from Datadog",
+      "method": "GET",
+      "path": "/list-events",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "number",
+            "description": "Start timestamp"
+          },
+          "end": {
+            "type": "number",
+            "description": "End timestamp"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority filter"
+          },
+          "sources": {
+            "type": "string",
+            "description": "Sources filter"
+          },
+          "tags": {
+            "type": "string",
+            "description": "Tags filter"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ]
+      }
+    },
+    {
+      "name": "create_event",
+      "description": "Create an event in Datadog",
+      "method": "POST",
+      "path": "/create-event",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Event title"
+          },
+          "text": {
+            "type": "string",
+            "description": "Event text"
+          },
+          "dateHappened": {
+            "type": "number",
+            "description": "Timestamp"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority (normal, low)"
+          },
+          "host": {
+            "type": "string",
+            "description": "Host name"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tags"
+          },
+          "alertType": {
+            "type": "string",
+            "description": "Alert type"
+          }
+        },
+        "required": [
+          "title",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "list_hosts",
+      "description": "List hosts from Datadog",
+      "method": "GET",
+      "path": "/list-hosts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "Filter string"
+          },
+          "sortField": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sortDir": {
+            "type": "string",
+            "description": "Sort direction"
+          },
+          "start": {
+            "type": "number",
+            "description": "Start index"
+          },
+          "count": {
+            "type": "number",
+            "description": "Maximum results"
+          },
+          "from": {
+            "type": "number",
+            "description": "From timestamp"
+          }
+        }
+      }
+    },
+    {
+      "name": "list_logs",
+      "description": "Search and list logs from Datadog",
+      "method": "GET",
+      "path": "/list-logs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Log query"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start time (ISO format)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End time (ISO format)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum results"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "slug": "cohere",
+  "name": "Cohere",
+  "description": "MCP server for Cohere AI - text generation, classification, embeddings",
+  "logo": "https://www.google.com/s2/favicons?domain=cohere.ai&sz=128",
+  "categories": [
+    "ai",
+    "nlp",
+    "embeddings",
+    "generation"
+  ],
+  "base_url": "https://api.cohere.ai/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "generate_text",
+      "description": "Generate text with Cohere",
+      "method": "GET",
+      "path": "/generate-text",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "max_tokens": {
+            "type": "number"
+          },
+          "temperature": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "chat",
+      "description": "Chat with Cohere Command",
+      "method": "GET",
+      "path": "/chat",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "chat_history": {
+            "type": "array"
+          },
+          "preamble": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "create_embedding",
+      "description": "Create text embeddings",
+      "method": "POST",
+      "path": "/create-embedding",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "texts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "input_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "texts"
+        ]
+      }
+    },
+    {
+      "name": "classify_text",
+      "description": "Classify text into categories",
+      "method": "GET",
+      "path": "/classify-text",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "examples": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "inputs",
+          "examples"
+        ]
+      }
+    },
+    {
+      "name": "rerank_results",
+      "description": "Rerank search results",
+      "method": "GET",
+      "path": "/rerank-results",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "array"
+          },
+          "model": {
+            "type": "string"
+          },
+          "top_n": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "query",
+          "documents"
+        ]
+      }
+    }
+  ]
+}

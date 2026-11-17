@@ -30,6 +30,9 @@ func NewIngressCertManager(s *Server) *IngressCertManager {
 	cacheDir := strings.TrimSpace(os.Getenv("APTEVA_ACME_CACHE_DIR"))
 	if cacheDir == "" {
 		base := strings.TrimSpace(os.Getenv("APTEVA_HOME"))
+		if s != nil && s.dataDir != "" {
+			base = s.dataDir
+		}
 		if base == "" {
 			if h, err := os.UserHomeDir(); err == nil && h != "" {
 				base = filepath.Join(h, ".apteva")
@@ -89,7 +92,7 @@ func legacyCertsFallbackEnabled(s *Server) bool {
 		return false
 	}
 	var count int
-	err := s.store.db.QueryRow(
+	err := s.store.dbQueryRow(
 		`SELECT COUNT(*)
 		   FROM app_installs i
 		   JOIN apps a ON a.id = i.app_id
@@ -133,6 +136,11 @@ func (m *IngressCertManager) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Ce
 	name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hello.ServerName), "."))
 	if name == "" {
 		return nil, errors.New("no SNI")
+	}
+	if m != nil && m.server != nil && m.server.instanceHTTPS != nil {
+		if cert, err := m.server.instanceHTTPS.managedCertificate(name); cert != nil || err != nil {
+			return cert, err
+		}
 	}
 	if m != nil && m.manager != nil && m.server != nil && m.server.ingressAllowsCertificate(name) {
 		cert, err := m.manager.GetCertificate(hello)
@@ -215,15 +223,29 @@ func readAutocertCachedLeaf(cacheDir, host string) (*x509.Certificate, string, e
 	return nil, "", os.ErrNotExist
 }
 
+// TLSConfig preserves HTTP/2 for ordinary apps but selects HTTP/1.1 for
+// forward proxies, whose CONNECT streams use HTTP hijacking.
+func (m *IngressCertManager) TLSConfig() *tls.Config {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: m.GetCertificate, NextProtos: []string{"h2", "http/1.1", acme.ALPNProto}}
+	cfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+		if m.server != nil && m.server.routeCache != nil {
+			if route, ok := m.server.routeCache.Lookup(hello.ServerName); ok && route.target != nil && route.target.Query().Get("ingress_mode") == "forward_proxy" {
+				selected := cfg.Clone()
+				selected.GetConfigForClient = nil
+				selected.NextProtos = []string{"http/1.1", acme.ALPNProto}
+				return selected, nil
+			}
+		}
+		return nil, nil
+	}
+	return cfg
+}
+
 func startIngressTLSListener(addr string, handler http.Handler, certs *IngressCertManager) *http.Server {
 	if strings.TrimSpace(addr) == "" {
 		return nil
 	}
-	cfg := &tls.Config{
-		MinVersion:     tls.VersionTLS12,
-		GetCertificate: certs.GetCertificate,
-		NextProtos:     []string{"h2", "http/1.1", acme.ALPNProto},
-	}
+	cfg := certs.TLSConfig()
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,

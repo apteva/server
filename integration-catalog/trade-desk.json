@@ -1,0 +1,237 @@
+{
+  "slug": "trade-desk",
+  "name": "The Trade Desk",
+  "description": "The Trade Desk (TTD) API v3 — programmatic DSP for display, video, audio, CTV, and native. Auth is a long-lived API token (90-day default expiry) sent in the TTD-Auth header — created via POST /v3/authentication with login credentials, not OAuth2. Sandbox: https://apisb.thetradedesk.com.",
+  "logo": "https://www.google.com/s2/favicons?domain=thetradedesk.com&sz=128",
+  "categories": [
+    "advertising",
+    "marketing",
+    "campaigns",
+    "dsp",
+    "programmatic",
+    "ctv",
+    "display-ads",
+    "video-ads"
+  ],
+  "base_url": "https://api.thetradedesk.com/v3",
+  "auth": {
+    "types": [
+      "header"
+    ],
+    "headers": {
+      "TTD-Auth": "{{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "TTD API Token",
+        "type": "password",
+        "description": "Long-lived TTD-Auth token. Mint via POST /v3/authentication with {Login, Password, TokenExpirationInMinutes: 129600}. Default 90-day TTL — rotate before expiry."
+      },
+      {
+        "name": "advertiser_id",
+        "label": "Default Advertiser ID",
+        "description": "Default advertiser id used when a tool input omits one"
+      },
+      {
+        "name": "partner_id",
+        "label": "Partner ID",
+        "description": "TTD Partner ID (the agency-tier resource above advertisers)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "authenticate",
+      "description": "Mint a fresh TTD-Auth token. Pass Login, Password, optional TokenExpirationInMinutes (max 129600 = 90 days). Use sparingly — store the returned Token; subsequent calls send it in the TTD-Auth header. NOTE: this endpoint must be called WITHOUT the existing TTD-Auth header.",
+      "method": "POST",
+      "path": "/authentication",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "Login": { "type": "string" },
+          "Password": { "type": "string" },
+          "TokenExpirationInMinutes": { "type": "integer", "default": 129600, "description": "Max 129600 (90 days)" }
+        },
+        "required": ["Login", "Password"]
+      }
+    },
+    {
+      "name": "list_advertisers",
+      "description": "List advertisers under a partner. PartnerId is required.",
+      "method": "POST",
+      "path": "/advertiser/query/partner",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PartnerId": { "type": "string" },
+          "PageStartIndex": { "type": "integer", "default": 0 },
+          "PageSize": { "type": "integer", "default": 100, "description": "Max 1000" },
+          "SearchTerms": { "type": "array", "items": { "type": "string" } },
+          "SortFields": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["PartnerId"]
+      }
+    },
+    {
+      "name": "get_advertiser",
+      "description": "Get a single advertiser by id.",
+      "method": "GET",
+      "path": "/advertiser/{AdvertiserId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdvertiserId": { "type": "string" }
+        },
+        "required": ["AdvertiserId"]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List campaigns under an advertiser.",
+      "method": "POST",
+      "path": "/campaign/query/advertiser",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdvertiserId": { "type": "string" },
+          "PageStartIndex": { "type": "integer", "default": 0 },
+          "PageSize": { "type": "integer", "default": 100 },
+          "SearchTerms": { "type": "array", "items": { "type": "string" } },
+          "AvailabilityStateFilter": { "type": "string", "enum": ["Available", "Archived", "All"], "default": "Available" }
+        },
+        "required": ["AdvertiserId"]
+      }
+    },
+    {
+      "name": "create_campaign",
+      "description": "Create a campaign. Required: AdvertiserId, CampaignName, Budget {Amount, CurrencyCode}, StartDate (yyyy-MM-ddTHH:mm:ss), EndDate, PacingMode (PaceAhead|PaceEvenly|PaceAsap), CampaignConversionReportingColumns optional, ObjectiveValue (PerformanceTarget) for goal-based optimization.",
+      "method": "POST",
+      "path": "/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdvertiserId": { "type": "string" },
+          "CampaignName": { "type": "string" },
+          "Description": { "type": "string" },
+          "Budget": { "type": "object", "description": "{\"Amount\": 1000.0, \"CurrencyCode\": \"USD\"}" },
+          "DailyBudget": { "type": "object" },
+          "StartDate": { "type": "string" },
+          "EndDate": { "type": "string" },
+          "PacingMode": { "type": "string", "enum": ["PaceAhead", "PaceEvenly", "PaceAsap"], "default": "PaceEvenly" },
+          "PrimaryGoal": { "type": "object" },
+          "PrimaryChannel": { "type": "string", "enum": ["Display", "Video", "Audio", "Native", "TV", "Mobile"] },
+          "PartnerCostPercentageFee": { "type": "number" }
+        },
+        "required": ["AdvertiserId", "CampaignName", "Budget", "StartDate", "EndDate"]
+      }
+    },
+    {
+      "name": "update_campaign",
+      "description": "Update a campaign. Pass CampaignId + only the fields you want to change.",
+      "method": "PUT",
+      "path": "/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": { "type": "string" },
+          "CampaignName": { "type": "string" },
+          "Description": { "type": "string" },
+          "Budget": { "type": "object" },
+          "DailyBudget": { "type": "object" },
+          "StartDate": { "type": "string" },
+          "EndDate": { "type": "string" },
+          "PacingMode": { "type": "string" },
+          "Availability": { "type": "string", "enum": ["Available", "Archived"] }
+        },
+        "required": ["CampaignId"]
+      }
+    },
+    {
+      "name": "list_ad_groups",
+      "description": "List ad groups under a campaign.",
+      "method": "POST",
+      "path": "/adgroup/query/campaign",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": { "type": "string" },
+          "PageStartIndex": { "type": "integer", "default": 0 },
+          "PageSize": { "type": "integer", "default": 100 },
+          "AvailabilityStateFilter": { "type": "string", "enum": ["Available", "Archived", "All"], "default": "Available" }
+        },
+        "required": ["CampaignId"]
+      }
+    },
+    {
+      "name": "create_ad_group",
+      "description": "Create an ad group. Required: CampaignId, AdGroupName, IndustryCategoryId, RTBAttributes {BudgetSettings, BaseBidCPM, MaxBidCPM, AudienceTargeting, AdFormatTargeting, GeoSegmentTargeting, ...}.",
+      "method": "POST",
+      "path": "/adgroup",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "CampaignId": { "type": "string" },
+          "AdGroupName": { "type": "string" },
+          "Description": { "type": "string" },
+          "IndustryCategoryId": { "type": "integer" },
+          "RTBAttributes": { "type": "object", "description": "Bidding/targeting object — see TTD docs for full shape" },
+          "AssociatedBidLists": { "type": "array", "items": { "type": "object" } },
+          "FunnelLocation": { "type": "string", "enum": ["Awareness", "Consideration", "Conversion", "Retention"] }
+        },
+        "required": ["CampaignId", "AdGroupName", "IndustryCategoryId", "RTBAttributes"]
+      }
+    },
+    {
+      "name": "list_creatives",
+      "description": "List creatives under an advertiser.",
+      "method": "POST",
+      "path": "/creative/query/advertiser",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "AdvertiserId": { "type": "string" },
+          "PageStartIndex": { "type": "integer", "default": 0 },
+          "PageSize": { "type": "integer", "default": 100 },
+          "AvailabilityStateFilter": { "type": "string", "default": "Available" }
+        },
+        "required": ["AdvertiserId"]
+      }
+    },
+    {
+      "name": "list_my_reports",
+      "description": "List MyReports report schedules and downloads under a partner. Use ReportScheduleIds + ReportExecutionStates to filter to a specific schedule's outputs.",
+      "method": "POST",
+      "path": "/myreports/reportexecution/query/partners",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PartnerIds": { "type": "array", "items": { "type": "string" } },
+          "AdvertiserIds": { "type": "array", "items": { "type": "string" } },
+          "ReportScheduleIds": { "type": "array", "items": { "type": "string" } },
+          "ReportExecutionStates": { "type": "array", "items": { "type": "string", "enum": ["Pending", "Running", "Complete", "Failed", "Aborted"] } },
+          "PageStartIndex": { "type": "integer", "default": 0 },
+          "PageSize": { "type": "integer", "default": 100 }
+        }
+      }
+    },
+    {
+      "name": "report_template_query",
+      "description": "List MyReports report templates for a partner. Templates define columns + grouping; report schedules bind a template to a cadence + advertiser scope.",
+      "method": "POST",
+      "path": "/myreports/reporttemplate/query",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "PartnerId": { "type": "string" },
+          "ReportTemplateIds": { "type": "array", "items": { "type": "string" } },
+          "TemplateScope": { "type": "string", "enum": ["Personal", "Shared", "All"], "default": "All" },
+          "PageStartIndex": { "type": "integer", "default": 0 },
+          "PageSize": { "type": "integer", "default": 100 }
+        },
+        "required": ["PartnerId"]
+      }
+    }
+  ]
+}

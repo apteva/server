@@ -1,0 +1,340 @@
+{
+  "slug": "hospitable",
+  "name": "Hospitable",
+  "description": "MCP server for Hospitable - vacation rental property management, reservations, guest messaging, and calendar",
+  "logo": "https://www.google.com/s2/favicons?domain=hospitable.com&sz=128",
+  "categories": [
+    "vacation-rental",
+    "property-management",
+    "airbnb",
+    "vrbo",
+    "hospitality",
+    "short-term-rental"
+  ],
+  "base_url": "https://public.api.hospitable.com/v2",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Your Hospitable Personal Access Token (generate at hospitable.com > Settings > API Access)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "user_get",
+      "description": "Get authenticated user information",
+      "method": "GET",
+      "path": "/user-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "properties_list",
+      "description": "List all properties in your account",
+      "method": "GET",
+      "path": "/properties-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page"
+          },
+          "include": {
+            "type": "array",
+            "description": "Additional resources to include (e.g., images, calendar)",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "property_get",
+      "description": "Get details for a specific property",
+      "method": "GET",
+      "path": "/property-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          },
+          "include": {
+            "type": "array",
+            "description": "Additional resources to include",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "reservations_list",
+      "description": "List reservations with optional filters",
+      "method": "GET",
+      "path": "/reservations-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by reservation status (confirmed, cancelled, etc.)"
+          },
+          "property_id": {
+            "type": "string",
+            "description": "Filter by property ID"
+          },
+          "check_in_from": {
+            "type": "string",
+            "description": "Filter check-in from date (YYYY-MM-DD)"
+          },
+          "check_in_to": {
+            "type": "string",
+            "description": "Filter check-in to date (YYYY-MM-DD)"
+          },
+          "check_out_from": {
+            "type": "string",
+            "description": "Filter check-out from date (YYYY-MM-DD)"
+          },
+          "check_out_to": {
+            "type": "string",
+            "description": "Filter check-out to date (YYYY-MM-DD)"
+          },
+          "include": {
+            "type": "array",
+            "description": "Additional resources to include (e.g., property, guest)",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "reservation_get",
+      "description": "Get details for a specific reservation",
+      "method": "GET",
+      "path": "/reservation-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reservation_id": {
+            "type": "string",
+            "description": "The reservation ID"
+          },
+          "include": {
+            "type": "array",
+            "description": "Additional resources to include",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "reservation_id"
+        ]
+      }
+    },
+    {
+      "name": "messages_list",
+      "description": "Get messages for a reservation",
+      "method": "GET",
+      "path": "/messages-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reservation_id": {
+            "type": "string",
+            "description": "The reservation ID"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page"
+          }
+        },
+        "required": [
+          "reservation_id"
+        ]
+      }
+    },
+    {
+      "name": "message_send",
+      "description": "Send a message to a guest",
+      "method": "GET",
+      "path": "/message-send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "reservation_id": {
+            "type": "string",
+            "description": "The reservation ID"
+          },
+          "message": {
+            "type": "string",
+            "description": "The message content to send"
+          },
+          "send_as": {
+            "type": "string",
+            "description": "Send as a specific co-host (optional)"
+          }
+        },
+        "required": [
+          "reservation_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "reviews_list",
+      "description": "Get reviews for a property",
+      "method": "GET",
+      "path": "/reviews-list",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          },
+          "page": {
+            "type": "number",
+            "description": "Page number for pagination"
+          },
+          "per_page": {
+            "type": "number",
+            "description": "Number of results per page"
+          }
+        },
+        "required": [
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "review_respond",
+      "description": "Post a public response to a review",
+      "method": "GET",
+      "path": "/review-respond",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "review_id": {
+            "type": "string",
+            "description": "The review ID"
+          },
+          "response": {
+            "type": "string",
+            "description": "Your public response to the review"
+          }
+        },
+        "required": [
+          "review_id",
+          "response"
+        ]
+      }
+    },
+    {
+      "name": "calendar_get",
+      "description": "Get calendar data (pricing and availability) for a property",
+      "method": "GET",
+      "path": "/calendar-get",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD)"
+          }
+        },
+        "required": [
+          "property_id"
+        ]
+      }
+    },
+    {
+      "name": "calendar_update",
+      "description": "Update calendar pricing and availability for a property",
+      "method": "GET",
+      "path": "/calendar-update",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "property_id": {
+            "type": "string",
+            "description": "The property ID"
+          },
+          "dates": {
+            "type": "array",
+            "description": "Array of date updates with pricing/availability",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "description": "Date (YYYY-MM-DD)"
+                },
+                "available": {
+                  "type": "boolean",
+                  "description": "Whether the date is available"
+                },
+                "price": {
+                  "type": "number",
+                  "description": "Nightly price"
+                },
+                "min_nights": {
+                  "type": "number",
+                  "description": "Minimum nights required"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "property_id",
+          "dates"
+        ]
+      }
+    }
+  ]
+}

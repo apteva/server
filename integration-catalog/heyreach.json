@@ -1,0 +1,388 @@
+{
+  "slug": "heyreach",
+  "name": "HeyReach",
+  "description": "HeyReach LinkedIn automation - manage campaigns, leads, lists, conversations, and sender accounts for LinkedIn outreach at scale",
+  "logo": "https://www.google.com/s2/favicons?domain=heyreach.io&sz=128",
+  "categories": [
+    "linkedin",
+    "outreach",
+    "automation",
+    "sales",
+    "leads"
+  ],
+  "base_url": "https://api.heyreach.io/api",
+  "auth": {
+    "types": [
+      "api_key"
+    ],
+    "headers": {
+      "X-API-KEY": "{{api_key}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "check_api_key",
+      "description": "Verify your HeyReach API key is valid and check connectivity.",
+      "method": "GET",
+      "path": "/public/auth/CheckApiKey",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "campaign_list",
+      "description": "Retrieve all campaigns in your HeyReach account with their status, settings, and statistics.",
+      "method": "POST",
+      "path": "/public/campaign/GetAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "campaign_get",
+      "description": "Retrieve detailed information about a specific campaign including steps, settings, and statistics.",
+      "method": "GET",
+      "path": "/public/campaign/GetById",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "The campaign ID to retrieve"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_pause",
+      "description": "Pause an active campaign. Stops all outreach actions.",
+      "method": "POST",
+      "path": "/public/campaign/Pause",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "The campaign ID to pause"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_resume",
+      "description": "Resume a paused campaign. Restarts outreach actions.",
+      "method": "POST",
+      "path": "/public/campaign/Resume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "The campaign ID to resume"
+          }
+        },
+        "required": [
+          "campaignId"
+        ]
+      }
+    },
+    {
+      "name": "campaign_add_leads",
+      "description": "Add leads to an ACTIVE campaign. The campaign must have been launched at least once. Paused/finished campaigns will be automatically reactivated. Each lead needs at least a linkedinUrl.",
+      "method": "POST",
+      "path": "/public/campaign/AddLeadsToListV2",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string",
+            "description": "The campaign ID to add leads to (must be launched at least once)"
+          },
+          "leads": {
+            "type": "array",
+            "description": "Array of lead objects. Each needs at least linkedinUrl. Example: [{\"linkedinUrl\":\"https://linkedin.com/in/johndoe\",\"firstName\":\"John\",\"lastName\":\"Doe\",\"email\":\"john@example.com\",\"company\":\"Acme\",\"position\":\"CTO\"}]",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "campaignId",
+          "leads"
+        ]
+      }
+    },
+    {
+      "name": "list_all",
+      "description": "Retrieve all lead/company lists in your HeyReach account.",
+      "method": "POST",
+      "path": "/public/list/GetAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_get",
+      "description": "Retrieve details of a specific lead list by ID.",
+      "method": "GET",
+      "path": "/public/list/GetById",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "string",
+            "description": "The list ID to retrieve"
+          }
+        },
+        "required": [
+          "listId"
+        ]
+      }
+    },
+    {
+      "name": "list_create",
+      "description": "Create a new empty lead or company list.",
+      "method": "POST",
+      "path": "/public/list/Create",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the new list"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "LEAD",
+              "COMPANY"
+            ],
+            "default": "LEAD",
+            "description": "Type of list to create"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "list_get_leads",
+      "description": "Retrieve leads from a specific list with pagination.",
+      "method": "POST",
+      "path": "/public/list/GetLeads",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "string",
+            "description": "The list ID to get leads from"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number for pagination"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Number of leads per page"
+          }
+        },
+        "required": [
+          "listId"
+        ]
+      }
+    },
+    {
+      "name": "list_add_lead",
+      "description": "Add a lead to a specific list. Provide at least a LinkedIn URL.",
+      "method": "POST",
+      "path": "/public/list/AddLead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "string",
+            "description": "The list ID to add the lead to"
+          },
+          "linkedinUrl": {
+            "type": "string",
+            "description": "LinkedIn profile URL of the lead"
+          },
+          "firstName": {
+            "type": "string",
+            "description": "Lead's first name"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Lead's last name"
+          },
+          "email": {
+            "type": "string",
+            "description": "Lead's email address"
+          },
+          "company": {
+            "type": "string",
+            "description": "Lead's company name"
+          },
+          "position": {
+            "type": "string",
+            "description": "Lead's job title/position"
+          }
+        },
+        "required": [
+          "listId",
+          "linkedinUrl"
+        ]
+      }
+    },
+    {
+      "name": "list_delete_lead",
+      "description": "Remove a lead from a specific list.",
+      "method": "POST",
+      "path": "/public/list/DeleteLead",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "listId": {
+            "type": "string",
+            "description": "The list ID to remove the lead from"
+          },
+          "linkedinUrl": {
+            "type": "string",
+            "description": "LinkedIn profile URL of the lead to remove"
+          }
+        },
+        "required": [
+          "listId",
+          "linkedinUrl"
+        ]
+      }
+    },
+    {
+      "name": "lead_get",
+      "description": "Get detailed information about a lead by their LinkedIn profile URL.",
+      "method": "GET",
+      "path": "/public/lead/GetByLinkedinUrl",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "linkedinUrl": {
+            "type": "string",
+            "description": "LinkedIn profile URL of the lead"
+          }
+        },
+        "required": [
+          "linkedinUrl"
+        ]
+      }
+    },
+    {
+      "name": "conversations_get",
+      "description": "Retrieve LinkedIn conversations/messages with filtering options.",
+      "method": "POST",
+      "path": "/public/conversation/GetAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Results per page"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Filter by campaign ID (optional)"
+          }
+        }
+      }
+    },
+    {
+      "name": "sender_list",
+      "description": "Retrieve all LinkedIn sender accounts connected to your HeyReach organization.",
+      "method": "GET",
+      "path": "/public/sender/GetAll",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "sender_get",
+      "description": "Get details of a specific LinkedIn sender account.",
+      "method": "GET",
+      "path": "/public/sender/GetById",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "senderId": {
+            "type": "string",
+            "description": "The sender account ID"
+          }
+        },
+        "required": [
+          "senderId"
+        ]
+      }
+    },
+    {
+      "name": "sender_network",
+      "description": "Retrieve the LinkedIn network/connections for a specific sender account.",
+      "method": "POST",
+      "path": "/public/sender/GetNetwork",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "senderId": {
+            "type": "string",
+            "description": "The sender account ID"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Results per page"
+          }
+        },
+        "required": [
+          "senderId"
+        ]
+      }
+    },
+    {
+      "name": "stats_overall",
+      "description": "Get comprehensive analytics and statistics across all campaigns - connection rates, reply rates, message stats, etc.",
+      "method": "GET",
+      "path": "/public/stats/GetOverall",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

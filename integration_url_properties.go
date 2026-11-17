@@ -238,7 +238,7 @@ func (s *Server) handleIntegrationURLProperties(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) verificationFilenameConflicts(filename, content, ownKey string) bool {
-	rows, err := s.store.db.Query(`SELECT key, value FROM server_settings WHERE key LIKE ?`, integrationURLPropertyPrefix+"%")
+	rows, err := s.store.dbQuery(`SELECT key, value FROM server_settings WHERE key LIKE ?`, integrationURLPropertyPrefix+"%")
 	if err != nil {
 		return true
 	}
@@ -302,7 +302,7 @@ func (s *Server) serveIntegrationVerificationFile(w http.ResponseWriter, r *http
 		http.NotFound(w, r)
 		return
 	}
-	rows, err := s.store.db.Query(`SELECT value FROM server_settings WHERE key LIKE ?`, integrationURLPropertyPrefix+"%")
+	rows, err := s.store.dbQueryContext(r.Context(), `SELECT value FROM server_settings WHERE key LIKE ?`, integrationURLPropertyPrefix+"%")
 	if err != nil {
 		http.NotFound(w, r)
 		return

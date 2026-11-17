@@ -1,0 +1,585 @@
+{
+  "slug": "byrd",
+  "name": "byrd",
+  "description": "byrd fulfillment API for European ecommerce logistics. Manage warehouse products, inbound deliveries, stock checks, warehouses, shipments, tracking, and returns.",
+  "logo": "https://www.google.com/s2/favicons?domain=getbyrd.com&sz=128",
+  "categories": [
+    "fulfillment",
+    "ecommerce",
+    "inventory",
+    "orders",
+    "warehouse",
+    "logistics",
+    "3pl"
+  ],
+  "base_url": "https://api.getbyrd.com",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "{{user_agent}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "JWT Token",
+        "description": "byrd API JWT bearer token. Generate this with byrd API key/secret and refresh before expiry.",
+        "required": false
+      },
+      {
+        "name": "user_agent",
+        "label": "User Agent",
+        "description": "User-Agent string registered or approved for your byrd integration."
+      },
+      {
+        "name": "username",
+        "label": "API Key",
+        "description": "Optional byrd API key used with token_create.",
+        "required": false
+      },
+      {
+        "name": "password",
+        "label": "API Secret",
+        "description": "Optional byrd API secret used with token_create.",
+        "required": false
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "warehouses_list"
+  },
+  "tools": [
+    {
+      "name": "token_create",
+      "description": "Create a byrd JWT token from API key and secret. Store the returned token on the connection for protected byrd tools.",
+      "method": "POST",
+      "path": "/v2/login",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "byrd API key."
+          },
+          "password": {
+            "type": "string",
+            "description": "byrd API secret."
+          },
+          "validity": {
+            "type": "string",
+            "description": "Optional token validity in seconds."
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "token_refresh",
+      "description": "Refresh a valid byrd JWT token.",
+      "method": "POST",
+      "path": "/v2/refresh_token",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Current valid byrd JWT token."
+          }
+        },
+        "required": [
+          "token"
+        ]
+      }
+    },
+    {
+      "name": "products_create",
+      "description": "Create a byrd warehouse product. Use before announcing inbound inventory or creating shipments.",
+      "method": "POST",
+      "path": "/v2/warehouse/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string",
+            "description": "Unique product SKU."
+          },
+          "name": {
+            "type": "string",
+            "description": "Product name."
+          },
+          "description": {
+            "type": "string"
+          },
+          "barcode": {
+            "type": "string"
+          },
+          "barcodeType": {
+            "type": "string",
+            "enum": [
+              "ean_13",
+              "code_128",
+              "gs1_128",
+              "qr_code"
+            ]
+          },
+          "purchasePrice": {
+            "type": "object",
+            "description": "Purchase price object with value and currency."
+          },
+          "customsTariffNumber": {
+            "type": "string",
+            "description": "HS/customs tariff number. Required for some cross-border flows."
+          },
+          "originCountryCode": {
+            "type": "string",
+            "description": "Two-letter country of origin, for example CN."
+          },
+          "dimensions": {
+            "type": "object",
+            "description": "Dimensions object with weight, height, length, and width."
+          },
+          "lotsEnabled": {
+            "type": "boolean"
+          },
+          "organic": {
+            "type": "boolean"
+          },
+          "grs": {
+            "type": "boolean"
+          },
+          "fragile": {
+            "type": "boolean"
+          },
+          "serialNumberEnabled": {
+            "type": "boolean"
+          },
+          "reorderPoint": {
+            "type": "integer"
+          },
+          "packagingUnitEnabled": {
+            "type": "boolean"
+          },
+          "packagingUnits": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "sku",
+          "name",
+          "purchasePrice"
+        ]
+      }
+    },
+    {
+      "name": "product_get",
+      "description": "Get byrd product details by product ID, including available, physical, reserved, and unavailable stock.",
+      "method": "GET",
+      "path": "/v2/warehouse/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "byrd product ID."
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "products_list",
+      "description": "List byrd products for stock reconciliation and SKU lookup.",
+      "method": "GET",
+      "path": "/v2/warehouse/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 250
+          },
+          "sku": {
+            "type": "string",
+            "description": "Optional product SKU filter when supported."
+          }
+        }
+      }
+    },
+    {
+      "name": "warehouses_list",
+      "description": "List byrd warehouses available for the account.",
+      "method": "GET",
+      "path": "/v2/warehouse/warehouses",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "deliveries_create",
+      "description": "Announce an inbound delivery to byrd, for example Alibaba MOQ inventory being sent to a byrd warehouse.",
+      "method": "POST",
+      "path": "/v2/warehouse/deliveries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "container",
+              "regular"
+            ],
+            "description": "Delivery type."
+          },
+          "warehouseID": {
+            "type": "string",
+            "description": "Destination warehouse ID."
+          },
+          "requiresCounting": {
+            "type": "boolean"
+          },
+          "stocktaking": {
+            "type": "boolean",
+            "default": true
+          },
+          "expressInbounding": {
+            "type": "boolean",
+            "default": false
+          },
+          "expectedDeliveryDateFrom": {
+            "type": "string",
+            "description": "Expected delivery start timestamp."
+          },
+          "expectedDeliveryDateTo": {
+            "type": "string",
+            "description": "Expected delivery end timestamp."
+          },
+          "deliveryItems": {
+            "type": "array",
+            "description": "Products included in the delivery."
+          },
+          "deliveryContainers": {
+            "type": "array",
+            "description": "Parcels or pallets arriving at the warehouse."
+          }
+        },
+        "required": [
+          "type",
+          "warehouseID",
+          "stocktaking",
+          "expressInbounding",
+          "expectedDeliveryDateFrom",
+          "expectedDeliveryDateTo",
+          "deliveryItems"
+        ]
+      }
+    },
+    {
+      "name": "deliveries_list",
+      "description": "List byrd inbound deliveries.",
+      "method": "GET",
+      "path": "/v2/warehouse/deliveries",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "default": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "default": 250
+          }
+        }
+      }
+    },
+    {
+      "name": "delivery_get",
+      "description": "Get details for one byrd inbound delivery.",
+      "method": "GET",
+      "path": "/v2/warehouse/deliveries/{delivery_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "delivery_id": {
+            "type": "string",
+            "description": "byrd delivery ID."
+          }
+        },
+        "required": [
+          "delivery_id"
+        ]
+      }
+    },
+    {
+      "name": "shipments_create",
+      "description": "Create a byrd outbound shipment. By default this creates a B2C shipment unless B2B-specific fields are supplied.",
+      "method": "POST",
+      "path": "/v3/shipments",
+      "query_params": [
+        "validate_only",
+        "ensure_unique_order_id"
+      ],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "validate_only": {
+            "type": "boolean",
+            "description": "Validate request without creating a shipment."
+          },
+          "ensure_unique_order_id": {
+            "type": "boolean",
+            "description": "Reject duplicate order_id values."
+          },
+          "destination_address": {
+            "type": "object",
+            "description": "Recipient address."
+          },
+          "items": {
+            "type": "array",
+            "description": "Shipment line items and quantities."
+          },
+          "service": {
+            "type": "string",
+            "enum": [
+              "express",
+              "standard",
+              "economy",
+              "pickup_point"
+            ],
+            "description": "Shipment method."
+          },
+          "warehouse_id": {
+            "type": "string",
+            "description": "Warehouse ID to fulfill from. If omitted, byrd can assign automatically."
+          },
+          "options": {
+            "type": "object"
+          },
+          "shop": {
+            "type": "object",
+            "description": "Custom order-system/shop details."
+          },
+          "documents": {
+            "type": "array"
+          },
+          "notes": {
+            "type": "object"
+          },
+          "insurance": {
+            "type": "object"
+          },
+          "customs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "destination_address",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "shipments_list",
+      "description": "List byrd outbound shipments.",
+      "method": "GET",
+      "path": "/v3/shipments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          },
+          "order_id": {
+            "type": "string",
+            "description": "Optional order ID filter when supported."
+          }
+        }
+      }
+    },
+    {
+      "name": "shipment_get",
+      "description": "Get details for one byrd shipment.",
+      "method": "GET",
+      "path": "/v3/shipments/{shipment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "byrd shipment ID."
+          }
+        },
+        "required": [
+          "shipment_id"
+        ]
+      }
+    },
+    {
+      "name": "shipment_tracking_get",
+      "description": "Get tracking data for one byrd shipment.",
+      "method": "GET",
+      "path": "/v3/shipments/{shipment_id}/tracking",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "byrd shipment ID."
+          }
+        },
+        "required": [
+          "shipment_id"
+        ]
+      }
+    },
+    {
+      "name": "shipment_update",
+      "description": "Update a byrd shipment when it is still editable.",
+      "method": "PATCH",
+      "path": "/v3/shipments/{shipment_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "byrd shipment ID."
+          },
+          "destination_address": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array"
+          },
+          "service": {
+            "type": "string"
+          },
+          "warehouse_id": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object"
+          },
+          "shop": {
+            "type": "object"
+          },
+          "documents": {
+            "type": "array"
+          },
+          "notes": {
+            "type": "object"
+          },
+          "insurance": {
+            "type": "object"
+          },
+          "customs": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "shipment_id"
+        ]
+      }
+    },
+    {
+      "name": "shipment_release",
+      "description": "Release a byrd shipment for warehouse processing when the endpoint is enabled for the account.",
+      "method": "POST",
+      "path": "/v3/shipments/{shipment_id}/release",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "byrd shipment ID."
+          }
+        },
+        "required": [
+          "shipment_id"
+        ]
+      }
+    },
+    {
+      "name": "shipment_recall",
+      "description": "Recall a byrd shipment when it is still recallable.",
+      "method": "POST",
+      "path": "/v3/shipments/{shipment_id}/recall",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "byrd shipment ID."
+          }
+        },
+        "required": [
+          "shipment_id"
+        ]
+      }
+    },
+    {
+      "name": "returns_list",
+      "description": "List byrd returns.",
+      "method": "GET",
+      "path": "/v2/warehouse/returns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "per_page": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    {
+      "name": "return_create",
+      "description": "Announce or create a byrd return when supported for the account.",
+      "method": "POST",
+      "path": "/v2/warehouse/returns",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "shipment_id": {
+            "type": "string",
+            "description": "Original shipment ID."
+          },
+          "items": {
+            "type": "array",
+            "description": "Returned items."
+          },
+          "reason": {
+            "type": "string"
+          },
+          "customer": {
+            "type": "object"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      }
+    }
+  ]
+}

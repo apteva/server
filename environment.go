@@ -42,6 +42,11 @@ type EnvironmentSpec struct {
 	ID         string // unique id for this environment (caller-supplied)
 	ProjectID  string // project scope the in-environment apps run under
 	GatewayURL string // shared apteva-server URL sidecars call back to
+	// CreatorUserID is the authenticated user responsible for temporary app
+	// installs. It is persisted as app_installs.installed_by so environment
+	// sidecars retain a real platform principal. Install-backed environments
+	// fail closed when it is absent.
+	CreatorUserID int64
 	// Set only by the generic app-facing runtime API. Legacy environment callers
 	// leave these zero-valued.
 	RuntimeOwnerInstallID int64
@@ -92,6 +97,7 @@ type Environment struct {
 	NetworkMode     EdgeMode
 	IntegrationMode string
 	ownerInstallID  int64
+	creatorUserID   int64
 	expiresAt       time.Time
 
 	edge              *EnvironmentEdge
@@ -102,7 +108,9 @@ type Environment struct {
 	apps              map[string]*SandboxAppInstance
 	installs          map[string]*localInstall    // real installs (AppSrcDirs path), keyed by app name
 	agents            map[int64]*EnvironmentAgent // running agent cores in this environment, keyed by transient agent id
-	agentAliases      map[string]int64            // stable environment-local alias → agent id
+	pendingAgents     map[int64]*EnvironmentAgent // server-owned startup reservations; never exposed as running agents
+	stopped           bool
+	agentAliases      map[string]int64 // stable environment-local alias → agent id
 	subscriptions     []EnvironmentSubscriptionSpec
 	mcpAttachments    map[string]RuntimeMCPAttachment
 	managedMCPs       map[string]*RuntimeManagedMCP
@@ -112,6 +120,7 @@ type Environment struct {
 }
 
 func (w *Environment) OwnerInstallID() int64 { return w.ownerInstallID }
+func (w *Environment) CreatorUserID() int64  { return w.creatorUserID }
 func (w *Environment) ExpiresAt() time.Time  { return w.expiresAt }
 
 func (w *Environment) SourceInstallID(appName string) int64 {
@@ -123,7 +132,7 @@ func (w *Environment) SourceInstallID(appName string) int64 {
 func (w *Environment) AddMCPAttachment(a RuntimeMCPAttachment) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.agents) > 0 {
+	if w.stopped || len(w.agents) > 0 || len(w.pendingAgents) > 0 {
 		return fmt.Errorf("attach MCP before spawning runtime agents")
 	}
 	if w.mcpAttachments == nil {
@@ -170,7 +179,7 @@ func (w *Environment) AddManagedMCP(mcp *RuntimeManagedMCP) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if len(w.agents) > 0 {
+	if w.stopped || len(w.agents) > 0 || len(w.pendingAgents) > 0 {
 		return fmt.Errorf("attach managed MCP before spawning runtime agents")
 	}
 	if w.managedMCPs == nil {
@@ -219,6 +228,12 @@ func (w *Environment) ManagedMCPByToken(token string) *RuntimeManagedMCP {
 type environmentAppSource struct {
 	Name string
 	Dir  string
+}
+
+type environmentAppDependency struct {
+	BindingKey string
+	TargetName string
+	Multiple   bool
 }
 
 func cloneInt64Map(in map[string]int64) map[string]int64 {
@@ -349,6 +364,14 @@ func (w *Environment) AttachAgent(a *EnvironmentAgent) error {
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	return w.attachAgentLocked(a)
+}
+
+func (w *Environment) attachAgentLocked(a *EnvironmentAgent) error {
+	if w.stopped || (!w.expiresAt.IsZero() && !time.Now().Before(w.expiresAt)) {
+		return fmt.Errorf("environment is stopped or expired")
+	}
+	alias := a.Alias
 	if w.agents == nil {
 		w.agents = map[int64]*EnvironmentAgent{}
 	}
@@ -363,6 +386,57 @@ func (w *Environment) AttachAgent(a *EnvironmentAgent) error {
 	}
 	w.agents[a.AgentID] = a
 	w.agentAliases[alias] = a.AgentID
+	if w.server != nil && w.server.store != nil {
+		w.server.store.agentEligibilityRevision.Add(1)
+	}
+	return nil
+}
+
+// reserveAgent authorizes only a server-created transient agent during startup.
+// Runtime IDs and agent kinds supplied by clients do not create reservations.
+func (w *Environment) reserveAgent(a *EnvironmentAgent) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped || (!w.expiresAt.IsZero() && !time.Now().Before(w.expiresAt)) {
+		return fmt.Errorf("environment is stopped or expired")
+	}
+	if a == nil || a.AgentID <= 0 || a.Alias == "" {
+		return fmt.Errorf("invalid pending environment agent")
+	}
+	if w.agents[a.AgentID] != nil || w.pendingAgents[a.AgentID] != nil {
+		return fmt.Errorf("environment already has agent %d", a.AgentID)
+	}
+	if _, exists := w.agentAliases[a.Alias]; exists {
+		return fmt.Errorf("environment already has an agent with alias %q", a.Alias)
+	}
+	for _, pending := range w.pendingAgents {
+		if pending.Alias == a.Alias {
+			return fmt.Errorf("environment already has an agent with alias %q", a.Alias)
+		}
+	}
+	if w.pendingAgents == nil {
+		w.pendingAgents = map[int64]*EnvironmentAgent{}
+	}
+	w.pendingAgents[a.AgentID] = a
+	return nil
+}
+
+func (w *Environment) releaseAgentReservation(agentID int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.pendingAgents, agentID)
+}
+
+func (w *Environment) activateReservedAgent(a *EnvironmentAgent) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.pendingAgents[a.AgentID] != a {
+		return fmt.Errorf("environment agent startup reservation is no longer active")
+	}
+	if err := w.attachAgentLocked(a); err != nil {
+		return err
+	}
+	delete(w.pendingAgents, a.AgentID)
 	return nil
 }
 
@@ -375,6 +449,9 @@ func (w *Environment) RemoveAgent(agentID int64) *EnvironmentAgent {
 		return nil
 	}
 	delete(w.agents, agentID)
+	if w.server != nil && w.server.store != nil {
+		w.server.store.agentEligibilityRevision.Add(1)
+	}
 	if a.Alias != "" {
 		delete(w.agentAliases, a.Alias)
 	}
@@ -518,15 +595,20 @@ func (w *Environment) AppDBPath(name string) (string, bool) {
 // Idempotent.
 func (w *Environment) Stop() {
 	w.mu.Lock()
+	w.stopped = true
 	apps := w.apps
 	installs := w.installs
 	agents := make([]*EnvironmentAgent, 0, len(w.agents))
 	for _, a := range w.agents {
 		agents = append(agents, a)
 	}
+	for _, a := range w.pendingAgents {
+		agents = append(agents, a)
+	}
 	w.apps = map[string]*SandboxAppInstance{}
 	w.installs = map[string]*localInstall{}
 	w.agents = map[int64]*EnvironmentAgent{}
+	w.pendingAgents = map[int64]*EnvironmentAgent{}
 	w.agentAliases = map[string]int64{}
 	managedMCPManager := w.managedMCPManager
 	w.managedMCPManager = nil
@@ -548,7 +630,7 @@ func (w *Environment) Stop() {
 	// runtime-scoped connection rows first so install teardown cannot be held
 	// back by present or future ownership constraints.
 	if w.server != nil && w.ID != "" {
-		_, _ = w.server.store.db.Exec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
+		_, _ = w.server.store.dbExec(`DELETE FROM connections WHERE project_id = ?`, w.ID)
 	}
 	// Tear down real installs (stop process + delete install/app rows +
 	// remove the throwaway data dir).
@@ -577,13 +659,14 @@ func (w *Environment) Stop() {
 // EnvironmentManager owns the live set of Environments. Hung off Server as s.environments;
 // nil-safe — created at boot but only touched by environment endpoints.
 type EnvironmentManager struct {
-	mu           sync.Mutex
-	environments map[string]*Environment
-	creating     map[string]bool
-	dataDir      string
-	snapshots    *SnapshotStore
-	server       *Server // set in NewServer; needed for real (install-backed) environment apps
-	expiryTimers map[string]*time.Timer
+	mu             sync.Mutex
+	environments   map[string]*Environment
+	creating       map[string]bool
+	creatorUserIDs map[string]int64
+	dataDir        string
+	snapshots      *SnapshotStore
+	server         *Server // set in NewServer; needed for real (install-backed) environment apps
+	expiryTimers   map[string]*time.Timer
 
 	// ResolveBinary maps an app manifest name to its sidecar binary path
 	// when a SandboxApp doesn't carry an explicit BinaryPath. Injectable
@@ -595,20 +678,38 @@ type EnvironmentManager struct {
 	// dir (for installLocalSource / environment-from-bindings derivation).
 	// Injectable for tests. Defaults to defaultSourceResolver.
 	ResolveSource func(name string) (string, error)
+
+	// ResolveEnvironmentSource is the production package-aware resolver. It
+	// understands project/global installs, the immutable app cache, registry
+	// packages, version constraints, and finally development checkouts.
+	// Tests can replace it without requiring a live registry.
+	ResolveEnvironmentSource func(projectID, name, constraint string) (string, error)
 }
 
 // NewEnvironmentManager creates the manager and ensures its data root exists.
 func NewEnvironmentManager(dataDir string) *EnvironmentManager {
 	_ = os.MkdirAll(dataDir, 0755)
 	return &EnvironmentManager{
-		environments:  map[string]*Environment{},
-		creating:      map[string]bool{},
-		dataDir:       dataDir,
-		snapshots:     NewSnapshotStore(dataDir),
-		expiryTimers:  map[string]*time.Timer{},
-		ResolveBinary: defaultBinaryResolver,
-		ResolveSource: defaultSourceResolver,
+		environments:   map[string]*Environment{},
+		creating:       map[string]bool{},
+		creatorUserIDs: map[string]int64{},
+		dataDir:        dataDir,
+		snapshots:      NewSnapshotStore(dataDir),
+		expiryTimers:   map[string]*time.Timer{},
+		ResolveBinary:  defaultBinaryResolver,
+		ResolveSource:  defaultSourceResolver,
 	}
+}
+
+func (wm *EnvironmentManager) resolveAppSource(projectID, name, constraint string) (string, error) {
+	if wm != nil && wm.ResolveEnvironmentSource != nil {
+		return wm.ResolveEnvironmentSource(projectID, name, constraint)
+	}
+	resolve := defaultSourceResolver
+	if wm != nil && wm.ResolveSource != nil {
+		resolve = wm.ResolveSource
+	}
+	return resolve(name)
 }
 
 // Snapshots exposes the snapshot store.
@@ -707,12 +808,18 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 	if spec.ID == "" {
 		return nil, fmt.Errorf("environment: ID required")
 	}
+	if len(spec.AppSrcDirs) > 0 && spec.CreatorUserID <= 0 {
+		return nil, fmt.Errorf("environment: authenticated creator required for install-backed apps")
+	}
 	wm.mu.Lock()
 	if _, exists := wm.environments[spec.ID]; exists || wm.creating[spec.ID] {
 		wm.mu.Unlock()
 		return nil, fmt.Errorf("environment %q already exists", spec.ID)
 	}
 	wm.creating[spec.ID] = true
+	if spec.CreatorUserID > 0 {
+		wm.creatorUserIDs[spec.ID] = spec.CreatorUserID
+	}
 	wm.mu.Unlock()
 	registered := false
 	defer func() {
@@ -721,6 +828,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		}
 		wm.mu.Lock()
 		delete(wm.creating, spec.ID)
+		delete(wm.creatorUserIDs, spec.ID)
 		wm.mu.Unlock()
 	}()
 
@@ -742,6 +850,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		NetworkMode:       edge.mode,
 		IntegrationMode:   integrationMode,
 		ownerInstallID:    spec.RuntimeOwnerInstallID,
+		creatorUserID:     spec.CreatorUserID,
 		expiresAt:         spec.RuntimeExpiresAt,
 		edge:              edge,
 		server:            wm.server,
@@ -771,7 +880,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		w.removeInterceptor = removeIntegrationMode
 	}
 
-	appSources, depBindings, err := wm.expandAppSourcesWithRequiredDeps(spec.AppSrcDirs)
+	appSources, depBindings, err := wm.expandAppSourcesWithRequiredDeps(spec.ProjectID, spec.AppSrcDirs)
 	if err != nil {
 		w.Stop()
 		return nil, fmt.Errorf("environment %q: resolve app dependencies: %w", spec.ID, err)
@@ -818,7 +927,12 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 			"NO_PROXY":              "",
 			"APTEVA_ENVIRONMENT_ID": spec.ID,
 		}
-		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, env, spec.RestoredAppDataDirs[src.Name], nil)
+		initialBindings, bindErr := environmentDependencyBindingValues(w, depBindings[src.Name])
+		if bindErr != nil {
+			w.Stop()
+			return nil, fmt.Errorf("environment %q: prepare app %q bindings: %w", spec.ID, src.Name, bindErr)
+		}
+		inst, ierr := wm.server.installLocalSource(src.Dir, spec.ID, spec.CreatorUserID, env, spec.RestoredAppDataDirs[src.Name], initialBindings, nil)
 		if ierr != nil {
 			w.Stop()
 			return nil, fmt.Errorf("environment %q: install app %q: %w", spec.ID, src.Name, ierr)
@@ -853,26 +967,30 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 // Environment apps. Required requires.apps dependencies are installed before their
 // parents so a Environment selected with only "media" also gets "storage". Optional
 // deps stay opt-in; callers can include them explicitly in AppSrcDirs.
-func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[string]string) ([]environmentAppSource, map[string][]string, error) {
+func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(projectID string, initial map[string]string) ([]environmentAppSource, map[string][]environmentAppDependency, error) {
 	if len(initial) == 0 {
 		return nil, nil, nil
 	}
-	resolve := wm.ResolveSource
-	if resolve == nil {
-		resolve = defaultSourceResolver
+	resolve := func(name, constraint string) (string, error) {
+		return wm.resolveAppSource(projectID, name, constraint)
 	}
 	dirByName := map[string]string{}
-	depsByName := map[string][]string{}
+	depsByName := map[string][]environmentAppDependency{}
+	manifestByName := map[string]*sdk.Manifest{}
 	visiting := map[string]bool{}
 	visited := map[string]bool{}
 	var ordered []environmentAppSource
+	initialByName := map[string]string{}
+	for name, dir := range initial {
+		initialByName[normalizeAppName(name)] = dir
+	}
 
 	readManifest := func(dir string) (*sdk.Manifest, error) {
 		data, err := os.ReadFile(filepath.Join(dir, "apteva.yaml"))
 		if err != nil {
 			return nil, err
 		}
-		m, err := sdk.ParseManifest(data)
+		m, err := parseServerAppManifest(data)
 		if err != nil {
 			return nil, err
 		}
@@ -882,21 +1000,37 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[strin
 		return m, nil
 	}
 
-	appendDep := func(parent, dep string) {
+	appendDep := func(parent string, dep environmentAppDependency) {
 		for _, existing := range depsByName[parent] {
-			if existing == dep {
+			if existing.BindingKey == dep.BindingKey && existing.TargetName == dep.TargetName {
 				return
 			}
 		}
 		depsByName[parent] = append(depsByName[parent], dep)
 	}
 
-	var visit func(name, dir string) (string, error)
-	visit = func(name, dir string) (string, error) {
+	var visit func(name, dir, constraint, parent string) (string, error)
+	visit = func(name, dir, constraint, parent string) (string, error) {
+		requested := normalizeAppName(name)
+		if requested == "" {
+			return "", fmt.Errorf("empty app dependency name")
+		}
+		if visiting[requested] {
+			return "", fmt.Errorf("dependency cycle involving %q", name)
+		}
+		if existing := manifestByName[requested]; existing != nil {
+			if err := validateEnvironmentAppVersion(existing.Version, constraint); err != nil {
+				return "", fmt.Errorf("app %q required by %q: %w", name, parent, err)
+			}
+			return existing.Name, nil
+		}
 		if dir == "" {
-			resolved, err := resolve(name)
+			resolved, err := resolve(name, constraint)
 			if err != nil {
-				return "", fmt.Errorf("resolve source for required app %q: %w", name, err)
+				if parent != "" {
+					return "", fmt.Errorf("resolve dependency %q required by %q (version %q): %w", name, parent, constraint, err)
+				}
+				return "", fmt.Errorf("resolve source for app %q (version %q): %w", name, constraint, err)
 			}
 			dir = resolved
 		}
@@ -905,39 +1039,93 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[strin
 			return "", fmt.Errorf("read manifest for app %q: %w", name, err)
 		}
 		actual := m.Name
-		if visited[actual] {
+		if normalizeAppName(actual) != requested {
+			return "", fmt.Errorf("resolved app %q to manifest %q at %s", name, actual, dir)
+		}
+		if err := validateEnvironmentAppVersion(m.Version, constraint); err != nil {
+			return "", fmt.Errorf("app %q required by %q: %w", actual, parent, err)
+		}
+		if visited[requested] {
 			return actual, nil
 		}
-		if visiting[actual] {
-			return "", fmt.Errorf("dependency cycle involving %q", actual)
-		}
-		visiting[actual] = true
+		visiting[requested] = true
 		dirByName[actual] = dir
+		manifestByName[normalizeAppName(actual)] = m
 		for _, dep := range m.Requires.Apps {
 			if dep.Name == "" {
 				continue
 			}
 			if dep.Optional {
-				if _, explicitlyIncluded := initial[dep.Name]; !explicitlyIncluded {
+				if _, explicitlyIncluded := initialByName[normalizeAppName(dep.Name)]; !explicitlyIncluded {
 					continue
 				}
 			}
-			if depDir, ok := initial[dep.Name]; ok {
-				depActual, err := visit(dep.Name, depDir)
-				if err != nil {
-					return "", err
+			depDir := initialByName[normalizeAppName(dep.Name)]
+			depActual, err := visit(dep.Name, depDir, dep.Version, actual)
+			if err != nil {
+				return "", err
+			}
+			appendDep(actual, environmentAppDependency{BindingKey: dep.Name, TargetName: depActual})
+		}
+		for _, dep := range m.Requires.Integrations {
+			if !strings.EqualFold(strings.TrimSpace(dep.Kind), "app") {
+				continue
+			}
+			role := strings.TrimSpace(dep.Role)
+			if role == "" {
+				if dep.Required {
+					return "", fmt.Errorf("app %q has required app integration with no role", actual)
 				}
-				appendDep(actual, depActual)
-			} else {
-				depActual, err := visit(dep.Name, "")
-				if err != nil {
-					return "", err
+				continue
+			}
+			isMultiple := appBindingIsMultipleForManifest(m, dep)
+			selected := make([]string, 0, len(dep.CompatibleAppNames))
+			for _, candidate := range dep.CompatibleAppNames {
+				if _, ok := initialByName[normalizeAppName(candidate)]; ok {
+					selected = append(selected, candidate)
+					if !isMultiple {
+						break
+					}
 				}
-				appendDep(actual, depActual)
+			}
+			autoSelect := len(selected) == 0 && dep.Required
+			if autoSelect {
+				selected = append(selected, dep.CompatibleAppNames...)
+			}
+			if len(selected) == 0 {
+				if dep.Required {
+					return "", fmt.Errorf("app %q requires app integration role %q but declares no compatible app", actual, role)
+				}
+				continue
+			}
+			resolvedCount := 0
+			resolutionErrors := make([]string, 0)
+			for _, candidate := range selected {
+				depDir := initialByName[normalizeAppName(candidate)]
+				if depDir == "" && autoSelect {
+					resolved, resolveErr := resolve(candidate, "")
+					if resolveErr != nil {
+						resolutionErrors = append(resolutionErrors, candidate+": "+resolveErr.Error())
+						continue
+					}
+					depDir = resolved
+				}
+				depActual, err := visit(candidate, depDir, "", actual)
+				if err != nil {
+					return "", fmt.Errorf("resolve app integration role %q: %w", role, err)
+				}
+				appendDep(actual, environmentAppDependency{BindingKey: role, TargetName: depActual, Multiple: isMultiple})
+				resolvedCount++
+				if autoSelect || !isMultiple {
+					break
+				}
+			}
+			if dep.Required && resolvedCount == 0 {
+				return "", fmt.Errorf("app %q requires app integration role %q; no compatible app resolved (%s)", actual, role, strings.Join(resolutionErrors, "; "))
 			}
 		}
-		delete(visiting, actual)
-		visited[actual] = true
+		delete(visiting, requested)
+		visited[requested] = true
 		ordered = append(ordered, environmentAppSource{Name: actual, Dir: dirByName[actual]})
 		return actual, nil
 	}
@@ -948,14 +1136,14 @@ func (wm *EnvironmentManager) expandAppSourcesWithRequiredDeps(initial map[strin
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if _, err := visit(name, initial[name]); err != nil {
+		if _, err := visit(name, initial[name], "", ""); err != nil {
 			return nil, nil, err
 		}
 	}
 	return ordered, depsByName, nil
 }
 
-func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[string][]string) error {
+func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[string][]environmentAppDependency) error {
 	for parent, deps := range depsByName {
 		parentInst, ok := w.Install(parent)
 		if !ok {
@@ -963,28 +1151,58 @@ func (s *Server) bindEnvironmentAppDependencies(w *Environment, depsByName map[s
 		}
 		bindings := map[string]any{}
 		var raw string
-		if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&raw); err == nil {
+		if err := s.store.dbQueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&raw); err == nil {
 			_ = json.Unmarshal([]byte(raw), &bindings)
 		}
-		changed := false
-		for _, dep := range deps {
-			depInst, ok := w.Install(dep)
-			if !ok {
-				return fmt.Errorf("%s requires %s but it is not installed in environment", parent, dep)
-			}
-			bindings[dep] = depInst.InstallID
-			changed = true
+		resolved, err := environmentDependencyBindingValues(w, deps)
+		if err != nil {
+			return fmt.Errorf("%s: %w", parent, err)
 		}
-		if !changed {
+		if len(resolved) == 0 {
 			continue
 		}
+		for key, value := range resolved {
+			bindings[key] = value
+		}
 		next, _ := json.Marshal(bindings)
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
 			return err
 		}
 	}
 	s.LoadInstalledApps()
 	return nil
+}
+
+func environmentDependencyBindingValues(w *Environment, deps []environmentAppDependency) (map[string]any, error) {
+	byKey := map[string][]int64{}
+	multiple := map[string]bool{}
+	for _, dep := range deps {
+		depInst, ok := w.Install(dep.TargetName)
+		if !ok {
+			return nil, fmt.Errorf("requires %s but it is not installed in environment", dep.TargetName)
+		}
+		ids := byKey[dep.BindingKey]
+		found := false
+		for _, id := range ids {
+			found = found || id == depInst.InstallID
+		}
+		if !found {
+			byKey[dep.BindingKey] = append(ids, depInst.InstallID)
+		}
+		multiple[dep.BindingKey] = multiple[dep.BindingKey] || dep.Multiple
+	}
+	bindings := make(map[string]any, len(byKey))
+	for key, ids := range byKey {
+		if len(ids) == 1 && !multiple[key] {
+			bindings[key] = ids[0]
+			continue
+		}
+		if len(ids) > 1 && !multiple[key] {
+			return nil, fmt.Errorf("binding %q resolved to multiple apps", key)
+		}
+		bindings[key] = map[string]any{"ids": ids, "default_id": ids[0]}
+	}
+	return bindings, nil
 }
 
 func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, bindings []RuntimeIntegrationBinding) error {
@@ -1071,12 +1289,12 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 
 		existing := map[string]any{}
 		var existingRaw string
-		if err := s.store.db.QueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&existingRaw); err == nil {
+		if err := s.store.dbQueryRow(`SELECT COALESCE(integration_bindings, '{}') FROM app_installs WHERE id = ?`, parentInst.InstallID).Scan(&existingRaw); err == nil {
 			_ = json.Unmarshal([]byte(existingRaw), &existing)
 		}
 		existing[role] = conn.ID
 		next, _ := json.Marshal(existing)
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), parentInst.InstallID); err != nil {
 			return fmt.Errorf("binding %d: update app binding: %w", i, err)
 		}
 	}
@@ -1182,7 +1400,7 @@ func (s *Server) bindEnvironmentConnections(userID int64, sourceProjectID string
 		if err != nil {
 			return fmt.Errorf("encode bindings for install %d: %w", installID, err)
 		}
-		if _, err := s.store.db.Exec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), installID); err != nil {
+		if _, err := s.store.dbExec(`UPDATE app_installs SET integration_bindings = ? WHERE id = ?`, string(next), installID); err != nil {
 			return fmt.Errorf("update bindings for install %d: %w", installID, err)
 		}
 	}
@@ -1265,6 +1483,20 @@ func (wm *EnvironmentManager) Get(id string) (*Environment, bool) {
 	return w, ok
 }
 
+// CreatorOwnsScope reports whether userID is the authenticated creator of an
+// active or currently-starting environment. Environment IDs are deliberately
+// not persisted as ordinary projects, so this is the narrow authorization
+// bridge used by temporary installs calling project-scoped SDK endpoints.
+func (wm *EnvironmentManager) CreatorOwnsScope(id string, userID int64) bool {
+	if wm == nil || id == "" || userID <= 0 {
+		return false
+	}
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	creator, ok := wm.creatorUserIDs[id]
+	return ok && creator == userID
+}
+
 // List returns a snapshot of all live Environments.
 func (wm *EnvironmentManager) List() []*Environment {
 	wm.mu.Lock()
@@ -1287,6 +1519,7 @@ func (wm *EnvironmentManager) Destroy(id string) {
 		timer.Stop()
 	}
 	delete(wm.expiryTimers, id)
+	delete(wm.creatorUserIDs, id)
 	wm.mu.Unlock()
 	if ok && w != nil {
 		w.Stop()
@@ -1299,6 +1532,7 @@ func (wm *EnvironmentManager) StopAll() {
 	ws := wm.environments
 	wm.environments = map[string]*Environment{}
 	wm.creating = map[string]bool{}
+	wm.creatorUserIDs = map[string]int64{}
 	for _, timer := range wm.expiryTimers {
 		timer.Stop()
 	}

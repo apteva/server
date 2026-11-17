@@ -17,6 +17,7 @@ const providerUsageCapability = "subscription_usage"
 
 var (
 	providerUsageCodexBaseURL     = "https://chatgpt.com/backend-api"
+	providerUsageGrokBuildBaseURL = integrationGrokBuildRuntimeURL
 	providerUsageHTTPClient       = &http.Client{Timeout: 8 * time.Second}
 	providerUsageFreshTTL         = 2 * time.Minute
 	providerUsageStaleTTL         = 30 * time.Minute
@@ -61,14 +62,298 @@ type providerUsageFetcher interface {
 }
 
 type codexProviderUsageFetcher struct{}
+type grokBuildProviderUsageFetcher struct{}
 
 func providerUsageFetcherFor(providerKey string) providerUsageFetcher {
 	switch providerKey {
 	case openAICodexAuthProvider:
 		return codexProviderUsageFetcher{}
+	case integrationGrokBuildSlug:
+		return grokBuildProviderUsageFetcher{}
 	default:
 		return nil
 	}
+}
+
+func (grokBuildProviderUsageFetcher) CacheKey(state map[string]any) string {
+	accessToken := strings.TrimSpace(stringFromNested(state, "credentials", "access_token"))
+	identity := strings.TrimSpace(stringFromNested(state, "credentials", "principal_id"))
+	if identity == "" {
+		identity = strings.TrimSpace(stringFromNested(state, "credentials", "user_id"))
+	}
+	if identity == "" {
+		identity = strings.TrimSpace(stringFromNested(state, "credentials", "account_email"))
+	}
+	if identity == "" {
+		tokenSum := sha256.Sum256([]byte(accessToken))
+		identity = "token:" + hex.EncodeToString(tokenSum[:])
+	}
+	sum := sha256.Sum256([]byte(integrationGrokBuildSlug + "\x00" + identity))
+	return hex.EncodeToString(sum[:])
+}
+
+func (grokBuildProviderUsageFetcher) FetchUsage(ctx context.Context, state map[string]any) (*ProviderUsageSnapshot, error) {
+	credentials := map[string]string{
+		"access_token":  strings.TrimSpace(stringFromNested(state, "credentials", "access_token")),
+		"account_id":    strings.TrimSpace(stringFromNested(state, "credentials", "account_id")),
+		"account_email": strings.TrimSpace(stringFromNested(state, "credentials", "account_email")),
+		"user_id":       strings.TrimSpace(stringFromNested(state, "credentials", "user_id")),
+		"principal_id":  strings.TrimSpace(stringFromNested(state, "credentials", "principal_id")),
+	}
+	if credentials["access_token"] == "" {
+		return nil, fmt.Errorf("Grok Build auth is missing access_token")
+	}
+
+	userPayload, err := fetchGrokBuildUsageJSON(ctx, "/user", credentials, false)
+	if err != nil {
+		return nil, err
+	}
+	userID := grokBuildUsageString(userPayload, "userId", "user_id", "id")
+	if !validGrokBuildUsageUserID(userID) {
+		return nil, fmt.Errorf("Grok Build account identity could not be verified")
+	}
+	credentials["user_id"] = userID
+
+	billingPayload, err := fetchGrokBuildUsageJSON(ctx, "/billing?format=credits", credentials, true)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeGrokBuildUsage(billingPayload)
+}
+
+func fetchGrokBuildUsageJSON(ctx context.Context, path string, credentials map[string]string, includeUserID bool) (map[string]any, error) {
+	endpoint := strings.TrimRight(providerUsageGrokBuildBaseURL, "/") + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	requestCredentials := credentials
+	if !includeUserID {
+		requestCredentials = make(map[string]string, len(credentials))
+		for key, value := range credentials {
+			requestCredentials[key] = value
+		}
+		requestCredentials["user_id"] = ""
+		requestCredentials["account_id"] = ""
+	}
+	applyGrokBuildSessionHeaders(req, requestCredentials)
+	req.Header.Set("User-Agent", "apteva-server/grok-build-usage")
+
+	resp, err := providerUsageHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("Grok Build usage HTTP %d: %s", resp.StatusCode, summarizeUpstreamError(body))
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 256<<10)).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode Grok Build usage: %w", err)
+	}
+	return payload, nil
+}
+
+func normalizeGrokBuildUsage(payload map[string]any) (*ProviderUsageSnapshot, error) {
+	config, _ := payload["config"].(map[string]any)
+	if config == nil {
+		return nil, fmt.Errorf("Grok Build billing response is missing config")
+	}
+	plan := grokBuildUsageString(payload, "subscriptionTier", "subscription_tier", "plan")
+	period, _ := firstGrokBuildUsageObject(config, "currentPeriod", "current_period")
+	periodType := grokBuildUsageString(period, "type")
+	windowID := normalizeGrokBuildUsagePeriodID(periodType)
+	start := grokBuildUsageTime(period, "start")
+	end := grokBuildUsageTime(period, "end")
+	if start == nil {
+		start = grokBuildUsageTime(config, "billingPeriodStart", "billing_period_start")
+	}
+	if end == nil {
+		end = grokBuildUsageTime(config, "billingPeriodEnd", "billing_period_end")
+	}
+	durationMinutes := 0
+	if start != nil && end != nil && end.After(*start) {
+		durationMinutes = int(end.Sub(*start).Minutes())
+	}
+
+	used, hasUsed := grokBuildUsagePercent(config, "creditUsagePercent", "credit_usage_percent")
+	if !hasUsed {
+		usedCents, hasUsedCents := grokBuildUsageCents(config, "used")
+		limitCents, hasLimitCents := grokBuildUsageCents(config, "monthlyLimit", "monthly_limit")
+		if hasUsedCents && hasLimitCents && limitCents > 0 {
+			used = clampProviderUsagePercent(float64(usedCents) * 100 / float64(limitCents))
+			hasUsed = true
+		}
+	}
+
+	snapshot := &ProviderUsageSnapshot{
+		Supported: true,
+		Kind:      "subscription_quota",
+		Plan:      plan,
+	}
+	if hasUsed {
+		window := ProviderUsageWindow{
+			ID:              windowID,
+			UsedPercent:     used,
+			DurationMinutes: durationMinutes,
+			ResetsAt:        end,
+		}
+		snapshot.Limits = append(snapshot.Limits, ProviderUsageLimit{
+			ID: "grok-build", Label: "Grok Build", Reached: used >= 100,
+			Windows: []ProviderUsageWindow{window},
+		})
+	}
+
+	if rawProducts, ok := firstGrokBuildUsageArray(config, "productUsage", "product_usage"); ok {
+		for index, raw := range rawProducts {
+			if index >= 16 {
+				break
+			}
+			product, _ := raw.(map[string]any)
+			label := grokBuildUsageString(product, "product", "name")
+			productUsed, ok := grokBuildUsagePercent(product, "usagePercent", "usage_percent")
+			if label == "" || !ok {
+				continue
+			}
+			snapshot.Limits = append(snapshot.Limits, ProviderUsageLimit{
+				ID: normalizeProviderUsageID(label), Label: label, Reached: productUsed >= 100,
+				Windows: []ProviderUsageWindow{{
+					ID: windowID, UsedPercent: productUsed, DurationMinutes: durationMinutes, ResetsAt: end,
+				}},
+			})
+		}
+	}
+
+	if prepaid, ok := grokBuildUsageCents(config, "prepaidBalance", "prepaid_balance"); ok {
+		snapshot.Credits = &ProviderUsageCredits{
+			HasCredits: prepaid > 0,
+			Balance:    formatProviderUsageCents(prepaid),
+		}
+	}
+	if len(snapshot.Limits) == 0 && snapshot.Credits == nil {
+		return nil, fmt.Errorf("Grok Build billing response contained no usable usage data")
+	}
+	return snapshot, nil
+}
+
+func validGrokBuildUsageUserID(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, char := range value {
+		if char < 0x21 || char > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func grokBuildUsageString(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := values[key].(string)
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value != "" && len(value) <= 256 {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstGrokBuildUsageObject(values map[string]any, keys ...string) (map[string]any, bool) {
+	for _, key := range keys {
+		if value, ok := values[key].(map[string]any); ok {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func firstGrokBuildUsageArray(values map[string]any, keys ...string) ([]any, bool) {
+	for _, key := range keys {
+		if value, ok := values[key].([]any); ok {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func grokBuildUsagePercent(values map[string]any, keys ...string) (int, bool) {
+	for _, key := range keys {
+		value, ok := values[key].(float64)
+		if ok && value >= 0 && value <= 100 {
+			return clampProviderUsagePercent(value), true
+		}
+	}
+	return 0, false
+}
+
+func clampProviderUsagePercent(value float64) int {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return int(value + 0.5)
+}
+
+func grokBuildUsageCents(values map[string]any, keys ...string) (int64, bool) {
+	for _, key := range keys {
+		wrapper, ok := values[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		value, ok := wrapper["val"].(float64)
+		if ok && value >= 0 && value <= 1_000_000_000_000 && value == float64(int64(value)) {
+			return int64(value), true
+		}
+	}
+	return 0, false
+}
+
+func grokBuildUsageTime(values map[string]any, keys ...string) *time.Time {
+	for _, key := range keys {
+		raw, ok := values[key].(string)
+		if !ok || len(raw) > 64 {
+			continue
+		}
+		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+			parsed = parsed.UTC()
+			return &parsed
+		}
+	}
+	return nil
+}
+
+func normalizeGrokBuildUsagePeriodID(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "USAGE_PERIOD_TYPE_"))
+	if value == "" {
+		return "primary"
+	}
+	return normalizeProviderUsageID(value)
+}
+
+func normalizeProviderUsageID(value string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, char := range strings.ToLower(value) {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
+			builder.WriteRune(char)
+			lastDash = false
+		} else if !lastDash && builder.Len() > 0 {
+			builder.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}
+
+func formatProviderUsageCents(value int64) string {
+	return fmt.Sprintf("%d.%02d", value/100, value%100)
 }
 
 type providerUsageCacheEntry struct {

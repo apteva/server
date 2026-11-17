@@ -1,0 +1,1112 @@
+{
+  "slug": "sharpsports",
+  "name": "SharpSports",
+  "description": "Self-service sportsbook account linking, bet history/analytics, market selections and hosted betPlace contexts. Free sandbox, no credit card; real account syncing requires a paid BetSync subscription (advertised from $500/month), and betPlace is a separate paid product (advertised $1,750/month). Use public/private keys from the same environment; sandbox and live share this API host and use different keys. Account linking for SDK-required books needs SharpSports SDK integration. betPlace opens a prefilled sportsbook slip for user completion, not unattended betting execution. Docs: https://docs.sharpsports.io . Signup: https://app.sharpsports.io",
+  "logo": "https://www.google.com/s2/favicons?domain=sharpsports.io&sz=128",
+  "categories": [
+    "sports",
+    "betting",
+    "analytics",
+    "saas"
+  ],
+  "base_url": "https://api.sharpsports.io/v1",
+  "auth": {
+    "types": [
+      "custom"
+    ],
+    "credential_fields": [
+      {
+        "name": "public_key",
+        "label": "Public API Key",
+        "type": "password",
+        "required": true,
+        "description": "Sandbox or live public key for book discovery, linking and betPlace contexts."
+      },
+      {
+        "name": "private_key",
+        "label": "Private API Key",
+        "type": "password",
+        "required": true,
+        "description": "Private key from the same sandbox/live environment for bettor data and markets."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_books",
+      "description": "get a list of all sportsbooks represented by SharpSports Full provider response is preserved. Uses the public API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/books",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "support": {
+            "type": "boolean",
+            "description": "serialize `sdkSupport`"
+          },
+          "name": {
+            "type": "string",
+            "description": "the name of the book"
+          },
+          "abbr": {
+            "type": "string",
+            "description": "the 2 character abbreviation for the book"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive",
+              "coming",
+              "unsupported"
+            ],
+            "description": "the status of the book"
+          }
+        }
+      },
+      "headers": {
+        "Authorization": "Token {{public_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_bettors",
+      "description": "get a list of bettors who have linked an account. Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/bettors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "max number of bettors returned, ordered by timeCreated descending"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see Pagination"
+          },
+          "pageNum": {
+            "type": "integer",
+            "description": "see Pagination"
+          }
+        }
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_bettor",
+      "description": "fetch a specific bettor object Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/bettors/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "use either the internalId or SharpSports assigned bettorId"
+          },
+          "metadata": {
+            "type": "boolean",
+            "description": "Include bettor metadata in response"
+          },
+          "timePlacedStart": {
+            "type": "string",
+            "description": "filters metadata to betslips placed after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timePlacedEnd": {
+            "type": "string",
+            "description": "filters metadata to betslips placed before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "league": {
+            "type": "string",
+            "description": "the ID of the league associated with events on bets"
+          },
+          "sport": {
+            "type": "string",
+            "description": "the ID of the sport associated with events on bets"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "single",
+              "parlay"
+            ],
+            "description": "filters metadata to betslips with either single or parlay"
+          },
+          "adjustedAtRisk": {
+            "type": "boolean",
+            "description": "if true filters metadata to betslips with non-null adjusted.atRisk"
+          },
+          "adjustedOdds": {
+            "type": "boolean",
+            "description": "filters metadata to betslips with corresponding adjusted.Odds"
+          },
+          "adjustedLine": {
+            "type": "boolean",
+            "description": "filters metadata to betslips with corresponding adjusted.Line"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_bettor_accounts",
+      "description": "📜 bettorAccounts list Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/bettorAccounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "boolean",
+            "description": "filter based on access=true/false"
+          },
+          "verified": {
+            "type": "boolean",
+            "description": "filter based on verified=true/false"
+          },
+          "isUnverifiable": {
+            "type": "boolean",
+            "description": "filter based on isUnverifiable=true/false"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "max number of bettors returned, ordered by timeCreated descending"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "pageNum": {
+            "type": "integer",
+            "description": "see  pagination"
+          },
+          "book": {
+            "type": "string",
+            "description": "filter based on book id, name or abbr"
+          },
+          "bookRegion": {
+            "type": "string",
+            "description": "filter based on bookRegion name, id or abbr"
+          }
+        }
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_bettor_accounts_by_bettor",
+      "description": "👤 bettorAccounts by bettor Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/bettors/{id}/bettorAccounts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the internalId or bettorId of the bettor"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_bet_slips",
+      "description": "📜 betSlips list Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/betSlips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "refreshResponse": {
+            "type": "string",
+            "description": "the ID of a refreshResponse associated with a betSlip"
+          },
+          "book": {
+            "type": "string",
+            "description": "filters betslips to those of the provided book.  Use the SharpSports bookId, name or abbr"
+          },
+          "abbr": {
+            "type": "string",
+            "description": "the abbreviation of book where a betSlip wager was placed"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed"
+            ],
+            "description": "the status of a betSlip"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "max number of betSlips returned, ordered by timePlaced"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "pageNum": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "timePlacedStart": {
+            "type": "string",
+            "description": "filters betslips to those with timePlaced after this datetime.  %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timePlacedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with timePlaced before this datetime.  %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "dateClosedStart": {
+            "type": "string",
+            "description": "filters betslips to those with dateClosed after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "dateClosedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with dateClosed before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timeClosedStart": {
+            "type": "string",
+            "description": "filters betslips to those with timeClosed on or after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timeClosedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with timeClosed on or before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "type": {
+            "type": "string",
+            "description": "filters betslips to either single or parlay"
+          },
+          "adjustedAtRisk": {
+            "type": "boolean",
+            "description": "if true filters betslips to only those with non-null adjusted.atRisk"
+          },
+          "adjustedOdds": {
+            "type": "boolean",
+            "description": "filters based on adjusted.Odds"
+          },
+          "adjustedLine": {
+            "type": "boolean",
+            "description": "filters based on adjusted.Line"
+          },
+          "sport": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events of the provided sport.  Use the SharpSports sport id or name"
+          },
+          "league": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events of the provided league.  Use the SharpSports leagueId or name"
+          },
+          "eventStartTimeStart": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events starting after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "eventStartTimeEnd": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events starting before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "betType": {
+            "type": "string",
+            "description": "filters betslips to those with bets of the provided type"
+          },
+          "segment": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided segment.  Use the SharpSports segment id or name"
+          },
+          "proposition": {
+            "type": "string",
+            "description": "filters betslips to those with bets with the provided proposition"
+          },
+          "position": {
+            "type": "string",
+            "description": "filters betslips to those with bets with the provided position or positionId"
+          },
+          "team": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided team (either in position or propDetails.team).  Use the SharpSports teamId or name"
+          },
+          "player": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided player (either in position of propDetails.player).  Use the SharpSports playerId or name"
+          },
+          "metric": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided metric.  Use the SharpSports metricId or metric"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "win",
+              "loss",
+              "push",
+              "void",
+              "cashout",
+              "halfwin",
+              "halfloss"
+            ],
+            "description": "filters based on the outcome of the betSlip"
+          }
+        }
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_bet_slip",
+      "description": "🔎 betSlip detail Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/betSlips/{betSlipId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "betSlipId": {
+            "type": "string",
+            "description": "the ID of the betSlip you are requesting"
+          },
+          "refreshResponse": {
+            "type": "string",
+            "description": "the ID of a refreshResponse associated with a betSlip"
+          },
+          "book": {
+            "type": "string",
+            "description": "filters betslips to those of the provided book.  Use the SharpSports bookId"
+          },
+          "abbr": {
+            "type": "string",
+            "description": "the abbreviation of book where a betSlip wager was placed"
+          },
+          "status": {
+            "type": "string",
+            "description": "the status of a betSlip.  Pending or Complete"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "max number of betSlips returned, ordered by timePlaced"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "pageNum": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "timePlacedStart": {
+            "type": "string",
+            "description": "filters betslips to those with timePlaced after this datetime.  %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timePlacedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with timePlaced after this datetime.  %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "dateClosedStart": {
+            "type": "string",
+            "description": "filters betslips to those with dateClosed after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "dateClosedEnd": {
+            "type": "string",
+            "description": "%Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "type": {
+            "type": "string",
+            "description": "filters betslips to either single or parlay"
+          },
+          "adjustedAtRisk": {
+            "type": "boolean",
+            "description": "if true filters betslips to only those with non-null adjusted.atRisk"
+          },
+          "adjustedOdds": {
+            "type": "boolean",
+            "description": "filters based on adjusted.Odds"
+          },
+          "adjustedLine": {
+            "type": "boolean",
+            "description": "filters based on adjusted.Line"
+          },
+          "sport": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events of the provided sport.  Use the SharpSports sport id."
+          },
+          "league": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events of the provided league.  Use the SharpSports leagueId"
+          },
+          "eventStartTimeStart": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events starting after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "eventStartTimeEnd": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events starting before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "betType": {
+            "type": "string",
+            "description": "filters betslips to those with bets of the provided type"
+          },
+          "segment": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided segment.  Use the SharpSports segment id"
+          },
+          "proposition": {
+            "type": "string",
+            "description": "filters betslips to those with bets with the provided proposition"
+          },
+          "position": {
+            "type": "string",
+            "description": "filters betslips to those with bets with the provided position"
+          },
+          "team": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided team (either in position or propDetails.team).  Use the SharpSports teamId"
+          },
+          "player": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided player (either in position of propDetails.player).  Use the SharpSports playerId"
+          },
+          "metric": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided metric.  Use the SharpSports metricId"
+          }
+        },
+        "required": [
+          "betSlipId"
+        ]
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_bet_slips_by_bettor",
+      "description": "📜 👤 betSlips list by bettor Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/bettors/{id}/betSlips",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "use either the `bettorId` or `internalId`"
+          },
+          "book": {
+            "type": "string",
+            "description": "filters betslips to those of the provided book.  Use the SharpSports bookId"
+          },
+          "abbr": {
+            "type": "string",
+            "description": "the abbreviation of book where a betSlip wager was placed"
+          },
+          "status": {
+            "type": "string",
+            "description": "the status of a betSlip.  Pending or Complete"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "max number of betSlips returned, ordered by timePlaced"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "pageNum": {
+            "type": "integer",
+            "description": "see pagination"
+          },
+          "timePlacedStart": {
+            "type": "string",
+            "description": "filters betslips to those with timePlaced after this datetime.  %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timePlacedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with timePlaced before this datetime.  %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "dateClosedStart": {
+            "type": "string",
+            "description": "filters betslips to those with dateClosed after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "dateClosedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with dateClosed before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timeClosedStart": {
+            "type": "string",
+            "description": "filters betslips to those with timeClosed on or after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timeClosedEnd": {
+            "type": "string",
+            "description": "filters betslips to those with timeClosed on or before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "type": {
+            "type": "string",
+            "description": "filters betslips to either single or parlay"
+          },
+          "adjustedAtRisk": {
+            "type": "boolean",
+            "description": "if true filters betslips to only those with non-null adjusted.atRisk"
+          },
+          "adjustedOdds": {
+            "type": "boolean",
+            "description": "filters based on adjusted.Odds"
+          },
+          "adjustedLine": {
+            "type": "boolean",
+            "description": "filters based on adjusted.Line"
+          },
+          "sport": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events of the provided sport.  Use the SharpSports sport id."
+          },
+          "league": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events of the provided league.  Use the SharpSports leagueId"
+          },
+          "eventStartTimeStart": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events starting after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "eventStartTimeEnd": {
+            "type": "string",
+            "description": "filters betslips to those with bets on events starting before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "betType": {
+            "type": "string",
+            "description": "filters betslips to those with bets of the provided type"
+          },
+          "segment": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided segment.  Use the SharpSports segment id"
+          },
+          "proposition": {
+            "type": "string",
+            "description": "filters betslips to those with bets with the provided proposition"
+          },
+          "position": {
+            "type": "string",
+            "description": "filters betslips to those with bets with the provided position"
+          },
+          "team": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided team (either in position or propDetails.team).  Use the SharpSports teamId"
+          },
+          "player": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided player (either in position of propDetails.player).  Use the SharpSports playerId"
+          },
+          "metric": {
+            "type": "string",
+            "description": "filters betslips to those with bets on the provided metric.  Use the SharpSports metricId"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "win",
+              "loss",
+              "push",
+              "void",
+              "cashout",
+              "halfwin",
+              "halfloss"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_bettor_summary",
+      "description": "📊 betSlips summary by bettor Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/bettors/{id}/betSlips/summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the internalId or bettorId"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Timezone name (e.g., \"America/New_York\")"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "list_refresh_responses",
+      "description": "📜 refreshResponse list Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/refreshResponses",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "description": "The identifier of the request that initiated the refresh"
+          },
+          "status": {
+            "type": "integer",
+            "description": "The status code of a RefreshResponse"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "The max number of RefreshResponse objects to be returned, ordered by timeCreated"
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see Pagination"
+          },
+          "pageNum": {
+            "type": "integer",
+            "description": "see Pagination"
+          },
+          "timeCreatedStart": {
+            "type": "string",
+            "description": "filters metadata to RefreshResponses placed after this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          },
+          "timeCreatedEnd": {
+            "type": "string",
+            "description": "filters metadata to RefreshResponses created before this datetime. %Y-%m-%dT%H:%M:%S OR %Y-%m-%d"
+          }
+        }
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "refresh_bettor",
+      "description": "this will refresh the data associated with each bettorAccount the bettor has linked. Full provider response is preserved. Uses the public API key from the selected sandbox/live environment. Refresh is asynchronous; returned refresh records are not confirmed settlement. SDK-required accounts need the provider SDK flow.",
+      "method": "POST",
+      "path": "/bettors/{id}/refresh",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the internalId or SharpSports bettorId of the bettor"
+          },
+          "auth": {
+            "type": "string",
+            "description": "required when using one of the mobile app sdks"
+          },
+          "extensionVersion": {
+            "type": "string",
+            "description": "required when using the chrome browser extension"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "auth",
+        "extensionVersion"
+      ],
+      "body_none": true,
+      "rate_limit": {
+        "min_interval_ms": 60000,
+        "max_retries": 0
+      },
+      "headers": {
+        "Authorization": "Token {{public_key}}"
+      }
+    },
+    {
+      "name": "create_link_context",
+      "description": "Create a BetSync linking context with your unique internalId; use the returned cid in the provider linking UI and SDK. This HTTP tool does not embed or implement the required SharpSports SDK.",
+      "method": "POST",
+      "path": "/context",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "internalId": {
+            "type": "string",
+            "description": "a unique and secure identifier you use to represent the bettor in your database."
+          },
+          "redirectUrl": {
+            "type": "string",
+            "description": "the url users will be routed to after they finish linking"
+          },
+          "uiMode": {
+            "type": "string",
+            "description": "select the ui mode for a specific ui session",
+            "default": "system",
+            "enum": [
+              "dark",
+              "light",
+              "system"
+            ]
+          },
+          "extensionAuthToken": {
+            "type": "string",
+            "description": "to link SDK Required books, generate an auth token (see security section)"
+          }
+        },
+        "required": [
+          "internalId"
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 0
+      },
+      "headers": {
+        "Authorization": "Token {{public_key}}",
+        "Content-Type": "application/json"
+      }
+    },
+    {
+      "name": "create_bet_place_context",
+      "description": "Create a betPlace context for a selection or synced bet slip. Use the returned cid in https://ui.sharpsports.io/place/<cid>. The user reviews and places the final bet in the sportsbook; this does not execute a wager. Requires betPlace access. Verify marketSelection betPlaceAvailability for the chosen book.",
+      "method": "POST",
+      "path": "/context/selection",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "internalId": {
+            "type": "string",
+            "description": "the internalId of the bettor relevant to the session"
+          },
+          "betSlip": {
+            "type": "string",
+            "description": "the id of the betSlip you want to create a tail link for"
+          },
+          "marketSelection": {
+            "type": "string",
+            "description": "the id of the marketSelection to create a betPlace link for.  Use a comma separated list of marketSelection Ids to create a parlay link"
+          },
+          "bookAbbr": {
+            "type": "string",
+            "description": "the abbr of the book you are creating the betPlace link for"
+          },
+          "line": {
+            "type": "number",
+            "description": "optional param to specify the line of the betslip the user wants to place",
+            "format": "float"
+          }
+        },
+        "required": [
+          "internalId"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "marketSelection"
+            ]
+          },
+          {
+            "required": [
+              "betSlip"
+            ]
+          }
+        ]
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 0
+      },
+      "headers": {
+        "Authorization": "Token {{public_key}}",
+        "Content-Type": "application/json"
+      }
+    },
+    {
+      "name": "list_market_selections",
+      "description": "📜 marketSelection list Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/marketSelections",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sdioMarketId": {
+            "type": "string",
+            "description": "the Sportsdata.io Market ID associated with this MarketSelection"
+          },
+          "sdioEventId": {
+            "type": "string",
+            "description": "the Sportsdata.io Event ID associated with this MarketSelection"
+          },
+          "sportradarEventId": {
+            "type": "string",
+            "description": "the Sportradar Event ID associated with this MarketSelection"
+          },
+          "sportradarMarketId": {
+            "type": "string",
+            "description": "the Sportradar Market ID associated with this MarketSelection"
+          },
+          "oddsjamEventId": {
+            "type": "string",
+            "description": "the OddsJam Event ID associated with this MarketSelection"
+          },
+          "oddsjamMarketId": {
+            "type": "string",
+            "description": "the OddsJam Market ID associated with this MarketSelection"
+          },
+          "theOddsApiMarketId": {
+            "type": "string"
+          },
+          "theOddsApiEventId": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "the SharpSports Event ID associated with this MarketSelection"
+          },
+          "position": {
+            "type": "string",
+            "description": "the position of the marketSelection.  This will take the positionID if it is a player or a team"
+          },
+          "proposition": {
+            "type": "string",
+            "description": "the proposition of the marketSelection"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "straight",
+              "prop"
+            ],
+            "description": "filter the marketSelection list by type. Valid options are `straight` and `prop`."
+          },
+          "segment": {
+            "type": "string",
+            "description": "the SharpSports Segment ID or name associated with this MarketSelection"
+          },
+          "team": {
+            "type": "string",
+            "description": "the SharpSports Team ID or name associated with this MarketSelection (only for props)"
+          },
+          "player": {
+            "type": "string",
+            "description": "the SharpSports Player ID or name associated with this MarketSelection (only for props)"
+          },
+          "metric": {
+            "type": "string",
+            "description": "the SharpSports Metric ID or name associated with this MarketSelection (only for props)"
+          },
+          "lineAvailability": {
+            "type": "boolean",
+            "description": "serialize a list of currently available lines by book"
+          },
+          "sport": {
+            "type": "string",
+            "description": "sport name or id"
+          },
+          "league": {
+            "type": "string",
+            "description": "league name or id"
+          },
+          "line": {
+            "type": "number",
+            "description": "filter the marketSelection list by a specific line. When combined with the `metadata` param, the returned metadata is recomputed for the line passed as the query param rather than the main line."
+          },
+          "minOdds": {
+            "type": "integer",
+            "description": "Minimum American odds. For each MarketSelection we pick the line whose best available odds fall within the range and skip selections where no line qualifies. When combined with the `metadata` param, metadata and `bestPrice` are recomputed at that chosen line rather than the main line. DFS books are excluded. Must be an integer."
+          },
+          "maxOdds": {
+            "type": "integer",
+            "description": "Maximum American odds. Behaves the same as `minOdds` and may be used on its own or together with it. If both are supplied, `minOdds` must be less than or equal to `maxOdds`."
+          },
+          "pageSize": {
+            "type": "integer",
+            "description": "see Pagination"
+          },
+          "pageNum": {
+            "type": "string",
+            "description": "see Pagination"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "The max number of MarketSelection objects to be returned, ordered by timeCreated"
+          },
+          "prices": {
+            "type": "boolean"
+          },
+          "market": {
+            "type": "string",
+            "description": "the sharpsports marketId or name"
+          },
+          "future": {
+            "type": "boolean",
+            "description": "filter to only futures"
+          },
+          "historic": {
+            "type": "boolean",
+            "description": "When true, include past/no-longer-available market selections (by default only currently-available selections are returned). Because past events cannot be bet on, historic responses omit the betPlaceAvailability and betPlaceUrls keys."
+          },
+          "marketOffer": {
+            "type": "string",
+            "description": "the id of the marketOffer associated with the marketSelections"
+          },
+          "metadata": {
+            "type": "boolean"
+          },
+          "teamAggStats": {
+            "type": "boolean",
+            "description": "add aggregate statistics to metadata for teams. requires the metadata param"
+          },
+          "filteredTeamAggStats": {
+            "type": "boolean",
+            "description": "add filtered aggregate team statistics to metadata based on market relevance"
+          },
+          "playerAggStats": {
+            "type": "boolean",
+            "description": "add aggregate statistics to metadata for player props. requires the metadata param"
+          },
+          "filteredPlayerAggStats": {
+            "type": "boolean",
+            "description": "add filtered player aggregate statistics to metadata based on market relevance"
+          }
+        }
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    },
+    {
+      "name": "get_market_selection",
+      "description": "🔎 marketSelection detail Full provider response is preserved. Uses the private API key from the selected sandbox/live environment.",
+      "method": "GET",
+      "path": "/marketSelections/{marketSelectionId}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marketSelectionId": {
+            "type": "string",
+            "description": "the SharpSports ID of marketSelection"
+          },
+          "lineAvailability": {
+            "type": "boolean",
+            "description": "serialize a list of currently available lines by book"
+          },
+          "line": {
+            "type": "number",
+            "description": "availability and betplace urls will be for the specific line you pass.  Otherwise, both values will default to the main line"
+          },
+          "prices": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "marketSelectionId"
+        ]
+      },
+      "headers": {
+        "Authorization": "Token {{private_key}}"
+      },
+      "rate_limit": {
+        "min_interval_ms": 100,
+        "max_retries": 1,
+        "retry_statuses": [
+          429
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "list_books"
+  }
+}

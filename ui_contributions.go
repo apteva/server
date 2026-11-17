@@ -9,11 +9,13 @@ import (
 )
 
 type uiContributionEligibility struct {
-	App        string `json:"app"`
-	Component  string `json:"component"`
-	Visibility string `json:"visibility"`
-	Eligible   bool   `json:"eligible"`
-	Attached   bool   `json:"attached"`
+	SettingsUI *sdk.WidgetSettingsUI `json:"settings_ui,omitempty"`
+	HostUI     *sdk.HostUI           `json:"host_ui,omitempty"`
+	App        string                `json:"app"`
+	Component  string                `json:"component"`
+	Visibility string                `json:"visibility"`
+	Eligible   bool                  `json:"eligible"`
+	Attached   bool                  `json:"attached"`
 }
 
 // GET /api/ui/contributions resolves contextual placement without teaching the
@@ -40,7 +42,7 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if agentID > 0 {
-		agent, err := s.store.GetAgentByID(agentID)
+		agent, err := s.store.GetAgentByIDContext(r.Context(), agentID)
 		// Helper is owned by the caller and intentionally has no project.
 		// It can host Conversations in an accessible project, but another
 		// user's Helper (or an ordinary unscoped agent) cannot be substituted.
@@ -53,7 +55,7 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 
 	attached := map[int64]bool{}
 	if agentID > 0 {
-		rows, err := s.store.db.Query(`SELECT install_id FROM app_agent_bindings WHERE agent_id=? AND enabled=1`, agentID)
+		rows, err := s.store.dbQueryContext(r.Context(), `SELECT install_id FROM app_agent_bindings WHERE agent_id=? AND enabled=1`, agentID)
 		if err == nil {
 			for rows.Next() {
 				var installID int64
@@ -65,7 +67,7 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQueryContext(r.Context(), `
 		SELECT i.id, a.name, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
 		FROM app_installs i JOIN apps a ON a.id=i.app_id
 		WHERE (i.project_id='' OR i.project_id=?) AND i.status='running'
@@ -104,6 +106,7 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 			key := appName + ":" + component.Name
 			seen[key] = true
 			result = append(result, uiContributionEligibility{
+				HostUI: component.HostUI, SettingsUI: component.SettingsUI,
 				App: appName, Component: component.Name, Visibility: visibility,
 				Eligible: eligible, Attached: isAttached,
 			})
@@ -113,7 +116,7 @@ func (s *Server) handleUIContributions(w http.ResponseWriter, r *http.Request) {
 	// Integration components are project connections, not agent-bound app
 	// installs. Keep them project-visible while using the same response shape.
 	if s.catalog != nil {
-		connectionRows, err := s.store.db.Query(`SELECT DISTINCT app_slug FROM connections WHERE project_id=? AND status!='disabled'`, projectID)
+		connectionRows, err := s.store.dbQueryContext(r.Context(), `SELECT DISTINCT app_slug FROM connections WHERE project_id=? AND status!='disabled'`, projectID)
 		if err == nil {
 			defer connectionRows.Close()
 			for connectionRows.Next() {

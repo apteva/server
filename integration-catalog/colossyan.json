@@ -1,0 +1,126 @@
+{
+  "slug": "colossyan",
+  "name": "Colossyan",
+  "description": "Colossyan API for programmable AI avatar videos: list avatars and voices, generate videos from templates or full job descriptors, poll jobs, and retrieve/delete generated videos.",
+  "logo": "https://www.google.com/s2/favicons?domain=colossyan.com&sz=128",
+  "categories": ["ai", "video", "avatars", "generation", "training"],
+  "base_url": "https://app.colossyan.com/api/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Token",
+        "type": "password",
+        "description": "Colossyan API bearer token. API access may require a Colossyan plan with API enabled."
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "list_avatars"
+  },
+  "tools": [
+    {
+      "name": "list_avatars",
+      "description": "List Colossyan avatars available to the workspace, including supported inference models and avatar variants.",
+      "method": "GET",
+      "path": "/assets/actors",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "list_voices",
+      "description": "List Colossyan voices available to the workspace.",
+      "method": "GET",
+      "path": "/assets/voices",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "generate_from_template",
+      "description": "Generate a video from a template job saved in the Colossyan editor. Use the template job ID exported from the editor and pass variables matching that template.",
+      "method": "POST",
+      "path": "/video-generation-jobs/template-jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "templateJobId": { "type": "string", "description": "Template job ID exported from the Colossyan editor." },
+          "variables": { "type": "object", "description": "Template variable replacements." },
+          "callback": { "type": "string", "description": "Optional callback URL for completion." },
+          "callbackPayload": { "type": "object", "description": "Optional payload echoed to the callback." },
+          "name": { "type": "string" }
+        },
+        "required": ["templateJobId"]
+      }
+    },
+    {
+      "name": "create_video_generation_job",
+      "description": "Generate a video by sending a full Colossyan video-generation-job descriptor JSON. Colossyan recommends extracting this descriptor from the web editor for complex videos.",
+      "method": "POST",
+      "path": "/video-generation-jobs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "scenes": { "type": "array", "items": { "type": "object" } },
+          "tracks": { "type": "array", "items": { "type": "object" } },
+          "video": { "type": "object" },
+          "audio": { "type": "object" },
+          "callback": { "type": "string" },
+          "callbackPayload": { "type": "object" },
+          "job": { "type": "object", "description": "Provider-native descriptor fields copied from the Colossyan editor, when needed." }
+        }
+      }
+    },
+    {
+      "name": "get_video_generation_job",
+      "description": "Retrieve a Colossyan video generation job by ID.",
+      "method": "GET",
+      "path": "/video-generation-jobs/{jobId}",
+      "path_params": ["jobId"],
+      "input_schema": { "type": "object", "properties": { "jobId": { "type": "string" } }, "required": ["jobId"] }
+    },
+    {
+      "name": "delete_video_generation_job",
+      "description": "Delete a Colossyan video generation job by ID.",
+      "method": "DELETE",
+      "path": "/video-generation-jobs/{jobId}",
+      "path_params": ["jobId"],
+      "input_schema": { "type": "object", "properties": { "jobId": { "type": "string" } }, "required": ["jobId"] }
+    },
+    {
+      "name": "get_generated_video",
+      "description": "Retrieve a generated video record, including publicUrl/thumbnailUrl when available.",
+      "method": "GET",
+      "path": "/generated-videos/{videoId}",
+      "path_params": ["videoId"],
+      "input_schema": { "type": "object", "properties": { "videoId": { "type": "string" } }, "required": ["videoId"] }
+    },
+    {
+      "name": "delete_generated_video",
+      "description": "Delete a generated video by ID.",
+      "method": "DELETE",
+      "path": "/generated-videos/{videoId}",
+      "path_params": ["videoId"],
+      "input_schema": { "type": "object", "properties": { "videoId": { "type": "string" } }, "required": ["videoId"] }
+    },
+    {
+      "name": "create_avatar",
+      "description": "Create a custom Colossyan avatar when avatar creation API access is enabled for the workspace.",
+      "method": "POST",
+      "path": "/assets/actors",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "displayName": { "type": "string", "description": "Name to display for the avatar." },
+          "sourceFileUrl": { "type": "string", "description": "URL to the video or image file used to create the avatar." },
+          "gender": { "type": "string", "enum": ["Male", "Female"] }
+        },
+        "required": ["displayName", "sourceFileUrl"]
+      }
+    }
+  ]
+}

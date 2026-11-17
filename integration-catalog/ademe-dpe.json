@@ -1,0 +1,114 @@
+{
+  "slug": "ademe-dpe",
+  "name": "ADEME DPE",
+  "description": "Official French energy-performance certificates for existing homes since July 2021. Search the open ADEME dataset for DPE ratings, addresses, building characteristics, heating systems, estimated consumption, emissions, and geocoding. Updated weekly; property-level data does not include owner identity.",
+  "logo": "https://www.google.com/s2/favicons?domain=data.ademe.fr&sz=128",
+  "categories": [
+    "france",
+    "energy",
+    "real-estate",
+    "buildings",
+    "retrofit",
+    "open-data"
+  ],
+  "base_url": "https://data.ademe.fr/data-fair/api/v1/datasets",
+  "auth": {
+    "types": ["none"],
+    "headers": {
+      "Accept": "application/json"
+    },
+    "credential_fields": []
+  },
+  "health_check": {
+    "tool": "get_dataset_metadata"
+  },
+  "tools": [
+    {
+      "name": "get_dataset_metadata",
+      "description": "Get current ADEME metadata and the full field schema for the existing-home DPE dataset. Use this before constructing advanced qs filters or select lists.",
+      "method": "GET",
+      "path": "/dpe03existant",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "search_dpes",
+      "description": "Search existing-home DPE records. For F/G retrofit leads, use a Data Fair/Lucene qs expression such as `etiquette_dpe:(F OR G)` and combine it with address, commune, postal-code, date, or geospatial constraints. Results can contain multiple DPEs for the same property; use numero_dpe and dates when deduplicating.",
+      "method": "GET",
+      "path": "/dpe03existant/lines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Simple full-text query across searchable fields."
+          },
+          "qs": {
+            "type": "string",
+            "description": "Advanced Data Fair/Lucene query, for example `etiquette_dpe:(F OR G) AND code_postal_ban:69003`."
+          },
+          "bbox": {
+            "type": "string",
+            "description": "WGS84 bounding box formatted `west,south,east,north`."
+          },
+          "select": {
+            "type": "string",
+            "description": "Comma-separated fields to return, for example `numero_dpe,etiquette_dpe,adresse_ban,code_postal_ban,nom_commune_ban,date_etablissement_dpe`."
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort expression such as `-date_etablissement_dpe`."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "default": 100,
+            "description": "Number of rows to return."
+          },
+          "after": {
+            "type": "string",
+            "description": "Opaque cursor from the previous response's next URL."
+          },
+          "format": {
+            "type": "string",
+            "enum": ["json", "csv"],
+            "description": "Response format; JSON is the normal agent-friendly choice."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_field_values",
+      "description": "List distinct values and counts for a DPE field, optionally narrowed by a query. Useful for discovering valid ratings, municipalities, heating types, or property categories before a search.",
+      "method": "GET",
+      "path": "/dpe03existant/values/{field}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "Dataset field, for example etiquette_dpe, nom_commune_ban, type_batiment, or type_energie_n1."
+          },
+          "q": {
+            "type": "string",
+            "description": "Optional text query applied before aggregation."
+          },
+          "qs": {
+            "type": "string",
+            "description": "Optional advanced query applied before aggregation."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100
+          }
+        },
+        "required": ["field"]
+      }
+    }
+  ]
+}

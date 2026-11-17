@@ -1,0 +1,191 @@
+{
+  "slug": "loom",
+  "name": "Loom",
+  "description": "MCP server for Loom video operations - videos, folders, and workspace management",
+  "logo": "https://www.google.com/s2/favicons?domain=loom.com&sz=128",
+  "categories": [
+    "video",
+    "loom",
+    "recording",
+    "screen-capture",
+    "collaboration"
+  ],
+  "base_url": "https://api.loom.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_videos",
+      "description": "List videos from Loom",
+      "method": "GET",
+      "path": "/list-videos",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "string",
+            "description": "Page cursor"
+          },
+          "perPage": {
+            "type": "number",
+            "description": "Results per page",
+            "default": 25
+          },
+          "sortField": {
+            "type": "string",
+            "description": "Sort field"
+          },
+          "sortDirection": {
+            "type": "string",
+            "description": "Sort direction"
+          },
+          "folderId": {
+            "type": "string",
+            "description": "Filter by folder ID"
+          },
+          "sharedFolderId": {
+            "type": "string",
+            "description": "Filter by shared folder ID"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_video",
+      "description": "Get a specific video from Loom",
+      "method": "GET",
+      "path": "/get-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "delete_video",
+      "description": "Delete a video from Loom",
+      "method": "DELETE",
+      "path": "/delete-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "update_video",
+      "description": "Update a video in Loom",
+      "method": "PUT",
+      "path": "/update-video",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "New name"
+          },
+          "privacy": {
+            "type": "string",
+            "description": "Privacy setting"
+          },
+          "password": {
+            "type": "string",
+            "description": "Password protection"
+          },
+          "downloadEnabled": {
+            "type": "boolean",
+            "description": "Enable downloads"
+          },
+          "folderId": {
+            "type": "string",
+            "description": "Move to folder ID"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    },
+    {
+      "name": "list_folders",
+      "description": "List folders from Loom",
+      "method": "GET",
+      "path": "/list-folders",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_user",
+      "description": "Get current user info from Loom",
+      "method": "GET",
+      "path": "/get-user",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_workspace",
+      "description": "Get workspace info from Loom",
+      "method": "GET",
+      "path": "/get-workspace",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_recording_link",
+      "description": "Get embed and share links for a video",
+      "method": "GET",
+      "path": "/get-recording-link",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "videoId": {
+            "type": "string",
+            "description": "Video ID"
+          }
+        },
+        "required": [
+          "videoId"
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_user"
+  }
+}

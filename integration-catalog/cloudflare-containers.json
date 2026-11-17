@@ -1,0 +1,98 @@
+{
+  "slug": "cloudflare-containers",
+  "name": "Cloudflare Containers",
+  "description": "Container workloads on Cloudflare's edge with 10ms billing granularity — among the most economical for short / bursty work. Containers are paired with a Worker that controls their lifecycle. Authenticated with a Cloudflare API token scoped to Workers + Containers.",
+  "logo": "https://www.google.com/s2/favicons?domain=cloudflare.com&sz=128",
+  "categories": ["compute", "containers", "edge", "serverless", "build"],
+  "base_url": "https://api.cloudflare.com/client/v4",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{api_token}}" },
+    "credential_fields": [
+      { "name": "api_token", "label": "API Token", "description": "Cloudflare API token with Workers Scripts:Edit + Containers:Edit permissions", "required": true, "type": "password" },
+      { "name": "account_id", "label": "Account ID", "description": "Cloudflare account ID from the dashboard URL or `cf account list`", "required": true, "type": "text" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_containers",
+      "description": "List container applications in the account.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/containers/applications",
+      "input_schema": { "type": "object", "properties": {} }
+    },
+    {
+      "name": "create_container",
+      "description": "Create a container application. Args: name, image (registry path), instance_type (dev|basic|standard), max_instances?, scheduling_policy? (regional|moon).",
+      "method": "POST",
+      "path": "/accounts/{{account_id}}/containers/applications",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "image": { "type": "string" },
+          "instance_type": { "type": "string", "enum": ["dev", "basic", "standard"] },
+          "max_instances": { "type": "integer" },
+          "scheduling_policy": { "type": "string" }
+        },
+        "required": ["name", "image"]
+      }
+    },
+    {
+      "name": "get_container",
+      "description": "Get one container application. Args: app_id.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/containers/applications/{app_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "update_container",
+      "description": "Update a container application (rolling deploy if image changes). Args: app_id, image?, max_instances?, env?.",
+      "method": "PATCH",
+      "path": "/accounts/{{account_id}}/containers/applications/{app_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": { "type": "string" },
+          "image": { "type": "string" },
+          "max_instances": { "type": "integer" },
+          "env": { "type": "object" }
+        },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "delete_container",
+      "description": "Delete a container application + stop all instances. Args: app_id.",
+      "method": "DELETE",
+      "path": "/accounts/{{account_id}}/containers/applications/{app_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "list_instances",
+      "description": "List running instances for an application. Args: app_id.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/containers/applications/{app_id}/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_id": { "type": "string" } },
+        "required": ["app_id"]
+      }
+    },
+    {
+      "name": "list_registry_credentials",
+      "description": "List private-registry credentials configured for pulling container images.",
+      "method": "GET",
+      "path": "/accounts/{{account_id}}/containers/registries",
+      "input_schema": { "type": "object", "properties": {} }
+    }
+  ]
+}

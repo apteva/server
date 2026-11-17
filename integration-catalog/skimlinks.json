@@ -1,0 +1,48 @@
+{
+  "slug": "skimlinks",
+  "name": "Skimlinks",
+  "description": "Skimlinks publisher integration for deterministic Link Wrapper URL creation, plus placeholders for account-gated Merchant, Reporting, and Product Key API access.",
+  "logo": "https://www.google.com/s2/favicons?domain=skimlinks.com&sz=128",
+  "categories": ["affiliate", "publisher", "programs", "links", "stats", "marketing"],
+  "base_url": "https://go.skimresources.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": {
+      "id": "{{site_id}}"
+    },
+    "credential_fields": [
+      {
+        "name": "site_id",
+        "label": "Skimlinks site ID",
+        "description": "Skimlinks Link Wrapper site ID, visible in Publisher Hub.",
+        "type": "text"
+      },
+      {
+        "name": "api_token",
+        "label": "API token",
+        "description": "Optional Skimlinks API token for Merchant/Reporting/Product Key APIs when enabled on the account.",
+        "type": "password",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "link_wrapper_url",
+      "description": "Build a Skimlinks long Link Wrapper URL for a destination. The tool returns the URL without fetching it, so it does not follow the merchant redirect.",
+      "method": "GET",
+      "path": "/",
+      "return_request_url": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Merchant destination URL." },
+          "xs": { "type": "integer", "default": 1 },
+          "xcust": { "type": "string", "description": "Optional CustomID for link-level reporting." },
+          "sref": { "type": "string", "description": "Optional source/referring page URL." }
+        },
+        "required": ["url"]
+      }
+    }
+  ]
+}

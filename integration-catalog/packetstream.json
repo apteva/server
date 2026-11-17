@@ -1,0 +1,24 @@
+{
+  "slug": "packetstream",
+  "name": "PacketStream",
+  "description": "PacketStream Reseller API for account balance, residential-proxy sub-users, usage transactions, proxy auth rotation, and balance allocation. Requires separate Reseller API approval and token; normal PacketStream buyer credentials do not authorize this API.",
+  "logo": "https://www.google.com/s2/favicons?domain=packetstream.io&sz=128",
+  "categories": ["proxy", "residential-proxy", "reseller", "usage"],
+  "base_url": "https://reseller.packetstream.io",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}", "Content-Type": "application/json", "Accept": "application/json" },
+    "credential_fields": [{ "name": "token", "label": "Reseller API token", "description": "PacketStream Reseller API bearer token. Request access at packetstream.io/dashboard/reseller_api." }]
+  },
+  "health_check": { "tool": "get_reseller_account", "input": {} },
+  "tools": [
+    { "name": "get_reseller_account", "description": "Get reseller account information and balance. Monetary balances are returned in USD cents.", "method": "GET", "path": "/reseller/my_info", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "create_sub_user", "description": "Create a PacketStream sub-user. PacketStream charges a small anti-abuse fee for each creation, so list users first and do not retry a successful call.", "method": "POST", "path": "/reseller/sub_users/create", "input_schema": { "type": "object", "properties": { "username": { "type": "string" } }, "required": ["username"] } },
+    { "name": "list_sub_users", "description": "List all sub-users owned by the reseller. Balances are in USD cents.", "method": "GET", "path": "/reseller/sub_users/view_all", "input_schema": { "type": "object", "properties": {} } },
+    { "name": "get_sub_user", "description": "Get one sub-user by username, including current balance and proxy auth information returned by PacketStream.", "method": "POST", "path": "/reseller/sub_users/view_single", "input_schema": { "type": "object", "properties": { "username": { "type": "string" } }, "required": ["username"] } },
+    { "name": "get_sub_user_transactions", "description": "Get a sub-user's transaction and bandwidth history. Bandwidth values are measured in bytes.", "method": "POST", "path": "/reseller/sub_users/view_txs", "input_schema": { "type": "object", "properties": { "username": { "type": "string" } }, "required": ["username"] } },
+    { "name": "reset_sub_user_auth_key", "description": "Rotate a sub-user's proxy authentication key. The old key stops working; securely retain the new key returned by this call.", "method": "POST", "path": "/reseller/sub_users/reset_auth_key", "input_schema": { "type": "object", "properties": { "username": { "type": "string" } }, "required": ["username"] } },
+    { "name": "give_sub_user_balance", "description": "Transfer balance from the reseller account to a sub-user. amount_usd_cents is an integer number of US cents and changes spendable balance.", "method": "POST", "path": "/reseller/sub_users/give_balance", "input_schema": { "type": "object", "properties": { "username": { "type": "string" }, "amount_usd_cents": { "type": "integer", "minimum": 1 } }, "required": ["username", "amount_usd_cents"] } },
+    { "name": "take_sub_user_balance", "description": "Return balance from a sub-user to the reseller account. amount_usd_cents is an integer number of US cents.", "method": "POST", "path": "/reseller/sub_users/take_balance", "input_schema": { "type": "object", "properties": { "username": { "type": "string" }, "amount_usd_cents": { "type": "integer", "minimum": 1 } }, "required": ["username", "amount_usd_cents"] } }
+  ]
+}

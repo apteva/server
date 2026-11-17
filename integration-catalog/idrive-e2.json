@@ -1,0 +1,128 @@
+{
+  "slug": "idrive-e2",
+  "name": "iDrive e2",
+  "description": "iDrive e2 — S3-compatible object storage, the cheapest in this catalog at ~$4/TB/month with 0 egress fees up to 3× monthly storage. Bucket-scoped REST with AWS SigV4. Endpoint hostnames vary per bucket — when you create a bucket, iDrive shows you a dedicated host like 'm1n0.va.idrivee2-21.com' or 'j5z3.la.idrivee2-25.com'. Paste that exact hostname into the 'endpoint' credential. Generate access keys at idrive.com → e2 dashboard → Access Keys.",
+  "logo": "https://www.google.com/s2/favicons?domain=idrive.com&sz=128",
+  "categories": [
+    "storage",
+    "idrive",
+    "cloud",
+    "infrastructure",
+    "s3-compatible",
+    "cold-storage"
+  ],
+  "base_url": "https://{{endpoint}}",
+  "auth": {
+    "types": [
+      "aws_sigv4"
+    ],
+    "aws_sigv4": {
+      "service": "s3"
+    },
+    "credential_fields": [
+      {
+        "name": "endpoint",
+        "label": "Endpoint Host",
+        "description": "Full hostname iDrive assigns to your bucket — e.g. m1n0.va.idrivee2-21.com. Find it in the e2 dashboard on the bucket's overview page (it's the value before the bucket name in the displayed S3 URL). Do not include https:// or the bucket name.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "region",
+        "label": "Region",
+        "description": "SigV4 region. iDrive accepts any non-empty value; common practice is to mirror the geographic indicator from the endpoint host (e.g. 'va' for Virginia → us-east-1, 'la' for Los Angeles → us-west-1).",
+        "required": true,
+        "type": "text",
+        "default": "us-east-1"
+      },
+      {
+        "name": "access_key_id",
+        "label": "iDrive e2 Access Key",
+        "description": "From idrive.com → e2 → Access Keys → Create Access Key. Bucket-scoped keys are the safer default.",
+        "required": true,
+        "type": "text"
+      },
+      {
+        "name": "secret_access_key",
+        "label": "iDrive e2 Secret Key",
+        "description": "Shown once at key creation. Regenerate the key if lost.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_objects",
+      "description": "List objects in a bucket (S3-compatible ListObjectsV2). Returns XML; parse Contents[].Key / Size / LastModified, plus IsTruncated + NextContinuationToken for pagination.",
+      "method": "GET",
+      "path": "/{bucket}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string", "description": "iDrive e2 bucket name." },
+          "prefix": { "type": "string", "description": "Filter to keys starting with this prefix." },
+          "continuation-token": { "type": "string", "description": "Pagination cursor from a prior IsTruncated response." },
+          "max-keys": { "type": "integer", "description": "Page size (max 1000)." },
+          "list-type": { "type": "integer", "default": 2 }
+        },
+        "required": ["bucket"]
+      },
+      "query_params": ["prefix", "continuation-token", "max-keys", "list-type"]
+    },
+    {
+      "name": "put_object",
+      "description": "Upload an object. Pass content as 'body'; runner sends verbatim with SigV4 integrity hash. Single-PUT cap is 5GB; use multipart for larger.",
+      "method": "PUT",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string", "description": "Object key (path inside the bucket)." },
+          "body": { "type": "string", "description": "Object content. Bytes welcome — the runner sends them verbatim." }
+        },
+        "required": ["bucket", "key", "body"]
+      },
+      "body_input": "body"
+    },
+    {
+      "name": "get_object",
+      "description": "Download an object. Response body is the raw object bytes (response cap 200MB).",
+      "method": "GET",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string" }
+        },
+        "required": ["bucket", "key"]
+      }
+    },
+    {
+      "name": "delete_object",
+      "description": "Delete a single object. Returns 204 on success.",
+      "method": "DELETE",
+      "path": "/{bucket}/{key}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "bucket": { "type": "string" },
+          "key": { "type": "string" }
+        },
+        "required": ["bucket", "key"]
+      }
+    },
+    {
+      "name": "list_buckets",
+      "description": "List all iDrive e2 buckets visible to the access key. Returns XML; ListAllMyBucketsResult.Buckets.Bucket[] has names + creation dates.",
+      "method": "GET",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

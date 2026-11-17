@@ -1,0 +1,98 @@
+{
+  "slug": "sensor-tower",
+  "name": "Sensor Tower",
+  "description": "Enterprise mobile market intelligence for app metadata, category rankings, modeled downloads and revenue, and aggregate game-market estimates across iOS and Android.",
+  "logo": "https://www.google.com/s2/favicons?domain=sensortower.com&sz=128",
+  "categories": ["app-intelligence", "mobile-apps", "ios", "android", "rankings", "market-research", "enterprise"],
+  "base_url": "https://api.sensortower.com",
+  "auth": {
+    "types": ["api_key"],
+    "query_params": { "auth_token": "{{api_key}}" },
+    "headers": { "Accept": "application/json" },
+    "credential_fields": [
+      { "name": "api_key", "label": "API Authentication Token", "description": "Sensor Tower API auth token. API access is contract/plan-gated and normally provisioned by Sensor Tower rather than through self-service signup.", "type": "password", "required": true }
+    ]
+  },
+  "health_check": null,
+  "tools": [
+    {
+      "name": "get_app_metadata",
+      "description": "Get metadata for one or more platform-specific or unified apps. Use numeric App Store IDs for iOS and package names for Android.",
+      "method": "GET",
+      "path": "/v1/{os}/apps",
+      "query_params": ["app_ids", "attributes", "app_id_type"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "os": { "type": "string", "enum": ["ios", "android", "unified"] },
+          "app_ids": { "type": "string", "description": "Comma-separated platform app IDs or Sensor Tower unified app IDs." },
+          "attributes": { "type": "string", "description": "Optional extra attribute set, for example contact_info." },
+          "app_id_type": { "type": "string", "description": "Use unified when querying unified IDs." }
+        },
+        "required": ["os", "app_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_category_rankings",
+      "description": "Get ranked apps for a platform category, country, chart type, and date. Chart naming differs between iOS and Android; use the enum values matching the selected platform.",
+      "method": "GET",
+      "path": "/v1/{os}/ranking",
+      "query_params": ["category", "chart_type", "country", "date", "limit", "offset"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "os": { "type": "string", "enum": ["ios", "android", "unified"] },
+          "category": { "type": ["string", "integer"], "description": "Sensor Tower category ID, such as 6014 for iOS Games." },
+          "chart_type": { "type": "string", "enum": ["topfreeapplications", "toppaidapplications", "topgrossingapplications", "topselling_free", "topselling_paid", "topgrossing"] },
+          "country": { "type": "string", "pattern": "^[A-Za-z]{2}$" },
+          "date": { "type": "string", "format": "date", "description": "Ranking date; the API requires this value." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 400 },
+          "offset": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["os", "category", "chart_type", "country", "date"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_sales_estimates",
+      "description": "Get Sensor Tower modeled download and app-store revenue estimates for one or more apps by country and date. Raw revenue values are returned in cents.",
+      "method": "GET",
+      "path": "/v1/{os}/sales_report_estimates",
+      "query_params": ["app_ids", "countries", "start_date", "end_date", "date_granularity"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "os": { "type": "string", "enum": ["ios", "android", "unified"] },
+          "app_ids": { "type": "string", "description": "Comma-separated platform or unified app IDs." },
+          "countries": { "type": "string", "description": "Comma-separated country codes, or WW for worldwide." },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "date_granularity": { "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly"] }
+        },
+        "required": ["os", "app_ids", "countries", "start_date", "end_date", "date_granularity"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_game_market_summary",
+      "description": "Get aggregate game-market download and revenue estimates by platform, categories, countries, and date. Use this endpoint for category denominators rather than approximating totals from a top-app list; raw revenue is in cents.",
+      "method": "GET",
+      "path": "/v1/{os}/games_breakdown",
+      "query_params": ["categories", "countries", "start_date", "end_date", "date_granularity"],
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "os": { "type": "string", "enum": ["ios", "android"] },
+          "categories": { "type": "string", "description": "Comma-separated game category IDs." },
+          "countries": { "type": "string", "description": "Comma-separated country codes or WW." },
+          "start_date": { "type": "string", "format": "date" },
+          "end_date": { "type": "string", "format": "date" },
+          "date_granularity": { "type": "string", "enum": ["daily", "weekly", "monthly", "quarterly"] }
+        },
+        "required": ["os", "categories", "countries", "start_date", "end_date", "date_granularity"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

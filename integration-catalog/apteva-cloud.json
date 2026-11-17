@@ -1,0 +1,259 @@
+{
+  "slug": "apteva-cloud",
+  "name": "Apteva Cloud",
+  "description": "Manage Apteva Cloud hosting instances — create, start, stop, restart, update, delete, and view logs for containerized deployments",
+  "logo": "https://www.google.com/s2/favicons?domain=apteva.ai&sz=128",
+  "categories": [
+    "cloud",
+    "hosting",
+    "containers",
+    "deployment",
+    "infrastructure"
+  ],
+  "base_url": "https://api.apteva.ai/apteva-cloud",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Api_key",
+        "description": "Apteva API Key (from your Apteva dashboard)"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_instance",
+      "description": "Create a new Apteva Cloud instance with a unique subdomain, auto-SSL, and persistent storage. Instance will be available at {subdomain}.apteva.ai",
+      "method": "POST",
+      "path": "/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the instance (required)"
+          },
+          "subdomain": {
+            "type": "string",
+            "description": "Subdomain for the instance (required). Will be accessible at {subdomain}.apteva.ai. Lowercase letters, numbers, and hyphens only."
+          },
+          "organization_id": {
+            "type": "string",
+            "description": "Organization ID for billing and feature usage"
+          },
+          "version": {
+            "type": "string",
+            "default": "latest",
+            "description": "Apteva platform version tag to deploy"
+          },
+          "memory": {
+            "type": "integer",
+            "default": 512,
+            "description": "Memory allocation in MB"
+          },
+          "cpu": {
+            "type": "number",
+            "default": 0.5,
+            "description": "CPU allocation (e.g., 0.5 = half core)"
+          },
+          "env_vars": {
+            "type": "object",
+            "description": "Custom environment variables for the instance"
+          },
+          "config": {
+            "type": "object",
+            "description": "Additional configuration options"
+          }
+        },
+        "required": [
+          "name",
+          "subdomain"
+        ]
+      }
+    },
+    {
+      "name": "list_instances",
+      "description": "List all Apteva Cloud instances with optional filtering by status, user, or project",
+      "method": "GET",
+      "path": "/instances",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "stopped",
+              "creating",
+              "failed"
+            ],
+            "description": "Filter by instance status"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Filter by user ID"
+          },
+          "organization_id": {
+            "type": "string",
+            "description": "Filter by organization ID"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Max results to return"
+          },
+          "offset": {
+            "type": "integer",
+            "default": 0,
+            "description": "Offset for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_instance",
+      "description": "Get details and live status of a specific Apteva Cloud instance including container health",
+      "method": "GET",
+      "path": "/instances/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance ID (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_instance",
+      "description": "Update instance configuration — name, version, memory, CPU, env vars. Version or resource changes trigger a container redeployment with data preserved.",
+      "method": "PUT",
+      "path": "/instances/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance ID (required)"
+          },
+          "name": {
+            "type": "string",
+            "description": "New instance name"
+          },
+          "version": {
+            "type": "string",
+            "description": "New version tag to deploy (triggers container update)"
+          },
+          "memory": {
+            "type": "integer",
+            "description": "New memory allocation in MB (triggers container update)"
+          },
+          "cpu": {
+            "type": "number",
+            "description": "New CPU allocation (triggers container update)"
+          },
+          "env_vars": {
+            "type": "object",
+            "description": "Environment variables to add/update (merged with existing)"
+          },
+          "config": {
+            "type": "object",
+            "description": "Configuration to add/update (merged with existing)"
+          },
+          "force": {
+            "type": "boolean",
+            "default": false,
+            "description": "Force container redeployment even if no version/resource changes"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "instance_action",
+      "description": "Perform an action on an instance: start, stop, restart, or redeploy. Redeploy preserves all persistent data.",
+      "method": "POST",
+      "path": "/instances/{id}/action",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance ID (required)"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "restart",
+              "redeploy"
+            ],
+            "description": "Action to perform (required)"
+          }
+        },
+        "required": [
+          "id",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "delete_instance",
+      "description": "Permanently delete an instance — stops container, removes domain routing, and cleans up all associated resources",
+      "method": "DELETE",
+      "path": "/instances/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance ID to delete (required)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "instance_logs",
+      "description": "Retrieve container logs for an instance with optional time filtering and tail length",
+      "method": "GET",
+      "path": "/instances/{id}/logs",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Instance ID (required)"
+          },
+          "since": {
+            "type": "string",
+            "description": "Show logs since timestamp (ISO 8601) or relative (e.g., '1h', '30m')"
+          },
+          "tail": {
+            "type": "integer",
+            "default": 100,
+            "description": "Number of lines to return from the end"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  ]
+}

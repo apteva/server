@@ -67,6 +67,32 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 		}
 		raw, _ := m["url"].(string)
 		u, err := url.Parse(raw)
+		if m["name"] == platformMCPName || (err == nil && u.Path == platformMCPPath) {
+			if err := s.authorizePlatformMCPAgent(inst); err != nil {
+				return err
+			}
+			canonical := managementGatewayConfig(inst, "", s.port)
+			canonical["url"] = addQueryParam(canonical["url"].(string), "mcp_token", platformMCPToken(s.instanceSecret, inst))
+			for key := range m {
+				delete(m, key)
+			}
+			for key, value := range canonical {
+				m[key] = value
+			}
+			continue
+		}
+		if err == nil && strings.HasPrefix(u.Path, "/mcp/devices/") {
+			if err := s.authorizeDeviceMCPConfig(inst, m, u); err != nil {
+				return err
+			}
+			continue
+		}
+		if err == nil && (u.Path == "/mcp/runtime" || strings.HasPrefix(u.Path, "/mcp/runtime/")) {
+			if err := s.authorizeRuntimeManagedMCPReference(inst, u); err != nil {
+				return err
+			}
+			continue
+		}
 		if err != nil || u.Port() != s.port || (u.Hostname() != "127.0.0.1" && u.Hostname() != "localhost") || !strings.HasPrefix(u.Path, "/mcp/") {
 			continue
 		}
@@ -84,10 +110,18 @@ func (s *Server) authorizeAgentMCPConfig(inst *Agent, config map[string]any) err
 		if err != nil || row == nil {
 			return fmt.Errorf("internal MCP reference %d not found", id)
 		}
+		if row.Source == deviceMCPSource {
+			return fmt.Errorf("use the device MCP capability route")
+		}
 		if _, err = s.resolveAgentMCPConfigs(inst.UserID, inst, []int64{row.ID}); err != nil {
 			return err
 		}
 		m["url"] = authorizeMCPURL(raw, s.instanceSecret)
+	}
+	for _, entry := range entries {
+		if cfg, ok := entry.(map[string]any); ok {
+			s.authorizeFileReferenceMCPConfig(inst, cfg)
+		}
 	}
 	return nil
 }

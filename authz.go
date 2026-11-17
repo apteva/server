@@ -25,11 +25,18 @@ func (s *Server) requireProjectAccess(w http.ResponseWriter, r *http.Request, pr
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return 0, "", false
 	}
-	if s.store.GetPlatformRole(uid) == PlatformAdmin {
+	platform, err := s.store.GetPlatformRoleContext(r.Context(), uid)
+	if databaseHTTPFailure(w, err) {
+		return uid, "", false
+	}
+	if platform == PlatformAdmin {
 		return uid, ProjectOwner, true
 	}
-	have, err := s.store.GetProjectRole(projectID, uid)
+	have, err := s.store.GetProjectRoleContext(r.Context(), projectID, uid)
 	if err != nil {
+		if databaseHTTPFailure(w, err) {
+			return uid, "", false
+		}
 		http.Error(w, "not a project member", http.StatusForbidden)
 		return uid, "", false
 	}
@@ -49,7 +56,11 @@ func (s *Server) requirePlatformAdmin(w http.ResponseWriter, r *http.Request) (u
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return 0, false
 	}
-	if s.store.GetPlatformRole(uid) != PlatformAdmin {
+	platform, err := s.store.GetPlatformRoleContext(r.Context(), uid)
+	if databaseHTTPFailure(w, err) {
+		return uid, false
+	}
+	if platform != PlatformAdmin {
 		http.Error(w, "admin only", http.StatusForbidden)
 		return uid, false
 	}

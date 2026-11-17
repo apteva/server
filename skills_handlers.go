@@ -58,7 +58,7 @@ func (s *Server) handleListSkills(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQueryContext(r.Context(), `
 		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
 		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
 		       sk.enabled, sk.version, sk.created_at, sk.updated_at,
@@ -97,7 +97,7 @@ func (s *Server) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireSkillAccess(w, r, id, ProjectViewer); !ok {
 		return
 	}
-	row := s.store.db.QueryRow(`
+	row := s.store.dbQueryRowContext(r.Context(), `
 		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
 		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
 		       sk.enabled, sk.version, sk.created_at, sk.updated_at,
@@ -160,7 +160,7 @@ func (s *Server) handleCreateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	slug := "user:" + body.Name
 	metaJSON, _ := json.Marshal(coalesceMetadata(body.Metadata))
-	res, err := s.store.db.Exec(`
+	res, err := s.store.dbExecContext(r.Context(), `
 		INSERT INTO skills (slug, name, description, body, source, project_id, command, metadata_json)
 		VALUES (?, ?, ?, ?, 'user', ?, ?, ?)`,
 		slug, body.Name, body.Description, body.Body, body.ProjectID, body.Command, string(metaJSON),
@@ -194,7 +194,7 @@ func (s *Server) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var src string
-	if err := s.store.db.QueryRow(`SELECT source FROM skills WHERE id = ?`, id).Scan(&src); err != nil {
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT source FROM skills WHERE id = ?`, id).Scan(&src); err != nil {
 		http.Error(w, "skill not found", http.StatusNotFound)
 		return
 	}
@@ -257,7 +257,7 @@ func (s *Server) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	sets = append(sets, "updated_at = CURRENT_TIMESTAMP")
 	args = append(args, id)
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		`UPDATE skills SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...,
 	); err != nil {
 		if isUniqueViolation(err) {
@@ -289,7 +289,7 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var src, slug, projectID string
-	if err := s.store.db.QueryRow(`SELECT source, slug, COALESCE(project_id,'') FROM skills WHERE id = ?`, id).
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT source, slug, COALESCE(project_id,'') FROM skills WHERE id = ?`, id).
 		Scan(&src, &slug, &projectID); err != nil {
 		http.Error(w, "skill not found", http.StatusNotFound)
 		return
@@ -301,7 +301,7 @@ func (s *Server) handleDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	// Sweep the soon-to-be-orphaned record from every assigned
 	// instance in the project before the catalog row goes. Best-effort.
 	s.sweepSkillFromProject(getUserID(r), projectID, id, slug, "user skill deleted")
-	if _, err := s.store.db.Exec(`DELETE FROM skills WHERE id = ?`, id); err != nil {
+	if _, err := s.store.dbExecContext(r.Context(), `DELETE FROM skills WHERE id = ?`, id); err != nil {
 		http.Error(w, "delete: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -337,12 +337,12 @@ func (s *Server) handleSetSkillEnabled(w http.ResponseWriter, r *http.Request) {
 	}
 	var source string
 	var installID sql.NullInt64
-	if err := s.store.db.QueryRow(`SELECT source, install_id FROM skills WHERE id = ?`, id).
+	if err := s.store.dbQueryRowContext(r.Context(), `SELECT source, install_id FROM skills WHERE id = ?`, id).
 		Scan(&source, &installID); err != nil {
 		http.Error(w, "skill not found", http.StatusNotFound)
 		return
 	}
-	if _, err := s.store.db.Exec(
+	if _, err := s.store.dbExecContext(r.Context(),
 		`UPDATE skills SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		v, id,
 	); err != nil {
@@ -370,7 +370,7 @@ type rowScanner interface {
 }
 
 func (s *Server) loadSkillByID(skillID int64) (Skill, error) {
-	row := s.store.db.QueryRow(`
+	row := s.store.dbQueryRow(`
 		SELECT sk.id, sk.slug, sk.name, sk.description, sk.body, sk.source,
 		       sk.install_id, sk.project_id, sk.command, sk.metadata_json,
 		       sk.enabled, sk.version, sk.created_at, sk.updated_at,

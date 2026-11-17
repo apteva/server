@@ -421,7 +421,7 @@ func importSourceByID(imports map[string]any, id string) (importSourceDef, error
 
 func installProjectForImport(s *Server, installID int64, fallback string) (string, error) {
 	var projectID string
-	if err := s.store.db.QueryRow(`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`, installID).Scan(&projectID); err != nil {
+	if err := s.store.dbQueryRow(`SELECT COALESCE(project_id, '') FROM app_installs WHERE id = ?`, installID).Scan(&projectID); err != nil {
 		return "", err
 	}
 	if projectID == "" {

@@ -1,0 +1,1339 @@
+{
+  "slug": "stripe",
+  "name": "Stripe",
+  "description": "MCP server for Stripe payment processing, customer management and search, subscriptions, and billing",
+  "logo": "https://www.google.com/s2/favicons?domain=stripe.com&sz=128",
+  "categories": [
+    "payments",
+    "finance",
+    "subscriptions",
+    "billing",
+    "customers",
+    "search",
+    "invoices",
+    "stripe"
+  ],
+  "base_url": "https://api.stripe.com/v1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Secret Key",
+        "description": "Your Stripe Secret Key (sk_live_ or sk_test_)"
+      },
+      {
+        "name": "publishableKey",
+        "label": "Publishable Key",
+        "type": "text",
+        "exposure": "public",
+        "description": "Your Stripe Publishable Key (pk_live_ or pk_test_)"
+      },
+      {
+        "name": "webhookSecret",
+        "label": "Webhook Secret",
+        "required": false,
+        "description": "Your Stripe Webhook Signing Secret"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "create_customer",
+      "description": "Create a new Stripe customer with email and optional metadata",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "Customer's email address"
+          },
+          "name": {
+            "type": "string",
+            "description": "Customer's full name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the customer"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Customer's phone number"
+          },
+          "address": {
+            "type": "object",
+            "description": "Customer's billing address",
+            "properties": {
+              "line1": {
+                "type": "string"
+              },
+              "line2": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string"
+              },
+              "postal_code": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              }
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom key-value metadata for the customer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable idempotency key sent as a request header."
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "get_customer",
+      "description": "Retrieve details of an existing Stripe customer by ID",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update an existing Stripe customer's information",
+      "method": "POST",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          },
+          "email": {
+            "type": "string",
+            "description": "New email address"
+          },
+          "name": {
+            "type": "string",
+            "description": "Customer's full name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the customer"
+          },
+          "phone": {
+            "type": "string",
+            "description": "Customer's phone number"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom key-value metadata for the customer"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_customer",
+      "description": "Permanently delete a Stripe customer and cancel all active subscriptions",
+      "method": "DELETE",
+      "path": "/customers/{customer_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          }
+        },
+        "required": [
+          "customer_id"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List all customers with optional filters and pagination",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of customers to return (1-100)",
+            "default": 10
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination - customer ID to start after"
+          },
+          "ending_before": {
+            "type": "string",
+            "description": "Cursor for pagination - customer ID to end before"
+          },
+          "email": {
+            "type": "string",
+            "description": "Filter by exact email address"
+          }
+        }
+      }
+    },
+    {
+      "name": "search_customers",
+      "description": "Search for Stripe customers using Stripe's search query syntax (e.g., email:\"user@example.com\" or metadata[\"key\"]:\"value\")",
+      "method": "GET",
+      "path": "/customers/search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query using Stripe syntax. Examples: email:\"user@example.com\", name:\"John\", metadata[\"key\"]:\"value\""
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of customers to return (1-100)",
+            "default": 10
+          },
+          "page": {
+            "type": "string",
+            "description": "Page token for pagination (from next_page in previous response)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_intent",
+      "description": "Create a new payment intent to collect payment from a customer",
+      "method": "POST",
+      "path": "/payment_intents",
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "integer",
+            "description": "Amount to charge in cents (e.g., 1000 for $10.00)",
+            "minimum": 50
+          },
+          "currency": {
+            "type": "string",
+            "description": "Three-letter ISO currency code (e.g., 'usd')",
+            "default": "usd"
+          },
+          "customer": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          },
+          "payment_method": {
+            "type": "string",
+            "description": "Saved Stripe payment method ID (pm_xxx)"
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Confirm the PaymentIntent immediately"
+          },
+          "off_session": {
+            "type": "boolean",
+            "description": "Declare that the customer is not present for this payment"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable key sent as Stripe's Idempotency-Key header"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the payment"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata for the payment"
+          },
+          "automatic_payment_methods": {
+            "type": "object",
+            "description": "Payment method options",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "setup_future_usage": {
+            "type": "string",
+            "description": "Save payment method for future use",
+            "enum": [
+              "off_session",
+              "on_session"
+            ]
+          }
+        },
+        "required": [
+          "amount",
+          "currency"
+        ]
+      }
+    },
+    {
+      "name": "get_payment_intent",
+      "description": "Retrieve details of a payment intent by ID",
+      "method": "GET",
+      "path": "/payment_intents/{payment_intent_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_intent_id": {
+            "type": "string",
+            "description": "Payment intent ID (pi_xxx)"
+          }
+        },
+        "required": [
+          "payment_intent_id"
+        ]
+      }
+    },
+    {
+      "name": "list_payment_intents",
+      "description": "List payment intents with optional customer filter and pagination",
+      "method": "GET",
+      "path": "/payment_intents",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Filter by Stripe customer ID (cus_xxx)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 10
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination - ID to start after"
+          },
+          "ending_before": {
+            "type": "string",
+            "description": "Cursor for pagination - ID to end before"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a subscription for recurring payments. Pass items as an array of objects with 'price' field.",
+      "method": "POST",
+      "path": "/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          },
+          "items": {
+            "type": "array",
+            "description": "Subscription items - array of objects with 'price' (price ID) and optional 'quantity'",
+            "items": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "string",
+                  "description": "Stripe price ID (price_xxx)"
+                },
+                "quantity": {
+                  "type": "integer",
+                  "description": "Quantity of the item",
+                  "default": 1
+                }
+              },
+              "required": [
+                "price"
+              ]
+            }
+          },
+          "default_payment_method": {
+            "type": "string",
+            "description": "Payment method ID to use (pm_xxx)"
+          },
+          "trial_period_days": {
+            "type": "integer",
+            "description": "Number of trial days before charging",
+            "minimum": 0
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata for the subscription"
+          },
+          "collection_method": {
+            "type": "string",
+            "description": "How to collect payment",
+            "enum": [
+              "charge_automatically",
+              "send_invoice"
+            ],
+            "default": "charge_automatically"
+          }
+        },
+        "required": [
+          "customer",
+          "items"
+        ]
+      }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Retrieve details of a subscription by ID",
+      "method": "GET",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Stripe subscription ID (sub_xxx)"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_subscription",
+      "description": "Cancel a subscription immediately. To cancel at period end instead, use Update Subscription with cancel_at_period_end: true.",
+      "method": "DELETE",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Stripe subscription ID (sub_xxx)"
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "update_subscription",
+      "description": "Update a subscription. Set cancel_at_period_end to true to schedule cancellation at the end of the billing period.",
+      "method": "POST",
+      "path": "/subscriptions/{subscription_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string",
+            "description": "Stripe subscription ID (sub_xxx)"
+          },
+          "cancel_at_period_end": {
+            "type": "boolean",
+            "description": "If true, cancel at end of current billing period"
+          },
+          "default_payment_method": {
+            "type": "string",
+            "description": "New default payment method ID (pm_xxx)"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          },
+          "proration_behavior": {
+            "type": "string",
+            "description": "How to handle prorations",
+            "enum": [
+              "create_prorations",
+              "none",
+              "always_invoice"
+            ]
+          }
+        },
+        "required": [
+          "subscription_id"
+        ]
+      }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List subscriptions with optional customer and status filters",
+      "method": "GET",
+      "path": "/subscriptions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Filter by Stripe customer ID (cus_xxx)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by subscription status",
+            "enum": [
+              "active",
+              "past_due",
+              "unpaid",
+              "canceled",
+              "incomplete",
+              "incomplete_expired",
+              "trialing",
+              "all"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 10
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a product for pricing and subscriptions",
+      "method": "POST",
+      "path": "/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Product name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Product description"
+          },
+          "images": {
+            "type": "array",
+            "description": "URLs of product images",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata for the product"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether the product is active",
+            "default": true
+          },
+          "tax_code": {
+            "type": "string",
+            "description": "Tax code for the product"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "create_price",
+      "description": "Create a price for a product",
+      "method": "POST",
+      "path": "/prices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "type": "string",
+            "description": "Stripe product ID (prod_xxx)"
+          },
+          "unit_amount": {
+            "type": "integer",
+            "description": "Price in cents (e.g., 999 for $9.99)"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Three-letter ISO currency code",
+            "default": "usd"
+          },
+          "recurring": {
+            "type": "object",
+            "description": "Recurring billing details (omit for one-time prices)",
+            "properties": {
+              "interval": {
+                "type": "string",
+                "enum": [
+                  "day",
+                  "week",
+                  "month",
+                  "year"
+                ]
+              },
+              "interval_count": {
+                "type": "integer",
+                "default": 1
+              }
+            }
+          },
+          "nickname": {
+            "type": "string",
+            "description": "Display name for the price"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          }
+        },
+        "required": [
+          "product",
+          "unit_amount",
+          "currency"
+        ]
+      }
+    },
+    {
+      "name": "list_payment_methods",
+      "description": "List payment methods attached to a customer",
+      "method": "GET",
+      "path": "/payment_methods",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          },
+          "type": {
+            "type": "string",
+            "description": "Filter by payment method type",
+            "enum": [
+              "card",
+              "sepa_debit",
+              "us_bank_account",
+              "link"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results (1-100)",
+            "default": 10
+          }
+        },
+        "required": [
+          "customer"
+        ]
+      }
+    },
+    {
+      "name": "attach_payment_method",
+      "description": "Attach a payment method to a customer",
+      "method": "POST",
+      "path": "/payment_methods/{payment_method_id}/attach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_method_id": {
+            "type": "string",
+            "description": "Payment method ID (pm_xxx)"
+          },
+          "customer": {
+            "type": "string",
+            "description": "Stripe customer ID to attach to (cus_xxx)"
+          }
+        },
+        "required": [
+          "payment_method_id",
+          "customer"
+        ]
+      }
+    },
+    {
+      "name": "create_refund",
+      "description": "Refund a payment. Provide either payment_intent or charge ID.",
+      "method": "POST",
+      "path": "/refunds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_intent": {
+            "type": "string",
+            "description": "Payment intent ID to refund (pi_xxx)"
+          },
+          "charge": {
+            "type": "string",
+            "description": "Charge ID to refund (ch_xxx)"
+          },
+          "amount": {
+            "type": "integer",
+            "description": "Amount to refund in cents (omit for full refund)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason for the refund",
+            "enum": [
+              "duplicate",
+              "fraudulent",
+              "requested_by_customer"
+            ]
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata for the refund"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable idempotency key sent as a request header."
+          }
+        }
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "create_invoice",
+      "description": "Create a draft invoice for a customer",
+      "method": "POST",
+      "path": "/invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Stripe customer ID (cus_xxx)"
+          },
+          "description": {
+            "type": "string",
+            "description": "Invoice description"
+          },
+          "collection_method": {
+            "type": "string",
+            "description": "How to collect payment",
+            "enum": [
+              "charge_automatically",
+              "send_invoice"
+            ],
+            "default": "charge_automatically"
+          },
+          "days_until_due": {
+            "type": "integer",
+            "description": "Number of days until invoice is due (for send_invoice collection)"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom metadata"
+          },
+          "auto_advance": {
+            "type": "boolean",
+            "description": "Whether to auto-finalize the invoice",
+            "default": true
+          }
+        },
+        "required": [
+          "customer"
+        ]
+      }
+    },
+    {
+      "name": "get_invoice",
+      "description": "Retrieve details of an invoice by ID",
+      "method": "GET",
+      "path": "/invoices/{invoice_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "list_invoices",
+      "description": "List invoices with optional customer and status filters",
+      "method": "GET",
+      "path": "/invoices",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Filter by Stripe customer ID (cus_xxx)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by invoice status",
+            "enum": [
+              "draft",
+              "open",
+              "paid",
+              "uncollectible",
+              "void"
+            ]
+          },
+          "subscription": {
+            "type": "string",
+            "description": "Filter by subscription ID (sub_xxx)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 10
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination"
+          }
+        }
+      }
+    },
+    {
+      "name": "finalize_invoice",
+      "description": "Finalize a draft invoice. Mints an invoice number, generates the hosted_invoice_url, and (unless auto_advance is false) starts the collection process. Use when create_invoice was called with auto_advance=false.",
+      "method": "POST",
+      "path": "/invoices/{invoice_id}/finalize",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          },
+          "auto_advance": {
+            "type": "boolean",
+            "description": "Whether Stripe should advance the collection (email, charge) automatically after finalization. Set false to get the hosted_invoice_url without Stripe sending the email."
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "void_invoice",
+      "description": "Void an open invoice. Marks it permanently uncollectible from the customer's perspective. Use when our billing voids an invoice that was already mirrored to Stripe.",
+      "method": "POST",
+      "path": "/invoices/{invoice_id}/void",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "send_invoice",
+      "description": "Trigger Stripe to send the invoice email to the customer. Only works on invoices with collection_method=send_invoice. Returns the invoice with status_transitions.email_sent_at populated.",
+      "method": "POST",
+      "path": "/invoices/{invoice_id}/send",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID (in_xxx)"
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    {
+      "name": "create_checkout_session",
+      "description": "Create a Stripe Checkout Session. ui_mode=hosted_page returns a Stripe-hosted redirect URL; ui_mode=elements returns a client_secret for Stripe Elements; ui_mode=embedded_page returns a client_secret for embedded Checkout. mode=payment is one-time and mode=subscription is recurring. Webhook event checkout.session.completed fires on payment success.",
+      "method": "POST",
+      "path": "/checkout/sessions",
+      "headers": {
+        "Stripe-Version": "2026-03-25.dahlia"
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "Checkout mode",
+            "enum": [
+              "payment",
+              "subscription",
+              "setup"
+            ],
+            "default": "payment"
+          },
+          "ui_mode": {
+            "type": "string",
+            "description": "Checkout presentation for the pinned Stripe API version. hosted_page returns a redirect URL; elements returns a client_secret for Stripe Elements; embedded_page returns a client_secret for embedded Checkout.",
+            "enum": [
+              "hosted_page",
+              "elements",
+              "embedded_page"
+            ],
+            "default": "hosted_page"
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Array of {price: 'price_xxx', quantity: N} for catalog prices, or {price_data: {...}, quantity: N} for ad-hoc lines."
+          },
+          "customer": {
+            "type": "string",
+            "description": "Existing Stripe customer ID (cus_xxx). Omit to let Stripe create or match by email."
+          },
+          "customer_email": {
+            "type": "string",
+            "description": "Pre-fill the buyer's email on the Stripe-hosted page."
+          },
+          "success_url": {
+            "type": "string",
+            "description": "URL Stripe redirects to after successful payment. May include {CHECKOUT_SESSION_ID} placeholder."
+          },
+          "cancel_url": {
+            "type": "string",
+            "description": "URL Stripe redirects to if the customer abandons the page."
+          },
+          "return_url": {
+            "type": "string",
+            "description": "Return URL for ui_mode=elements or embedded_page, including redirect-based payment authentication."
+          },
+          "redirect_on_completion": {
+            "type": "string",
+            "description": "Redirect behavior for embedded_page checkout where supported.",
+            "enum": [
+              "always",
+              "if_required",
+              "never"
+            ]
+          },
+          "payment_method_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional explicit payment method types. Omit to use Stripe Dashboard dynamic methods."
+          },
+          "customer_creation": {
+            "type": "string",
+            "enum": [
+              "always",
+              "if_required"
+            ]
+          },
+          "client_reference_id": {
+            "type": "string",
+            "description": "Free-form string returned in the webhook payload. Useful for tying back to your own session/cart id."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Arbitrary key-value pairs returned in webhook events."
+          },
+          "payment_intent_data": {
+            "type": "object",
+            "description": "Optional config applied to the underlying PaymentIntent (description, statement_descriptor, etc.)."
+          },
+          "subscription_data": {
+            "type": "object",
+            "description": "Only when mode=subscription \u2014 config for the resulting subscription (trial_period_days, metadata, etc.)."
+          },
+          "expires_at": {
+            "type": "integer",
+            "description": "Unix timestamp at which the session expires. Min 30 min from creation, max 24h."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-stable key sent as Stripe's Idempotency-Key header."
+          }
+        },
+        "required": [
+          "line_items"
+        ]
+      }
+    },
+    {
+      "name": "get_checkout_session",
+      "description": "Retrieve a Stripe Checkout Session by ID, including url or client_secret where available.",
+      "method": "GET",
+      "path": "/checkout/sessions/{checkout_session_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checkout_session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_session_id"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_link",
+      "description": "Create a Stripe Payment Link \u2014 a reusable shareable URL that takes a customer to a hosted payment page. Unlike Checkout Sessions, Payment Links don't expire and can be shared multiple times. Useful for invoice 'pay this' links.",
+      "method": "POST",
+      "path": "/payment_links",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "line_items": {
+            "type": "array",
+            "description": "Array of {price: 'price_xxx', quantity: N}. Price IDs must already exist in Stripe (use create_price)."
+          },
+          "after_completion": {
+            "type": "object",
+            "description": "What to do after payment completes (e.g. {type: 'redirect', redirect: {url: '\u2026'}}). Defaults to Stripe's success page."
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Arbitrary key-value pairs returned in webhook events."
+          },
+          "payment_intent_data": {
+            "type": "object",
+            "description": "Optional config applied to the underlying PaymentIntents created for each customer."
+          }
+        },
+        "required": [
+          "line_items"
+        ]
+      }
+    },
+    {
+      "name": "list_charges",
+      "description": "List charges with optional customer filter and pagination",
+      "method": "GET",
+      "path": "/charges",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string",
+            "description": "Filter by Stripe customer ID (cus_xxx)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results (1-100)",
+            "default": 10
+          },
+          "starting_after": {
+            "type": "string",
+            "description": "Cursor for pagination - charge ID to start after"
+          },
+          "ending_before": {
+            "type": "string",
+            "description": "Cursor for pagination - charge ID to end before"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_balance",
+      "description": "Get the current balance of the Stripe account",
+      "method": "GET",
+      "path": "/balance",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "cancel_payment_intent",
+      "description": "Cancel a payment intent",
+      "method": "POST",
+      "path": "/payment_intents/{payment_intent_id}/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_intent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_intent_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete a product",
+      "method": "DELETE",
+      "path": "/delete-product",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_payment_method",
+      "description": "Create a payment method",
+      "method": "POST",
+      "path": "/create-payment-method",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "card": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      }
+    },
+    {
+      "name": "get_payment_method",
+      "description": "Get payment method details",
+      "method": "GET",
+      "path": "/payment_methods/{payment_method_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_method_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_method_id"
+        ]
+      }
+    },
+    {
+      "name": "detach_payment_method",
+      "description": "Detach payment method from customer",
+      "method": "POST",
+      "path": "/payment_methods/{payment_method_id}/detach",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "payment_method_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_method_id"
+        ]
+      }
+    },
+    {
+      "name": "create_setup_intent",
+      "description": "Create a setup intent",
+      "method": "POST",
+      "path": "/create-setup-intent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "type": "string"
+          },
+          "payment_method_types": {
+            "type": "array"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_setup_intent",
+      "description": "Get setup intent details",
+      "method": "GET",
+      "path": "/get-setup-intent",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "setup_intent_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "setup_intent_id"
+        ]
+      }
+    },
+    {
+      "name": "get_refund",
+      "description": "Get refund.",
+      "method": "GET",
+      "path": "/refunds/{refund_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "refund_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refund_id"
+        ]
+      }
+    },
+    {
+      "name": "expire_checkout_session",
+      "description": "Expire checkout session.",
+      "method": "POST",
+      "path": "/checkout/sessions/{checkout_session_id}/expire",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checkout_session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_session_id"
+        ]
+      }
+    }
+  ],
+  "webhooks": {
+    "signature_header": "stripe-signature",
+    "registration": {
+      "method": "POST",
+      "path": "/webhook_endpoints",
+      "url_field": "url",
+      "events_field": "enabled_events[]",
+      "content_type": "application/x-www-form-urlencoded",
+      "id_field": "id",
+      "response_secret_field": "secret",
+      "delete_path": "/webhook_endpoints/{id}",
+      "delete_method": "DELETE",
+      "list_path": "/webhook_endpoints",
+      "list_field": "data"
+    },
+    "events": [
+      {
+        "name": "checkout.session.completed",
+        "description": "Occurs when a Checkout Session completes"
+      },
+      {
+        "name": "checkout.session.async_payment_succeeded",
+        "description": "Occurs when a delayed Checkout Session payment succeeds"
+      },
+      {
+        "name": "checkout.session.async_payment_failed",
+        "description": "Occurs when a delayed Checkout Session payment fails"
+      },
+      {
+        "name": "checkout.session.expired",
+        "description": "Occurs when a Checkout Session expires"
+      },
+      {
+        "name": "payment_intent.succeeded",
+        "description": "Occurs when a PaymentIntent successfully completes a payment"
+      },
+      {
+        "name": "setup_intent.succeeded",
+        "description": "Occurs when a SetupIntent succeeds"
+      },
+      {
+        "name": "setup_intent.setup_failed",
+        "description": "Occurs when a SetupIntent fails"
+      },
+      {
+        "name": "payment_method.detached",
+        "description": "Occurs when a payment method is detached"
+      },
+      {
+        "name": "payment_intent.payment_failed",
+        "description": "Occurs when a PaymentIntent fails"
+      },
+      {
+        "name": "customer.created",
+        "description": "Occurs when a new customer is created"
+      },
+      {
+        "name": "customer.updated",
+        "description": "Occurs when a customer is updated"
+      },
+      {
+        "name": "customer.deleted",
+        "description": "Occurs when a customer is deleted"
+      },
+      {
+        "name": "invoice.paid",
+        "description": "Occurs when an invoice is paid"
+      },
+      {
+        "name": "invoice.payment_failed",
+        "description": "Occurs when an invoice payment fails"
+      },
+      {
+        "name": "customer.subscription.created",
+        "description": "Occurs when a new subscription is created"
+      },
+      {
+        "name": "customer.subscription.updated",
+        "description": "Occurs when a subscription is updated"
+      },
+      {
+        "name": "customer.subscription.deleted",
+        "description": "Occurs when a subscription is cancelled"
+      },
+      {
+        "name": "charge.succeeded",
+        "description": "Occurs when a charge succeeds"
+      },
+      {
+        "name": "charge.refunded",
+        "description": "Occurs when a charge is refunded"
+      }
+    ]
+  }
+}

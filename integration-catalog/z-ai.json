@@ -1,0 +1,185 @@
+{
+  "slug": "z-ai",
+  "name": "Z.ai",
+  "description": "Z.ai GLM language-model API with OpenAI-compatible chat completions, reasoning controls, multimodal messages, structured output, function calling, and token counting.",
+  "logo": "https://www.google.com/s2/favicons?domain=z.ai&sz=128",
+  "categories": [
+    "ai",
+    "llm",
+    "glm",
+    "chat",
+    "reasoning",
+    "multimodal"
+  ],
+  "base_url": "https://api.z.ai/api/paas/v4",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "Bearer {{api_key}}",
+      "Accept-Language": "en-US,en"
+    },
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "Z.ai API Key",
+        "description": "Create an API key in the Z.ai Open Platform. This integration uses the general pay-as-you-go API endpoint, not the separate Coding Plan endpoint."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "chat_completion",
+      "description": "Create an OpenAI-compatible GLM chat completion. Supports model-dependent text, image, audio, video, and file inputs plus reasoning, structured output, and function calling.",
+      "method": "POST",
+      "path": "/chat/completions",
+      "timeout_ms": 600000,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "default": "glm-5.2",
+            "description": "Native Z.ai model ID. Model availability is documented by Z.ai and may vary by account."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Conversation messages. Content may be text or model-supported multimodal content parts.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {},
+                "tool_calls": {
+                  "type": "array"
+                },
+                "tool_call_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role"
+              ]
+            }
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Optional caller-generated unique request identifier."
+          },
+          "do_sample": {
+            "type": "boolean",
+            "default": true
+          },
+          "thinking": {
+            "type": "object",
+            "description": "Thinking configuration, such as {\"type\":\"enabled\"} or {\"type\":\"disabled\"}."
+          },
+          "reasoning_effort": {
+            "type": "string",
+            "enum": [
+              "max",
+              "xhigh",
+              "high",
+              "medium",
+              "low",
+              "minimal",
+              "none"
+            ]
+          },
+          "temperature": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "top_p": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 1
+          },
+          "max_tokens": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tools": {
+            "type": "array",
+            "description": "Function tools in OpenAI format."
+          },
+          "tool_choice": {
+            "description": "OpenAI-compatible tool selection mode."
+          },
+          "response_format": {
+            "type": "object",
+            "description": "Use {\"type\":\"text\"} or {\"type\":\"json_object\"} where supported."
+          },
+          "stop": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "user_id": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "description": "Stable, non-sensitive end-user identifier."
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "count_tokens",
+      "description": "Count tokens for a GLM conversation before inference.",
+      "method": "POST",
+      "path": "/tokenizer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Native Z.ai model ID."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "content": {}
+              },
+              "required": [
+                "role",
+                "content"
+              ]
+            }
+          }
+        },
+        "required": [
+          "model",
+          "messages"
+        ]
+      }
+    }
+  ]
+}

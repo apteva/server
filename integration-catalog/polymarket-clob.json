@@ -1,0 +1,184 @@
+{
+  "slug": "polymarket-clob",
+  "name": "Polymarket CLOB (Trading)",
+  "description": "Polymarket Central Limit Order Book — authenticated trading surface for placing, cancelling, and tracking orders on prediction markets. Pair with the public `polymarket` integration (gamma-api) for market data and slug→tokenId lookups; this entry handles the signed (HMAC + EIP-712) write path. Requires both an L2 API credential triplet (api_key/secret/passphrase, obtainable from the Polymarket UI) AND a Polygon wallet private key (used to EIP-712-sign each order). Settles in USDC on Polygon mainnet (chain 137).",
+  "logo": "https://www.google.com/s2/favicons?domain=polymarket.com&sz=128",
+  "categories": [
+    "trading",
+    "prediction-markets",
+    "polymarket",
+    "defi",
+    "crypto"
+  ],
+  "base_url": "https://clob.polymarket.com",
+  "auth": {
+    "types": ["custom"],
+    "signers": [
+      {"name": "polymarket_l2"}
+    ],
+    "credential_fields": [
+      {
+        "name": "api_key",
+        "label": "L2 API Key",
+        "description": "Polymarket CLOB L2 API Key (generate via Polymarket UI → Settings → API Keys, or via the SDK derive_api_key flow)."
+      },
+      {
+        "name": "secret",
+        "label": "L2 API Secret",
+        "description": "Base64-encoded L2 secret returned alongside the api_key."
+      },
+      {
+        "name": "passphrase",
+        "label": "L2 API Passphrase",
+        "description": "L2 passphrase returned alongside the api_key."
+      },
+      {
+        "name": "private_key",
+        "label": "Polygon wallet private key",
+        "description": "32-byte hex (with or without 0x prefix) of the wallet that holds your USDC + funded the proxy/Safe. Used for EIP-712 order signing only. Never leaves this server.",
+        "type": "password"
+      },
+      {
+        "name": "address",
+        "label": "Wallet address",
+        "description": "0x-prefixed Polygon address corresponding to the private key. Sent as POLY_ADDRESS header on every authenticated request."
+      },
+      {
+        "name": "funder_address",
+        "label": "Funder address (optional)",
+        "description": "Address that actually holds USDC. Equals address for EOAs; differs for Safe / Polymarket-proxy wallets. Defaults to address when empty.",
+        "required": false
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "get_balance",
+      "description": "USDC (or per-token conditional) balance and trading allowances.",
+      "method": "GET",
+      "path": "/balance-allowance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset_type": {"type": "string", "enum": ["USDC", "CONDITIONAL"], "default": "USDC"},
+          "token_id":   {"type": "string", "description": "Required for asset_type=CONDITIONAL."}
+        }
+      }
+    },
+    {
+      "name": "get_open_orders",
+      "description": "Every currently-live order. Optional filter by condition_id (market) or token_id (asset_id).",
+      "method": "GET",
+      "path": "/data/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market":      {"type": "string"},
+          "asset_id":    {"type": "string"},
+          "next_cursor": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "One order by id. Returns status (LIVE / FILLED / CANCELED) + fill detail.",
+      "method": "GET",
+      "path": "/data/order/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {"order_id": {"type": "string"}},
+        "required": ["order_id"]
+      }
+    },
+    {
+      "name": "get_trades",
+      "description": "Fill history. Optional filter by condition_id or token_id.",
+      "method": "GET",
+      "path": "/data/trades",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "market":      {"type": "string"},
+          "asset_id":    {"type": "string"},
+          "next_cursor": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel one open order by id. Idempotent: returns ok even if the order was already filled / cancelled.",
+      "method": "DELETE",
+      "path": "/order/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {"order_id": {"type": "string"}},
+        "required": ["order_id"]
+      }
+    },
+    {
+      "name": "cancel_all_orders",
+      "description": "Cancel every open order on the account.",
+      "method": "DELETE",
+      "path": "/cancel-all",
+      "input_schema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "create_order",
+      "description": "Place a limit order on the CLOB. The order body is EIP-712 typed-data-signed with your Polygon wallet key BEFORE the request envelope is HMAC-signed for L2 auth. Price is between 0 and 1 (probability). Use the gamma-api `get_clob_market` tool first to resolve a market slug to its token IDs (one for YES, one for NO).",
+      "method": "POST",
+      "path": "/order",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "type": "object",
+            "description": "The Polymarket Order struct — fields match the on-chain EIP-712 schema. Required fields: salt, maker, signer, taker, tokenId, makerAmount, takerAmount, expiration, nonce, feeRateBps, side, signatureType.",
+            "properties": {
+              "salt":          {"type": "string", "description": "Random uint256 (decimal string)."},
+              "maker":         {"type": "string", "description": "Order maker (usually = funder_address for EOAs)."},
+              "signer":        {"type": "string", "description": "Signing wallet address (= credentials.address)."},
+              "taker":         {"type": "string", "description": "Counterparty restriction; 0x000...0 for an open order."},
+              "tokenId":       {"type": "string", "description": "Conditional token id (one of YES/NO from get_clob_market)."},
+              "makerAmount":   {"type": "string", "description": "Amount maker is offering, in atomic units (6-decimal USDC for collateral, 6-decimal token for sells)."},
+              "takerAmount":   {"type": "string", "description": "Amount maker wants in return."},
+              "expiration":    {"type": "string", "description": "Unix-seconds expiry; 0 for GTC."},
+              "nonce":         {"type": "string", "description": "Operator-tracked nonce (we use 0 unless replay-protecting across L2 keys)."},
+              "feeRateBps":    {"type": "string", "description": "Fee rate basis points; 0 for standard accounts."},
+              "side":          {"type": "string", "description": "0 = BUY, 1 = SELL."},
+              "signatureType": {"type": "string", "description": "0 = EOA, 1 = POLY_PROXY, 2 = POLY_GNOSIS_SAFE."}
+            },
+            "required": [
+              "salt", "maker", "signer", "taker", "tokenId",
+              "makerAmount", "takerAmount", "expiration", "nonce",
+              "feeRateBps", "side", "signatureType"
+            ]
+          },
+          "owner":     {"type": "string", "description": "L2 api_key (echoed)."},
+          "orderType": {"type": "string", "enum": ["GTC", "GTD", "FOK", "FAK"], "default": "GTC"}
+        },
+        "required": ["order"]
+      },
+      "signing": {
+        "signers": [
+          {
+            "name": "eip712_typed_data",
+            "params": {
+              "schema":          "polymarket_order_v1",
+              "body_path":       "order",
+              "key_field":       "private_key",
+              "signature_field": "signature",
+              "field_overrides": {
+                "maker":  "{{address}}",
+                "signer": "{{address}}"
+              }
+            }
+          },
+          {"name": "polymarket_l2"}
+        ]
+      }
+    }
+  ],
+  "health_check": {
+    "tool": "get_balance"
+  }
+}

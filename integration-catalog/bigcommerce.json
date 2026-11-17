@@ -1,0 +1,366 @@
+{
+  "slug": "bigcommerce",
+  "name": "BigCommerce",
+  "description": "BigCommerce e-commerce platform. Manage products, variants, orders, customers, and categories on a BigCommerce storefront via the v3 REST API.",
+  "logo": "https://www.google.com/s2/favicons?domain=bigcommerce.com&sz=128",
+  "categories": [
+    "ecommerce",
+    "store",
+    "products",
+    "orders",
+    "customers",
+    "retail"
+  ],
+  "base_url": "https://api.bigcommerce.com/stores/{{store_hash}}/v3",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "X-Auth-Token": "{{token}}",
+      "Accept": "application/json",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Access Token",
+        "description": "BigCommerce API account access token (created under Settings > API > Store-level API accounts)."
+      },
+      {
+        "name": "store_hash",
+        "label": "Store Hash",
+        "description": "BigCommerce store hash (the alphanumeric segment after /stores/ in your API path, e.g. 'abcd1234')."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_products",
+      "description": "List products in the catalog with optional filtering by name, SKU, category, brand, or visibility. Supports pagination via page and limit.",
+      "method": "GET",
+      "path": "/catalog/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (1-indexed)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (max 250)."
+          },
+          "name": {
+            "type": "string",
+            "description": "Filter by exact product name."
+          },
+          "sku": {
+            "type": "string",
+            "description": "Filter by SKU."
+          },
+          "categories": {
+            "type": "string",
+            "description": "Comma-separated category IDs."
+          },
+          "is_visible": {
+            "type": "boolean",
+            "description": "Filter by storefront visibility."
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated sub-resources to embed (e.g. 'variants,images,custom_fields')."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_product",
+      "description": "Retrieve a single product by ID, optionally with variants, images, custom fields, and modifiers embedded.",
+      "method": "GET",
+      "path": "/catalog/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "description": "The product's ID."
+          },
+          "include": {
+            "type": "string",
+            "description": "Comma-separated sub-resources to embed (e.g. 'variants,images,custom_fields')."
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "create_product",
+      "description": "Create a new product in the catalog. Required fields: name, type, weight, price.",
+      "method": "POST",
+      "path": "/catalog/products",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Product name."
+          },
+          "type": {
+            "type": "string",
+            "description": "Product type: 'physical' or 'digital'."
+          },
+          "sku": {
+            "type": "string",
+            "description": "Stock keeping unit."
+          },
+          "description": {
+            "type": "string",
+            "description": "HTML product description."
+          },
+          "weight": {
+            "type": "number",
+            "description": "Product weight (required for physical products)."
+          },
+          "price": {
+            "type": "number",
+            "description": "Default price."
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "Category IDs the product belongs to."
+          },
+          "brand_id": {
+            "type": "integer",
+            "description": "Brand ID."
+          },
+          "inventory_level": {
+            "type": "integer",
+            "description": "Current stock level."
+          },
+          "is_visible": {
+            "type": "boolean",
+            "description": "Whether the product is visible on the storefront."
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "weight",
+          "price"
+        ]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update an existing product's fields. Only provided fields are changed.",
+      "method": "PUT",
+      "path": "/catalog/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "description": "The product's ID."
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          },
+          "sale_price": {
+            "type": "number"
+          },
+          "inventory_level": {
+            "type": "integer"
+          },
+          "is_visible": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Permanently delete a product from the catalog.",
+      "method": "DELETE",
+      "path": "/catalog/products/{product_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "description": "The product's ID."
+          }
+        },
+        "required": [
+          "product_id"
+        ]
+      }
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders. Note: orders use the v2 API; this endpoint hits /v2/orders relative to the store. Supports filtering by status, customer, and date range.",
+      "method": "GET",
+      "path": "/../v2/orders",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (max 250)."
+          },
+          "status_id": {
+            "type": "integer",
+            "description": "Filter by order status ID (e.g. 11 = Awaiting Fulfillment, 2 = Shipped)."
+          },
+          "customer_id": {
+            "type": "integer",
+            "description": "Filter to orders placed by a specific customer."
+          },
+          "min_date_created": {
+            "type": "string",
+            "description": "RFC 2822 date; orders created on or after this timestamp."
+          },
+          "max_date_created": {
+            "type": "string",
+            "description": "RFC 2822 date; orders created on or before this timestamp."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_order",
+      "description": "Retrieve a single order by ID (v2 API).",
+      "method": "GET",
+      "path": "/../v2/orders/{order_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "integer",
+            "description": "The order's ID."
+          }
+        },
+        "required": [
+          "order_id"
+        ]
+      }
+    },
+    {
+      "name": "list_customers",
+      "description": "List customers. Supports filtering by email, name, and company.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (max 250)."
+          },
+          "email:in": {
+            "type": "string",
+            "description": "Comma-separated emails to match."
+          },
+          "name:like": {
+            "type": "string",
+            "description": "Partial-match customer name."
+          },
+          "company:like": {
+            "type": "string",
+            "description": "Partial-match company name."
+          }
+        }
+      }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create one or more customers. The request body must be a JSON array of customer objects.",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "customers": {
+            "type": "array",
+            "description": "Array of customer objects. Each requires first_name, last_name, and email.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_name": {
+                  "type": "string"
+                },
+                "last_name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "company": {
+                  "type": "string"
+                },
+                "phone": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "first_name",
+                "last_name",
+                "email"
+              ]
+            }
+          }
+        },
+        "required": [
+          "customers"
+        ]
+      }
+    },
+    {
+      "name": "list_categories",
+      "description": "List storefront categories with their tree position and visibility.",
+      "method": "GET",
+      "path": "/catalog/categories",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "parent_id": {
+            "type": "integer",
+            "description": "Only return categories under this parent (use 0 for top-level)."
+          },
+          "is_visible": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  ]
+}

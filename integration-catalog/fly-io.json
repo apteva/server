@@ -1,0 +1,134 @@
+{
+  "slug": "fly-io",
+  "name": "Fly.io",
+  "description": "MCP server for Fly.io - apps, machines, volumes, secrets via Machines API",
+  "logo": "https://www.google.com/s2/favicons?domain=fly.io&sz=128",
+  "categories": ["hosting", "deployment", "devops", "edge"],
+  "base_url": "https://api.machines.dev/v1",
+  "auth": {
+    "types": ["bearer"],
+    "headers": { "Authorization": "Bearer {{token}}" },
+    "credential_fields": [
+      { "name": "token", "label": "API Token", "description": "fly auth token (fly_api_..)" },
+      { "name": "organization", "label": "Organization Slug" }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_apps",
+      "description": "List apps",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": { "org_slug": { "type": "string" } }
+      }
+    },
+    {
+      "name": "create_app",
+      "description": "Create an app",
+      "method": "POST",
+      "path": "/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "org_slug": { "type": "string" }
+        },
+        "required": ["app_name", "org_slug"]
+      }
+    },
+    {
+      "name": "delete_app",
+      "description": "Delete an app",
+      "method": "DELETE",
+      "path": "/apps/{app_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_name": { "type": "string" } },
+        "required": ["app_name"]
+      }
+    },
+    {
+      "name": "list_machines",
+      "description": "List machines for an app",
+      "method": "GET",
+      "path": "/apps/{app_name}/machines",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_name": { "type": "string" } },
+        "required": ["app_name"]
+      }
+    },
+    {
+      "name": "create_machine",
+      "description": "Create a machine",
+      "method": "POST",
+      "path": "/apps/{app_name}/machines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "name": { "type": "string" },
+          "region": { "type": "string" },
+          "config": { "type": "object" }
+        },
+        "required": ["app_name", "config"]
+      }
+    },
+    {
+      "name": "start_machine",
+      "description": "Start a machine",
+      "method": "POST",
+      "path": "/apps/{app_name}/machines/{machine_id}/start",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "machine_id": { "type": "string" }
+        },
+        "required": ["app_name", "machine_id"]
+      }
+    },
+    {
+      "name": "stop_machine",
+      "description": "Stop a machine",
+      "method": "POST",
+      "path": "/apps/{app_name}/machines/{machine_id}/stop",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "machine_id": { "type": "string" }
+        },
+        "required": ["app_name", "machine_id"]
+      }
+    },
+    {
+      "name": "destroy_machine",
+      "description": "Destroy a machine",
+      "method": "DELETE",
+      "path": "/apps/{app_name}/machines/{machine_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_name": { "type": "string" },
+          "machine_id": { "type": "string" },
+          "force": { "type": "boolean" }
+        },
+        "required": ["app_name", "machine_id"]
+      }
+    },
+    {
+      "name": "list_volumes",
+      "description": "List volumes",
+      "method": "GET",
+      "path": "/apps/{app_name}/volumes",
+      "input_schema": {
+        "type": "object",
+        "properties": { "app_name": { "type": "string" } },
+        "required": ["app_name"]
+      }
+    }
+  ]
+}

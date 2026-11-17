@@ -52,7 +52,7 @@ func (s *Server) RunRuntimeMonitor(ctx context.Context) {
 						delete(s.agents.processes, id)
 						s.agents.mu.Unlock()
 						// Conditional write cannot clear a concurrently published replacement.
-						s.store.db.Exec("UPDATE agents SET status='stopped',pid=0,port=0,core_api_key='',core_started_at=NULL WHERE id=? AND pid=? AND port=?", id, ri.pid, ri.port)
+						s.store.dbExec("UPDATE agents SET status='stopped',pid=0,port=0,core_api_key='',core_started_at=NULL WHERE id=? AND pid=? AND port=?", id, ri.pid, ri.port)
 						continue
 					}
 					s.agents.mu.Unlock()

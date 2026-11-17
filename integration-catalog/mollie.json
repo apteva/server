@@ -1,0 +1,219 @@
+{
+  "slug": "mollie",
+  "name": "Mollie",
+  "description": "Mollie payments API for hosted checkout, payments, payment links, refunds, customers, mandates, subscriptions, and payment methods.",
+  "logo": "https://www.google.com/s2/favicons?domain=mollie.com&sz=128",
+  "categories": ["payments", "checkout", "billing", "subscriptions", "commerce"],
+  "base_url": "https://api.mollie.com/v2",
+  "auth": {
+    "types": ["bearer"],
+    "headers": {
+      "Authorization": "Bearer {{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "API Key",
+        "description": "Mollie live or test API key."
+      }
+    ]
+  },
+  "tools": [
+    {
+      "name": "list_methods",
+      "description": "List available Mollie payment methods, optionally filtered by amount, locale, sequence type, resource, or profile.",
+      "method": "GET",
+      "path": "/methods",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "object", "description": "Amount object, for example {\"currency\":\"EUR\",\"value\":\"10.00\"}." },
+          "locale": { "type": "string" },
+          "sequenceType": { "type": "string" },
+          "resource": { "type": "string" },
+          "profileId": { "type": "string" },
+          "testmode": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "get_method",
+      "description": "Retrieve one Mollie payment method.",
+      "method": "GET",
+      "path": "/methods/{method_id}",
+      "input_schema": { "type": "object", "properties": { "method_id": { "type": "string" }, "locale": { "type": "string" }, "profileId": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["method_id"] }
+    },
+    {
+      "name": "create_payment",
+      "description": "Create a Mollie payment. Use amount, description, redirectUrl, webhookUrl, method, metadata, customerId, sequenceType, mandateId, or profileId as needed.",
+      "method": "POST",
+      "path": "/payments",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "amount": { "type": "object", "description": "Required amount object, for example {\"currency\":\"EUR\",\"value\":\"10.00\"}." },
+          "description": { "type": "string" },
+          "redirectUrl": { "type": "string" },
+          "webhookUrl": { "type": "string" },
+          "method": { "type": ["string", "array"] },
+          "metadata": { "type": "object" },
+          "customerId": { "type": "string" },
+          "sequenceType": { "type": "string" },
+          "mandateId": { "type": "string" },
+          "profileId": { "type": "string" },
+          "testmode": { "type": "boolean" }
+        },
+        "required": ["amount", "description"]
+      }
+    },
+    {
+      "name": "list_payments",
+      "description": "List Mollie payments.",
+      "method": "GET",
+      "path": "/payments",
+      "input_schema": { "type": "object", "properties": { "from": { "type": "string" }, "limit": { "type": "integer" }, "profileId": { "type": "string" }, "testmode": { "type": "boolean" } } }
+    },
+    {
+      "name": "get_payment",
+      "description": "Retrieve one Mollie payment.",
+      "method": "GET",
+      "path": "/payments/{payment_id}",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["payment_id"] }
+    },
+    {
+      "name": "cancel_payment",
+      "description": "Cancel an open Mollie payment.",
+      "method": "DELETE",
+      "path": "/payments/{payment_id}",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["payment_id"] }
+    },
+    {
+      "name": "create_refund",
+      "description": "Create a refund for a Mollie payment. Omit amount for a full refund when supported.",
+      "method": "POST",
+      "path": "/payments/{payment_id}/refunds",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "amount": { "type": "object" }, "description": { "type": "string" }, "metadata": { "type": "object" }, "testmode": { "type": "boolean" } }, "required": ["payment_id"] }
+    },
+    {
+      "name": "list_refunds",
+      "description": "List refunds for a Mollie payment.",
+      "method": "GET",
+      "path": "/payments/{payment_id}/refunds",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "from": { "type": "string" }, "limit": { "type": "integer" }, "testmode": { "type": "boolean" } }, "required": ["payment_id"] }
+    },
+    {
+      "name": "get_refund",
+      "description": "Retrieve one refund for a Mollie payment.",
+      "method": "GET",
+      "path": "/payments/{payment_id}/refunds/{refund_id}",
+      "input_schema": { "type": "object", "properties": { "payment_id": { "type": "string" }, "refund_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["payment_id", "refund_id"] }
+    },
+    {
+      "name": "create_customer",
+      "description": "Create a Mollie customer.",
+      "method": "POST",
+      "path": "/customers",
+      "input_schema": { "type": "object", "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "locale": { "type": "string" }, "metadata": { "type": "object" }, "testmode": { "type": "boolean" } }, "required": ["name", "email"] }
+    },
+    {
+      "name": "list_customers",
+      "description": "List Mollie customers.",
+      "method": "GET",
+      "path": "/customers",
+      "input_schema": { "type": "object", "properties": { "from": { "type": "string" }, "limit": { "type": "integer" }, "testmode": { "type": "boolean" } } }
+    },
+    {
+      "name": "get_customer",
+      "description": "Retrieve one Mollie customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "update_customer",
+      "description": "Update a Mollie customer.",
+      "method": "PATCH",
+      "path": "/customers/{customer_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "name": { "type": "string" }, "email": { "type": "string" }, "locale": { "type": "string" }, "metadata": { "type": "object" }, "testmode": { "type": "boolean" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "delete_customer",
+      "description": "Delete a Mollie customer.",
+      "method": "DELETE",
+      "path": "/customers/{customer_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "list_mandates",
+      "description": "List mandates for a Mollie customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}/mandates",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "from": { "type": "string" }, "limit": { "type": "integer" }, "testmode": { "type": "boolean" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "get_mandate",
+      "description": "Retrieve one Mollie mandate.",
+      "method": "GET",
+      "path": "/customers/{customer_id}/mandates/{mandate_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "mandate_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["customer_id", "mandate_id"] }
+    },
+    {
+      "name": "create_subscription",
+      "description": "Create a subscription for a Mollie customer.",
+      "method": "POST",
+      "path": "/customers/{customer_id}/subscriptions",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "amount": { "type": "object" }, "times": { "type": "integer" }, "interval": { "type": "string" }, "startDate": { "type": "string" }, "description": { "type": "string" }, "mandateId": { "type": "string" }, "webhookUrl": { "type": "string" }, "metadata": { "type": "object" }, "testmode": { "type": "boolean" } }, "required": ["customer_id", "amount", "interval", "description"] }
+    },
+    {
+      "name": "list_subscriptions",
+      "description": "List subscriptions for a Mollie customer.",
+      "method": "GET",
+      "path": "/customers/{customer_id}/subscriptions",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "from": { "type": "string" }, "limit": { "type": "integer" }, "testmode": { "type": "boolean" } }, "required": ["customer_id"] }
+    },
+    {
+      "name": "get_subscription",
+      "description": "Retrieve one Mollie subscription.",
+      "method": "GET",
+      "path": "/customers/{customer_id}/subscriptions/{subscription_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "subscription_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["customer_id", "subscription_id"] }
+    },
+    {
+      "name": "update_subscription",
+      "description": "Update a Mollie subscription.",
+      "method": "PATCH",
+      "path": "/customers/{customer_id}/subscriptions/{subscription_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "subscription_id": { "type": "string" }, "amount": { "type": "object" }, "times": { "type": "integer" }, "interval": { "type": "string" }, "startDate": { "type": "string" }, "description": { "type": "string" }, "mandateId": { "type": "string" }, "webhookUrl": { "type": "string" }, "metadata": { "type": "object" }, "testmode": { "type": "boolean" } }, "required": ["customer_id", "subscription_id"] }
+    },
+    {
+      "name": "cancel_subscription",
+      "description": "Cancel a Mollie subscription.",
+      "method": "DELETE",
+      "path": "/customers/{customer_id}/subscriptions/{subscription_id}",
+      "input_schema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "subscription_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["customer_id", "subscription_id"] }
+    },
+    {
+      "name": "create_payment_link",
+      "description": "Create a Mollie payment link.",
+      "method": "POST",
+      "path": "/payment-links",
+      "input_schema": { "type": "object", "properties": { "amount": { "type": "object" }, "description": { "type": "string" }, "redirectUrl": { "type": "string" }, "webhookUrl": { "type": "string" }, "expiresAt": { "type": "string" }, "profileId": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["amount", "description"] }
+    },
+    {
+      "name": "list_payment_links",
+      "description": "List Mollie payment links.",
+      "method": "GET",
+      "path": "/payment-links",
+      "input_schema": { "type": "object", "properties": { "from": { "type": "string" }, "limit": { "type": "integer" }, "profileId": { "type": "string" }, "testmode": { "type": "boolean" } } }
+    },
+    {
+      "name": "get_payment_link",
+      "description": "Retrieve one Mollie payment link.",
+      "method": "GET",
+      "path": "/payment-links/{payment_link_id}",
+      "input_schema": { "type": "object", "properties": { "payment_link_id": { "type": "string" }, "testmode": { "type": "boolean" } }, "required": ["payment_link_id"] }
+    }
+  ],
+  "health_check": { "tool": "list_methods" }
+}

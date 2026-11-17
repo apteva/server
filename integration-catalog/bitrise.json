@@ -1,0 +1,3997 @@
+{
+  "slug": "bitrise",
+  "name": "Bitrise",
+  "description": "Mobile-first CI/CD for iOS, Android, Flutter, React Native, and other app projects. Discover apps and workflows, trigger and monitor builds or pipelines, inspect logs and AI failure summaries, retrieve artifacts, manage secrets and signing files, distribute test builds, and coordinate App Store or Google Play releases.",
+  "logo": "https://www.google.com/s2/favicons?domain=bitrise.io&sz=128",
+  "categories": [
+    "development",
+    "ci",
+    "cd",
+    "mobile",
+    "ios",
+    "android",
+    "macos",
+    "xcode",
+    "deployment"
+  ],
+  "base_url": "https://api.bitrise.io/v0.1",
+  "auth": {
+    "types": [
+      "bearer"
+    ],
+    "headers": {
+      "Authorization": "{{token}}",
+      "Content-Type": "application/json"
+    },
+    "credential_fields": [
+      {
+        "name": "token",
+        "label": "Personal or Workspace Access Token",
+        "description": "Bitrise Personal Access Token or Workspace API token. Workspace tokens are preferred for shared automation.",
+        "required": true,
+        "type": "password"
+      }
+    ]
+  },
+  "health_check": {
+    "tool": "get_current_user",
+    "input": {}
+  },
+  "tools": [
+    {
+      "name": "get_current_user",
+      "description": "Get your profile info. Shows the authenticated users profile info",
+      "method": "GET",
+      "path": "/me",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "list_organizations",
+      "description": "List the organizations that the user is part of. List all Bitrise organizations that the user is part of",
+      "method": "GET",
+      "path": "/organizations",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_organization",
+      "description": "Get a specified organization.. Get a specified Bitrise organization that the user is part of.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "The organization slug"
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_organization_apps",
+      "description": "Get list of the apps for an organization. List all the available apps owned by a given organization. of the organisations you are part of; be aware that the endpoint will not return any apps if the authenticated account is not a member of the given organisation.",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "Organization slug"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Order of applications: sort them based on when they were created or the time of their last build",
+            "enum": [
+              "last_build_at",
+              "created_at"
+            ]
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first app in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of elements per page (default: 50)"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the app"
+          },
+          "project_type": {
+            "type": "string",
+            "description": "The project type of the app (eg. 'ios', 'android')"
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      },
+      "query_params": [
+        "sort_by",
+        "next",
+        "limit",
+        "title",
+        "project_type"
+      ]
+    },
+    {
+      "name": "list_apps",
+      "description": "Get list of the apps. List all the apps available for the authenticated account, including those that are owned by other users or Organizations.",
+      "method": "GET",
+      "path": "/apps",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sort_by": {
+            "type": "string",
+            "description": "Order of the applications: sort them based on when they were created or the time of their last build",
+            "enum": [
+              "last_build_at",
+              "created_at"
+            ]
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first app in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of elements per page (default: 50)"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the app"
+          },
+          "project_type": {
+            "type": "string",
+            "description": "The project type of the app (eg. 'ios', 'android')"
+          }
+        }
+      },
+      "query_params": [
+        "sort_by",
+        "next",
+        "limit",
+        "title",
+        "project_type"
+      ]
+    },
+    {
+      "name": "register_app",
+      "description": "Add a new app. Add a new app to Bitrise. This is the first step of the app registration process. To successfully set it up, you need to provide the required app parameters: the repository URL and the isPublic field. Read more about the app creation process in our .",
+      "method": "POST",
+      "path": "/apps/register",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "default_branch_name": {
+            "type": "string",
+            "description": "The default branch of the repository. If it's not specified, it will be `master`."
+          },
+          "git_owner": {
+            "type": "string",
+            "description": "[Deprecated] You no longer need to provide this field."
+          },
+          "git_repo_slug": {
+            "type": "string",
+            "description": "[Deprecated] You no longer need to provide this field."
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "If `true` then the repository visibility setting will be public, in case of `false` it will be private"
+          },
+          "manual_approval_enabled": {
+            "type": "boolean",
+            "description": "Toggles whether manual approval should be enabled for the app's builds. If it's not specified, it will be `true`."
+          },
+          "organization_slug": {
+            "type": "string",
+            "description": "The slug of the organization, who will be the owner of the application. If it's not specified, then the authenticated user will be the owner."
+          },
+          "provider": {
+            "type": "string",
+            "description": "The git provider you are using, it can be `github`, `bitbucket`, `gitlab`, `gitlab-self-hosted` or `custom`"
+          },
+          "repo_url": {
+            "type": "string",
+            "description": "The URL of your repository"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the application. If it's not specified, it will be the git repository's name."
+          },
+          "type": {
+            "type": "string",
+            "description": "[Deprecated] You no longer need to provide this field."
+          }
+        },
+        "required": [
+          "is_public",
+          "repo_url"
+        ]
+      }
+    },
+    {
+      "name": "get_app",
+      "description": "Get a specific app. Get the details of a specific app by providing the app slug. You can get the app slug by calling the endpoint or by opening the app on bitrise.io and copying the slug from the URL.",
+      "method": "GET",
+      "path": "/apps/{app_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "update_app",
+      "description": "Updates an app. Updates an app by slug. Only updates the fields specified in the body.",
+      "method": "PATCH",
+      "path": "/apps/{app_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "apple_api_credential_slug": {
+            "type": "string",
+            "description": "The new Apple API key's slug (recommendation: use the UI to set this)"
+          },
+          "apple_credential_user_id": {
+            "type": "integer",
+            "description": "The new apple credential user ID (recommendation: use the UI to set this)"
+          },
+          "apple_credential_user_slug": {
+            "type": "string",
+            "description": "The new apple credential user slug (recommendation: use the UI to set this)"
+          },
+          "default_branch": {
+            "type": "string",
+            "description": "The new default branch for the application."
+          },
+          "is_public": {
+            "type": "boolean",
+            "description": "The new value of whether an application should be publicly visible"
+          },
+          "repository_url": {
+            "type": "string",
+            "description": "The new repository URL for the application."
+          },
+          "services_credential_user_id": {
+            "type": "integer",
+            "description": "The new service credential user ID (recommendation: use the UI to set this)"
+          },
+          "title": {
+            "type": "string",
+            "description": "The new title of the application."
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "finish_app_setup",
+      "description": "Save the application at the end of the app registration process. Save the application after registering it on Bitrise and registering an SSH key (and, optionally, adding a webhook). With this endpoint you can define the initial configuration, define application-level environment variables, determine the project type, and set an Organization to be the owner of the app. Read more about the app registration process in our .",
+      "method": "POST",
+      "path": "/apps/{app_slug}/finish",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "config": {
+            "type": "string",
+            "description": "Which config to use. Specify a config that matches your project type (e. g. `default-android-config` for `android`, etc.). If not speficied, default value is `other-config`. The available values are `default-android-config`, `default-cordova-config`, `default-fastlane-android-config`, `default-fastlane-ios-config`, `flutter-config-test-android-2`, `flutter-config-test-both-0`, `flutter-config-test-ios-1`, `default-ionic-config`, `default-ios-config`, `default-macos-config`, `default-react-native-config`, `default-react-native-expo-config`, `other-config`."
+          },
+          "envs": {
+            "type": "object",
+            "description": "Environment variables for the application workflows, e.g. {\"env1\":\"val1\",\"env2\":\"val2\"}",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "description": "config specification mode, has to be specified with `manual` value"
+          },
+          "organization_slug": {
+            "type": "string",
+            "description": "The slug of the organization, who will be the owner of the application, if it's not specified, then the authenticated user will be the owner"
+          },
+          "project_type": {
+            "type": "string",
+            "description": "The type of your project (`android`, `ios`, `cordova`, `other`, `xamarin`, `macos`, `ionic`, `react-native`, `fastlane`, `flutter`, null)"
+          },
+          "stack_id": {
+            "type": "string",
+            "description": "The id of the stack the application will be built (these can be found in the [system report](https://github.com/bitrise-io/bitrise.io/tree/master/system_reports) file names)"
+          }
+        },
+        "required": [
+          "app_slug",
+          "project_type",
+          "stack_id"
+        ]
+      }
+    },
+    {
+      "name": "list_app_branches",
+      "description": "List the branches with existing builds of an app's repository. Lists only those branches of a specified Bitrise app that have existing builds.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/branches",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_app_workflows",
+      "description": "List the workflows of an app. List the workflows that were triggered at any time for a given Bitrise app. Note that it might list workflows that are currently not defined in the app's `bitrise.yml` configuration - and conversely, workflows that were never triggered will not be listed even if they are defined in the `bitrise.yml` file.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/build-workflows",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "get_app_bitrise_yml",
+      "description": "Get bitrise.yml of a specific app. Get the full `bitrise.yml` configuration of an application, by providing the app slug. It returns the current `bitrise.yml` that is stored on bitrise.io in full, including the trigger map, the different workflows and the Steps.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/bitrise.yml",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "update_app_bitrise_yml",
+      "description": "Upload a new bitrise.yml for your application.. Upload a new bitrise.yml for your application.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/bitrise.yml",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "app_config_datastore_yaml": {
+            "type": "object",
+            "description": "The bitrise.yml of your application, defined in JSON format"
+          }
+        },
+        "required": [
+          "app_slug",
+          "app_config_datastore_yaml"
+        ]
+      }
+    },
+    {
+      "name": "list_app_builds",
+      "description": "List all builds of an app. List all the builds of a specified Bitrise app. Set parameters to filter builds: for example, you can search for builds run with a given workflow or all builds that were triggered by Pull Requests. It returns all the relevant data of the build.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "sort_by": {
+            "type": "string",
+            "description": "Order of builds: sort them based on when they were created or the time when they were triggered",
+            "enum": [
+              "running_first",
+              "created_at"
+            ]
+          },
+          "branch": {
+            "type": "string",
+            "description": "The branch which was built"
+          },
+          "workflow": {
+            "type": "string",
+            "description": "The name of the workflow used for the build"
+          },
+          "commit_message": {
+            "type": "string",
+            "description": "The commit message of the build"
+          },
+          "trigger_event_type": {
+            "type": "string",
+            "description": "The event that triggered the build (push, pull-request, tag)"
+          },
+          "pull_request_id": {
+            "type": "integer",
+            "description": "The id of the pull request that triggered the build"
+          },
+          "build_number": {
+            "type": "integer",
+            "description": "The build number"
+          },
+          "after": {
+            "type": "integer",
+            "description": "List builds run after a given date (Unix Timestamp)"
+          },
+          "before": {
+            "type": "integer",
+            "description": "List builds run before a given date (Unix Timestamp)"
+          },
+          "status": {
+            "type": "integer",
+            "description": "The status of the build: not finished (0), successful (1), failed (2), aborted with failure (3), aborted with success (4)"
+          },
+          "is_pipeline_build": {
+            "type": "boolean",
+            "description": "Whether the builds are part of a pipeline or not"
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first build in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of elements per page (default: 50)"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      },
+      "query_params": [
+        "sort_by",
+        "branch",
+        "workflow",
+        "commit_message",
+        "trigger_event_type",
+        "pull_request_id",
+        "build_number",
+        "after",
+        "before",
+        "status",
+        "is_pipeline_build",
+        "next",
+        "limit"
+      ]
+    },
+    {
+      "name": "trigger_build",
+      "description": "Trigger a Bitrise build or pipeline for an app. Provide a branch, tag, commit, workflow, or pipeline in build_params/hook_info as documented by the typed schema. Poll get_build or get_pipeline, then inspect logs and artifacts.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_params": {
+            "type": "object",
+            "properties": {
+              "base_repository_url": {
+                "type": "string"
+              },
+              "branch": {
+                "type": "string"
+              },
+              "branch_dest": {
+                "type": "string"
+              },
+              "branch_dest_repo_owner": {
+                "type": "string"
+              },
+              "branch_repo_owner": {
+                "type": "string"
+              },
+              "build_request_slug": {
+                "type": "string"
+              },
+              "commit_hash": {
+                "type": "string"
+              },
+              "commit_message": {
+                "type": "string"
+              },
+              "commit_paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "added": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "modified": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "removed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "diff_url": {
+                "type": "string"
+              },
+              "environments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "is_expand": {
+                      "type": "boolean"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "mapped_to": {
+                      "type": "string",
+                      "description": "Deprecated. Please use `key` instead.",
+                      "example": "Deprecated. Please use key instead"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "head_repository_url": {
+                "type": "string"
+              },
+              "machine_type_id": {
+                "type": "string",
+                "description": "The machine type to run the build on. Overrides the app's default machine type.",
+                "example": "g2-m1.4core"
+              },
+              "pipeline_id": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "integer"
+              },
+              "pull_request_author": {
+                "type": "string"
+              },
+              "pull_request_head_branch": {
+                "type": "string"
+              },
+              "pull_request_id": {},
+              "pull_request_merge_branch": {
+                "type": "string"
+              },
+              "pull_request_repository_url": {
+                "type": "string"
+              },
+              "pull_request_unverified_merge_branch": {
+                "type": "string"
+              },
+              "secrets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "is_expand": {
+                      "type": "boolean"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "skip_git_status_report": {
+                "type": "boolean"
+              },
+              "stack": {
+                "type": "string",
+                "description": "The stack to run the build on. Overrides the app's default stack.",
+                "example": "osx-xcode-16.0.x"
+              },
+              "tag": {
+                "type": "string"
+              },
+              "workflow_id": {
+                "type": "string"
+              }
+            }
+          },
+          "hook_info": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Should be \"bitrise\"",
+                "example": "bitrise"
+              }
+            }
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "get_build",
+      "description": "Get a build of a given app. Get the specified build of a given Bitrise app. You need to provide both an app slug and a build slug. You can get the build slug either by calling the endpoint or by clicking on the build on bitrise.io and copying the slug from the URL. The endpoint returns all the relevant data of the build.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/builds/{build_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_slug"
+        ]
+      }
+    },
+    {
+      "name": "abort_build",
+      "description": "Abort a specific build. Abort a specific build. Set an abort reason with the `abort_reason` parameter. Use the `abort_with_success` parameter to abort a build but still count it as a successful one.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/builds/{build_slug}/abort",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          },
+          "abort_reason": {
+            "type": "string"
+          },
+          "abort_with_success": {
+            "type": "boolean"
+          },
+          "skip_git_status_report": {
+            "type": "boolean"
+          },
+          "skip_notifications": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_slug",
+          "abort_reason",
+          "abort_with_success",
+          "skip_git_status_report",
+          "skip_notifications"
+        ]
+      }
+    },
+    {
+      "name": "get_build_log",
+      "description": "Get the build log of a build. Get the build log of a specified build of a Bitrise app. You can get the build slug either by calling the endpoint or by clicking on the build on bitrise.io and copying the slug from the URL. Preview of the log is returned in `log_chunks` field in JSON format. You can download the full raw log in txt by using the signed url returned in `expiring_raw_log_url`. Be aware that this url is expiring in 10 minutes!",
+      "method": "GET",
+      "path": "/apps/{app_slug}/builds/{build_slug}/log",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_slug"
+        ]
+      }
+    },
+    {
+      "name": "get_failed_build_ai_summary",
+      "description": "Get AI-generated summary of a failed build. Get AI-generated summary of a failed build. Only available after a build has failed and if the AI build summary feature is enabled in the Project Settings.",
+      "method": "GET",
+      "path": "/builds/{build_slug}/ai-summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          }
+        },
+        "required": [
+          "build_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_build_artifacts",
+      "description": "Get a list of all build artifacts. List all build artifacts that have been generated for an app's build. This endpoint can retrieve artifacts from the archive as well. You can use the created build artifact slugs from the response output to retrieve data of a specific build artifact with the endpoint or update a build artifact with the endpoint.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/builds/{build_slug}/artifacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first build artifact in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of build artifacts per page is 50."
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_slug"
+        ]
+      },
+      "query_params": [
+        "next",
+        "limit"
+      ]
+    },
+    {
+      "name": "get_build_artifact",
+      "description": "Get a specific build artifact. Retrieve data of a specific build artifact. The endpoint can retrieve archived artifacts as well. The response output contains a time-limited download url (expires in 10 minutes) and a public install-page URL. You can view the build artifact with both URLs, but the public install-page url will not work unless you . The response includes the expiring artifact download_url; use it promptly.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/builds/{build_slug}/artifacts/{artifact_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          },
+          "artifact_slug": {
+            "type": "string",
+            "description": "Artifact slug"
+          },
+          "download": {
+            "type": "integer",
+            "description": "Setting this will result in a redirect to the artifact download location"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_slug",
+          "artifact_slug"
+        ]
+      },
+      "query_params": [
+        "download"
+      ]
+    },
+    {
+      "name": "delete_build_artifact",
+      "description": "Delete a build artifact. Delete a build artifact of an app's build. The required parameters are app slug, build slug and artifact slug. You can fetch the build artifact slug if you first list all build artifacts of an app with the endpoint.",
+      "method": "DELETE",
+      "path": "/apps/{app_slug}/builds/{build_slug}/artifacts/{artifact_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_slug": {
+            "type": "string",
+            "description": "Build slug"
+          },
+          "artifact_slug": {
+            "type": "string",
+            "description": "Artifact slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_slug",
+          "artifact_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_app_pipelines",
+      "description": "List all pipelines and standalone builds of an app. List all the pipelines and standalone builds of a specified Bitrise app. Set parameters to filter pipelines: for example, you can search for pipelines/standalone builds run with a given workflow name or all pipelines/standalone builds that were triggered by Pull Requests. It returns all the relevant data of the pipelines/standalone builds.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/pipelines",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "string",
+            "description": "List pipelines/standalone builds run after a given date (RFC3339 time format)"
+          },
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "before": {
+            "type": "string",
+            "description": "List pipelines/standalone builds run before a given date (RFC3339 time format) - was called 'next' earlier"
+          },
+          "branch": {
+            "type": "string",
+            "description": "The branch which was built"
+          },
+          "build_number": {
+            "type": "integer",
+            "description": "The pipeline/standalone build number"
+          },
+          "commit_message": {
+            "type": "string",
+            "description": "The commit message of the pipeline/standalone build"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of elements per page - default: 10"
+          },
+          "next": {
+            "type": "string",
+            "description": "List pipelines/standalone builds run before a given date (RFC3339 time format) - deprecated"
+          },
+          "pipeline": {
+            "type": "string",
+            "description": "Name of the pipeline"
+          },
+          "status": {
+            "type": "string",
+            "description": "The status of the pipeline/standalone build: on_hold, running, succeeded, failed, aborted, succeeded_with_abort"
+          },
+          "trigger_event_type": {
+            "type": "string",
+            "description": "The event that triggered the pipeline/standalone build (push, pull-request, tag)"
+          },
+          "workflow": {
+            "type": "string",
+            "description": "The name of the workflow used for the pipeline/standalone build"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      },
+      "query_params": [
+        "after",
+        "before",
+        "branch",
+        "build_number",
+        "commit_message",
+        "limit",
+        "next",
+        "pipeline",
+        "status",
+        "trigger_event_type",
+        "workflow"
+      ]
+    },
+    {
+      "name": "get_pipeline",
+      "description": "Get a pipeline of a given app. Get the specified pipeline of a given Bitrise app. You need to provide both an app slug and a pipeline id. You can get the pipeline id either by calling the endpoint or by clicking on the pipeline on bitrise.io and copying the id from the URL. The endpoint returns all the relevant data of the pipeline.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/pipelines/{pipeline_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline id"
+          }
+        },
+        "required": [
+          "app_slug",
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "abort_pipeline",
+      "description": "Aborts a pipeline. Aborts a pipeline. You need to provide the app slug and the id of the pipeline. You can add an abort reason, choose to skip notifications and make the abort with success state.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/pipelines/{pipeline_id}/abort",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline id"
+          },
+          "abort_reason": {
+            "type": "string"
+          },
+          "abort_with_success": {
+            "type": "boolean"
+          },
+          "skip_notifications": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app_slug",
+          "pipeline_id",
+          "abort_reason",
+          "abort_with_success",
+          "skip_notifications"
+        ]
+      }
+    },
+    {
+      "name": "rebuild_pipeline",
+      "description": "Rebuilds a pipeline. Rebuilds a pipeline. You can rebuild the whole pipeline or only the unsuccessful and subsequent workflows by setting the partial flag to true.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/pipelines/{pipeline_id}/rebuild",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "pipeline_id": {
+            "type": "string",
+            "description": "Pipeline id"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "triggered_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_slug",
+          "pipeline_id"
+        ]
+      }
+    },
+    {
+      "name": "list_app_secrets",
+      "description": "List the application secrets (with no values). List the application secrets (with no values). Requires administrator level privileges to the app.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/secrets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      }
+    },
+    {
+      "name": "create_app_secret",
+      "description": "Create a new app secret. Create a new app secret",
+      "method": "POST",
+      "path": "/apps/{app_slug}/secrets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "app slug"
+          },
+          "expand_in_step_inputs": {
+            "type": "boolean"
+          },
+          "is_exposed_for_pull_requests": {
+            "type": "boolean"
+          },
+          "is_protected": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_slug",
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "get_app_secret",
+      "description": "Get a single app secret by name. Get a single app secret by name, including the value if not protected",
+      "method": "GET",
+      "path": "/apps/{app_slug}/secrets/{secret_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "app slug"
+          },
+          "secret_name": {
+            "type": "string",
+            "description": "secret name"
+          }
+        },
+        "required": [
+          "app_slug",
+          "secret_name"
+        ]
+      }
+    },
+    {
+      "name": "upsert_app_secret",
+      "description": "Upsert an application secret. Upsert an application secret. Requires administrator level privileges to the app.",
+      "method": "PUT",
+      "path": "/apps/{app_slug}/secrets/{secret_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "secret_name": {
+            "type": "string",
+            "description": "Secret name"
+          },
+          "expand_in_step_inputs": {
+            "type": "boolean",
+            "description": "Replace variable in inputs? https://devcenter.bitrise.io/en/references/steps-reference/step-inputs-reference.html#step-input-properties"
+          },
+          "is_exposed_for_pull_requests": {
+            "type": "boolean",
+            "description": "Expose for Pull Requests?"
+          },
+          "is_protected": {
+            "type": "boolean",
+            "description": "Secret marked as protected?"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value of the secret"
+          }
+        },
+        "required": [
+          "app_slug",
+          "secret_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_app_secret",
+      "description": "Delete an application secret. Delete an application secret. Requires administrator level privileges to the app.",
+      "method": "DELETE",
+      "path": "/apps/{app_slug}/secrets/{secret_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "secret_name": {
+            "type": "string",
+            "description": "Secret name"
+          }
+        },
+        "required": [
+          "app_slug",
+          "secret_name"
+        ]
+      }
+    },
+    {
+      "name": "list_organization_secrets",
+      "description": "Get the secrets of an organization. Get the secrets of an organization",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/secrets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "organization slug"
+          }
+        },
+        "required": [
+          "org_slug"
+        ]
+      }
+    },
+    {
+      "name": "create_organization_secret",
+      "description": "Create a new organization secret. Create a new organization secret",
+      "method": "POST",
+      "path": "/organizations/{org_slug}/secrets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "organization slug"
+          },
+          "expand_in_step_inputs": {
+            "type": "boolean"
+          },
+          "is_exposed_for_pull_requests": {
+            "type": "boolean"
+          },
+          "is_protected": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "name",
+          "value"
+        ]
+      }
+    },
+    {
+      "name": "get_organization_secret",
+      "description": "Get a single secret by name. Get a single secret by name, including the value if not protected",
+      "method": "GET",
+      "path": "/organizations/{org_slug}/secrets/{secret_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "organization slug"
+          },
+          "secret_name": {
+            "type": "string",
+            "description": "secret name"
+          }
+        },
+        "required": [
+          "org_slug",
+          "secret_name"
+        ]
+      }
+    },
+    {
+      "name": "update_organization_secret",
+      "description": "Update an existing secret. Update an existing secret. If the secret is protected, only its value can be overridden.",
+      "method": "PATCH",
+      "path": "/organizations/{org_slug}/secrets/{secret_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "organization slug"
+          },
+          "secret_name": {
+            "type": "string",
+            "description": "secret name"
+          },
+          "expand_in_step_inputs": {
+            "type": "boolean"
+          },
+          "is_exposed_for_pull_requests": {
+            "type": "boolean"
+          },
+          "is_protected": {
+            "type": "boolean"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_slug",
+          "secret_name"
+        ]
+      }
+    },
+    {
+      "name": "delete_organization_secret",
+      "description": "Delete a secret by name. Delete a secret by name",
+      "method": "DELETE",
+      "path": "/organizations/{org_slug}/secrets/{secret_name}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "org_slug": {
+            "type": "string",
+            "description": "organization slug"
+          },
+          "secret_name": {
+            "type": "string",
+            "description": "secret name"
+          }
+        },
+        "required": [
+          "org_slug",
+          "secret_name"
+        ]
+      }
+    },
+    {
+      "name": "list_app_webhooks",
+      "description": "List the outgoing webhooks of an app. List all the outgoing webhooks registered for a specified Bitrise app. This returns all the relevant data of the webhook, including the slug of the webhook and its URL.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/outgoing-webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first webhook in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of elements per page (default: 50)"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      },
+      "query_params": [
+        "next",
+        "limit"
+      ]
+    },
+    {
+      "name": "create_app_webhook",
+      "description": "Create an outgoing webhook for an app. Create an outgoing webhook for a specified Bitrise app: this can be used to send build events to a specified URL with custom headers. Currently, only build events can trigger outgoing webhooks.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/outgoing-webhooks",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headers": {
+            "type": "object"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_slug",
+          "events",
+          "secret",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "update_app_webhook",
+      "description": "Update an outgoing webhook of an app. Update an existing outgoing webhook (URL, events, secrets and headers) for a specified Bitrise app. Even if you do not want to change one of the parameters, you still have to provide that parameter as well: simply use its existing value.",
+      "method": "PUT",
+      "path": "/apps/{app_slug}/outgoing-webhooks/{app_webhook_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "app_webhook_slug": {
+            "type": "string",
+            "description": "App webhook slug"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headers": {
+            "type": "object"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_slug",
+          "app_webhook_slug",
+          "events",
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "delete_app_webhook",
+      "description": "Delete an outgoing webhook of an app. Delete an existing outgoing webhook for a specified Bitrise app.",
+      "method": "DELETE",
+      "path": "/apps/{app_slug}/outgoing-webhooks/{app_webhook_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "app_webhook_slug": {
+            "type": "string",
+            "description": "App webhook slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "app_webhook_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_ios_certificates",
+      "description": "Get a list of the build certificates. List all the build certificates that have been uploaded to a specific app. Read more in our guide.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/build-certificates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first build certificate in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of build certificates per page is 50."
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      },
+      "query_params": [
+        "next",
+        "limit"
+      ]
+    },
+    {
+      "name": "create_ios_certificate_upload",
+      "description": "Create a build certificate. Create a temporary pre-signed upload URL for the build certificate and upload the file to AWS with a simple `curl` request. To complete the uploading process and view your files on the Code Signing tab of your app, continue with the endpoint. Read more in our guide.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/build-certificates",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "upload_file_name": {
+            "type": "string"
+          },
+          "upload_file_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "app_slug",
+          "upload_file_name",
+          "upload_file_size"
+        ]
+      }
+    },
+    {
+      "name": "get_ios_certificate",
+      "description": "Get a specific build certificate. Retrieve data of a specific build certificate. You can fetch the build certificate slug for this endpoint if you first call the endpoint to list all available build certificates of an app. Read more in our guide.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/build-certificates/{build_certificate_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_certificate_slug": {
+            "type": "string",
+            "description": "Build certificate slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_certificate_slug"
+        ]
+      }
+    },
+    {
+      "name": "delete_ios_certificate",
+      "description": "Delete a build certificate. Delete an app's build certificate. You can fetch the build certificate slug for this endpoint if you first call the endpoint to list all available build certificates of an app. Read more in our guide.",
+      "method": "DELETE",
+      "path": "/apps/{app_slug}/build-certificates/{build_certificate_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_certificate_slug": {
+            "type": "string",
+            "description": "Build certificate slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_certificate_slug"
+        ]
+      }
+    },
+    {
+      "name": "confirm_ios_certificate_upload",
+      "description": "Confirm a build certificate upload. This is the last step of uploading a build certificate to Bitrise. Confirm the build certificate upload and view the file on the Code Signing tab of a specific app. Read more in our guide.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/build-certificates/{build_certificate_slug}/uploaded",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "build_certificate_slug": {
+            "type": "string",
+            "description": "Build certificate slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "build_certificate_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_ios_provisioning_profiles",
+      "description": "Get a list of the provisioning profiles. List all the provisioning profiles that have been uploaded to a specific app. Read more in our guide.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/provisioning-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first provisioning profile in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of elements per page (default: 50)"
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      },
+      "query_params": [
+        "next",
+        "limit"
+      ]
+    },
+    {
+      "name": "create_ios_provisioning_profile_upload",
+      "description": "Create a provisioning profile. Create a temporary pre-signed upload URL (expires in 10 minutes) for the provisioning profile and upload it to AWS with a simple `curl` request. To complete the upload process, continue with the endpoint. Read more in our guide.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/provisioning-profiles",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "upload_file_name": {
+            "type": "string"
+          },
+          "upload_file_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "app_slug",
+          "upload_file_name",
+          "upload_file_size"
+        ]
+      }
+    },
+    {
+      "name": "get_ios_provisioning_profile",
+      "description": "Get a specific provisioning profile. Retrieve data of a specific provisioning profile. You can fetch the provisioning profile's slug if you call the endpoint. Read more in our guide.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/provisioning-profiles/{provisioning_profile_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "provisioning_profile_slug": {
+            "type": "string",
+            "description": "Provisioning profile slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "provisioning_profile_slug"
+        ]
+      }
+    },
+    {
+      "name": "delete_ios_provisioning_profile",
+      "description": "Delete a provisioning profile. Delete an app's provisioning profile. You can fetch the provisioning profile's slug if you call the endpoint. Read more in our guide.",
+      "method": "DELETE",
+      "path": "/apps/{app_slug}/provisioning-profiles/{provisioning_profile_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "provisioning_profile_slug": {
+            "type": "string",
+            "description": "Provisioning profile slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "provisioning_profile_slug"
+        ]
+      }
+    },
+    {
+      "name": "confirm_ios_provisioning_profile_upload",
+      "description": "Confirm a provisioning profile upload. This is the last step of the upload process. Confirm the provisioning profile upload and view the file on the Code Signing tab of a specific app. Read more in our guide.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/provisioning-profiles/{provisioning_profile_slug}/uploaded",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "provisioning_profile_slug": {
+            "type": "string",
+            "description": "Provisioning profile slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "provisioning_profile_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_android_keystores",
+      "description": "Get a list of the android keystore files. List all the android keystore files that have been uploaded to a specific app.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/android-keystore-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "next": {
+            "type": "string",
+            "description": "Slug of the first android keystore file in the response"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max number of build certificates per page is 50."
+          }
+        },
+        "required": [
+          "app_slug"
+        ]
+      },
+      "query_params": [
+        "next",
+        "limit"
+      ]
+    },
+    {
+      "name": "create_android_keystore_upload",
+      "description": "Create an Android keystore file. Add a new Android keystore file to an app. `keystore_file_name` is required if there is already an existing keystore file for the app. It will determine the environment variable key to be used to refer to the keystore file in builds. E.g. `BITRISE_ANDROID_KEYSTORE_<keystore_file_name>_URL`. The `keystore_file_name` can only contain letters, numbers, and underscores.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/android-keystore-files",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "alias": {
+            "type": "string"
+          },
+          "keystore_file_name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "private_key_password": {
+            "type": "string"
+          },
+          "upload_file_name": {
+            "type": "string"
+          },
+          "upload_file_size": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "app_slug",
+          "alias",
+          "password",
+          "private_key_password",
+          "upload_file_name",
+          "upload_file_size"
+        ]
+      }
+    },
+    {
+      "name": "get_android_keystore",
+      "description": "Get a specific Android Keystore file. Retrieve data of a specific Android Keystore file to check its attributes.",
+      "method": "GET",
+      "path": "/apps/{app_slug}/android-keystore-files/{android_keystore_file_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "android_keystore_file_slug": {
+            "type": "string",
+            "description": "Android Keystore file slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "android_keystore_file_slug"
+        ]
+      }
+    },
+    {
+      "name": "delete_android_keystore",
+      "description": "Delete an android keystore file. Delete an app's android keystore file. You can fetch an app's android keystore file slug if you first list all the uploaded files with the endpoint. Read more in our guide.",
+      "method": "DELETE",
+      "path": "/apps/{app_slug}/android-keystore-files/{android_keystore_file_slug}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "android_keystore_file_slug": {
+            "type": "string",
+            "description": "Android keystore file slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "android_keystore_file_slug"
+        ]
+      }
+    },
+    {
+      "name": "confirm_android_keystore_upload",
+      "description": "Confirm an android keystore file upload. This is the last step of uploading an android keystore file to Bitrise. Confirm the android keystore file upload and view the file on the Code Signing tab of a specific app. Read more in our guide.",
+      "method": "POST",
+      "path": "/apps/{app_slug}/android-keystore-files/{android_keystore_file_slug}/uploaded",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_slug": {
+            "type": "string",
+            "description": "App slug"
+          },
+          "android_keystore_file_slug": {
+            "type": "string",
+            "description": "Android keystore file slug"
+          }
+        },
+        "required": [
+          "app_slug",
+          "android_keystore_file_slug"
+        ]
+      }
+    },
+    {
+      "name": "list_release_apps",
+      "description": "Gets a list of apps. Gives back a paginated list of apps your user has access to for the workspace specified based on given filters.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "workspace_slug": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Specifies which Bitrise Project you want to get associated apps for"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ],
+            "description": "Filter for a specific mobile platform between your apps"
+          },
+          "search": {
+            "type": "string",
+            "description": "Search by bundle ID (for iOS), package name (for Android), or app title. (case sensitive)"
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of apps returned per request"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario"
+          }
+        },
+        "required": [
+          "workspace_slug"
+        ]
+      },
+      "query_params": [
+        "workspace_slug",
+        "project_id",
+        "platform",
+        "search",
+        "items_per_page",
+        "page"
+      ]
+    },
+    {
+      "name": "get_release_app",
+      "description": "Gets an app. Gives back an app your user has access to for the workspace.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_installable_artifacts",
+      "description": "Gets the list of the installable artifacts.. Gives back a list of installable artifacts.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/installable-artifacts",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app the artifact is connected to."
+          },
+          "artifact_type": {
+            "type": "string",
+            "enum": [
+              "aab",
+              "apk",
+              "ipa"
+            ],
+            "description": "Filter for a specific artifact type/extension."
+          },
+          "after_date": {
+            "type": "string",
+            "description": "A date in ISO 8601 string format specifying the start of the interval when the installable artifact created/uploaded. This value will be defaulted to 1 month ago if `distribution_ready` filter is not set or set to `false`."
+          },
+          "before_date": {
+            "type": "string",
+            "description": "A date in ISO 8601 string format specifying the end of the interval when the installable artifact created/uploaded. This value will be defaulted to the current time if `distribution_ready` filter is not set or set to `false`."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Filter for the Bitrise CI branch the artifact has been generated on. (if applicable)"
+          },
+          "distribution_ready": {
+            "type": "boolean",
+            "description": "Filter for distribution ready installable artifacts. This means `.apk` and `.ipa` (with distribution type `ad-hoc`, `development`, or `enterprise`) installable artifacts."
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of installable artifacts returned per request."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario."
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ],
+            "description": "Filter for a specific mobile platform between your installable artifacts."
+          },
+          "search": {
+            "type": "string",
+            "description": "Search by version, filename, or build number (Bitrise CI). (case sensitive)"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "api",
+              "ci"
+            ],
+            "description": "Filter for the source of the installable artifacts."
+          },
+          "store_signed": {
+            "type": "boolean",
+            "description": "Filter for store ready installable artifacts. This means signed `.aab` and `.ipa` (with distribution type `app-store`) installable artifacts."
+          },
+          "version": {
+            "type": "string",
+            "description": "Filter for the version this artifact created for.This field is required if the `distribution_ready` filter is set to `true`."
+          },
+          "workflow": {
+            "type": "string",
+            "description": "Filter for the Bitrise CI workflow this artifact has been generated by. (if applicable)"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "artifact_type",
+        "after_date",
+        "before_date",
+        "branch",
+        "distribution_ready",
+        "items_per_page",
+        "page",
+        "platform",
+        "search",
+        "source",
+        "store_signed",
+        "version",
+        "workflow"
+      ]
+    },
+    {
+      "name": "get_installable_artifact",
+      "description": "Gets an installable artifact.. Returns the details of a single installable artifact.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/installable-artifacts/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the installable artifact."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_installable_artifact_status",
+      "description": "Gets the status and reason of an installable artifact.. Gets the processing and upload status of an installable artifact. Status can be one of: - 'upload_requested': This status is given back when an upload has been requested for the installable artifact, but didn't get uploaded yet. - 'uploaded': This status indicates that the installable artifact has been uploaded, but not yet processed. - 'processed_valid': This status means that the uploaded installable artifact has been successfully processed and that it is a valid artifact to be used for either build distribution or store release. - 'processed_invalid': This means that the uploaded installable artifact has been processed and that it is an invalid artifact, it cannot be used neither for build distribution nor for store release. - 'ready_to_upload': This status is only given to installable artifacts that are created using the deploy step on Bitrise CI. For API uploaded artifacts this will never be set.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/installable-artifacts/{id}/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier for the installable artifact."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_installable_artifact_upload_url",
+      "description": "Generates an upload url for an installable artifact.. Generates a signed upload url valid for 1 hour for an installable artifact to be uploaded to Bitrise.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/installable-artifacts/{id}/upload-url",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "An uuidV4 identifier for the installable artifact."
+          },
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app the artifact is connected to."
+          },
+          "file_name": {
+            "type": "string",
+            "description": "The name of the installable artifact file (with extension) to be uploaded to Bitrise."
+          },
+          "file_size_bytes": {
+            "type": "string",
+            "description": "The size of the file in bytes."
+          },
+          "with_public_page": {
+            "type": "boolean",
+            "description": "Optionally, you can enable public install page for your artifact. This can only be enabled by Admins, Owners and Workspace Admins. Changing this value without proper permissions will result in an error. The default value is false."
+          },
+          "branch": {
+            "type": "string",
+            "description": "Optionally you can add the CI branch the artifact has been generated on."
+          },
+          "workflow": {
+            "type": "string",
+            "description": "Optionally you can add the CI workflow this artifact has been generated by."
+          }
+        },
+        "required": [
+          "id",
+          "app_id",
+          "file_name",
+          "file_size_bytes"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "file_name",
+        "file_size_bytes",
+        "with_public_page",
+        "branch",
+        "workflow"
+      ]
+    },
+    {
+      "name": "get_installable_artifact_test_notes",
+      "description": "Gets what to test information. Gets what to test information for an installable artifact.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/installable-artifacts/{id}/what-to-test",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier for the installable artifact."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_installable_artifact_test_notes",
+      "description": "Update what to test information. Update what to test information for an installable artifact.",
+      "method": "PATCH",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/installable-artifacts/{id}/what-to-test",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier for the installable artifact."
+          },
+          "what_to_test": {
+            "type": "string",
+            "description": "The what to test information for the installable artifact. This should be a string with a maximum length of 4000 characters. To remove the what to test, send an empty string."
+          }
+        },
+        "required": [
+          "id",
+          "what_to_test"
+        ]
+      }
+    },
+    {
+      "name": "list_release_presets",
+      "description": "Gets a list of preset templates. Gets a list of preset templates for the app.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/presets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      },
+      "query_params": [
+        "app_id"
+      ]
+    },
+    {
+      "name": "create_release_preset",
+      "description": "Creates a preset template. Creates a preset template for the app.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/presets",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app."
+          },
+          "default": {
+            "type": "boolean",
+            "description": "If set to true, this preset will be used as the default template for the app."
+          },
+          "release_candidate": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "ci",
+                  "api"
+                ]
+              },
+              "branch": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "auto_select": {
+                "type": "boolean"
+              }
+            }
+          },
+          "auto_upload": {
+            "type": "boolean",
+            "description": "If set to true, Release Management will upload all successful builds that ran on the given branch with the given workflow to the App Store."
+          },
+          "notifications": {
+            "type": "object",
+            "properties": {
+              "slack_webhook_url": {
+                "type": "string",
+                "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/.*\\.slack\\.com\\/services\\/T[a-zA-Z0-9]*\\/B[a-zA-Z0-9]*\\/[a-zA-Z0-9]*$"
+              },
+              "slack_notification_integration_id": {
+                "type": "string",
+                "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the an integration ID found in Workspace Settings."
+              },
+              "teams_webhook_url": {
+                "type": "string",
+                "description": "You can get notifications about release updates on Teams by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/(?:.*\\.webhook|outlook)\\.office(?:365)?\\.com\\/webhookb2\\/.*"
+              }
+            }
+          },
+          "approvals": {
+            "type": "array",
+            "description": "Tasks for the approval stage. Sending this value will replace the possibly already existing approval task list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "automation": {
+            "type": "array",
+            "description": "Automation events (workflow or pipeline runs) setup for specific event types. Sending this value will replace the possibly already existing automation list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event_name": {
+                  "type": "string",
+                  "enum": [
+                    "release_candidate_set",
+                    "testflight_upload_finished",
+                    "google_play_store_upload_finished",
+                    "beta_review_approved",
+                    "beta_review_rejected",
+                    "release_for_apple_app_store_testing_group",
+                    "release_on_google_play_store_testing_track",
+                    "approvals_completed",
+                    "submitted_for_review",
+                    "review_cancelled",
+                    "review_status_changed",
+                    "release_started",
+                    "release_percentage_changed",
+                    "release_completed"
+                  ]
+                },
+                "workflow_name": {
+                  "type": "string"
+                },
+                "pipeline_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "outgoing_webhooks": {
+            "type": "array",
+            "description": "COMING SOON. A collection of outgoing webhooks configured to trigger for specific event types. Each webhook can be associated with one or more events or set to trigger for all events.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "description": "A list of event names that will trigger this webhook. These events correspond to specific actions or states in the release process.",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "release_candidate_set",
+                      "testflight_upload_finished",
+                      "google_play_store_upload_finished",
+                      "beta_review_approved",
+                      "beta_review_rejected",
+                      "release_for_apple_app_store_testing_group",
+                      "release_on_google_play_store_testing_track",
+                      "approvals_completed",
+                      "submitted_for_review",
+                      "review_cancelled",
+                      "review_status_changed",
+                      "release_started",
+                      "release_percentage_changed",
+                      "release_completed",
+                      "app_store_release_cancelled",
+                      "app_store_release_completed",
+                      "app_store_release_started",
+                      "app_store_review_approved",
+                      "app_store_review_cancelled",
+                      "app_store_review_rejected",
+                      "app_store_review_submitted",
+                      "app_store_version_created",
+                      "app_store_version_updated",
+                      "app_version_added",
+                      "approval_task_added",
+                      "approval_task_changed",
+                      "approval_task_completed",
+                      "approval_task_deleted",
+                      "approval_task_reopened",
+                      "approval_tasks_completed",
+                      "auto-upload_disabled",
+                      "auto-upload_enabled",
+                      "automation_added",
+                      "automation_removed",
+                      "google_play_automated_rollout_cancelled",
+                      "google_play_automated_rollout_configured",
+                      "google_play_automated_rollout_paused",
+                      "google_play_automated_rollout_resumed",
+                      "google_play_release_completed",
+                      "google_play_release_notes_localization_added",
+                      "google_play_release_notes_localization_changed",
+                      "google_play_release_notes_localization_removed",
+                      "google_play_release_started",
+                      "google_play_rollout_percentage_changed",
+                      "google_play_testing_track_release_completed",
+                      "google_play_testing_track_release_failed",
+                      "google_play_upload_completed",
+                      "google_play_upload_failed",
+                      "google_play_upload_started",
+                      "metadata_localization_added",
+                      "metadata_localization_changed",
+                      "metadata_localization_removed",
+                      "microsoft_teams_connection_changed",
+                      "outgoing_webhook_added",
+                      "outgoing_webhook_deleted",
+                      "outgoing_webhook_updated",
+                      "phased_release_disabled",
+                      "phased_release_enabled",
+                      "phased_release_paused",
+                      "phased_release_resumed",
+                      "release_candidate_auto_select_latest_build_disabled",
+                      "release_candidate_auto_select_latest_build_enabled",
+                      "release_candidate_build_selected",
+                      "release_candidate_source_changed",
+                      "release_description_changed",
+                      "release_settings_changed",
+                      "slack_connection_changed",
+                      "stopped_managing_release",
+                      "testflight_app_review_approved",
+                      "testflight_app_review_rejected",
+                      "testflight_app_review_submitted",
+                      "testflight_distribution_start_failed",
+                      "testflight_distribution_started",
+                      "testflight_distribution_stopped",
+                      "testflight_processing_completed",
+                      "testflight_processing_failed",
+                      "testflight_upload_completed",
+                      "testflight_upload_failed",
+                      "testflight_upload_started",
+                      "testflight_what_to_test_added",
+                      "testflight_what_to_test_changed",
+                      "testflight_what_to_test_deleted"
+                    ]
+                  }
+                },
+                "all_events": {
+                  "type": "boolean",
+                  "description": "Indicates whether this webhook should be triggered for all events. Set to true to enable the webhook for every event."
+                },
+                "webhook_configuration_id": {
+                  "type": "string",
+                  "description": "The unique identifier of the webhook, that can be found in the workspace integration settings. This ID links the webhook to the workspace."
+                }
+              }
+            }
+          },
+          "template_name": {
+            "type": "string",
+            "description": "The name of the preset template."
+          }
+        },
+        "required": [
+          "app_id",
+          "template_name"
+        ]
+      }
+    },
+    {
+      "name": "get_release_preset",
+      "description": "Gets a preset template. Gets a preset template for the app.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/presets/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the preset template."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_release_preset",
+      "description": "Updates the preset template. Updates the preset template for the app.",
+      "method": "PUT",
+      "base_url": "https://api.bitrise.io/release-management/v2/apps/v1",
+      "path": "/presets/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean",
+            "description": "If set to true, this preset will be used as the default template for the app."
+          },
+          "release_candidate": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "ci",
+                  "api"
+                ]
+              },
+              "branch": {
+                "type": "string"
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "auto_select": {
+                "type": "boolean"
+              }
+            }
+          },
+          "auto_upload": {
+            "type": "boolean",
+            "description": "If set to true, Release Management will upload all successful builds that ran on the given branch with the given workflow to the App Store."
+          },
+          "notifications": {
+            "type": "object",
+            "properties": {
+              "slack_webhook_url": {
+                "type": "string",
+                "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/.*\\.slack\\.com\\/services\\/T[a-zA-Z0-9]*\\/B[a-zA-Z0-9]*\\/[a-zA-Z0-9]*$"
+              },
+              "slack_notification_integration_id": {
+                "type": "string",
+                "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the an integration ID found in Workspace Settings."
+              },
+              "teams_webhook_url": {
+                "type": "string",
+                "description": "You can get notifications about release updates on Teams by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/(?:.*\\.webhook|outlook)\\.office(?:365)?\\.com\\/webhookb2\\/.*"
+              }
+            }
+          },
+          "approvals": {
+            "type": "array",
+            "description": "Tasks for the approval stage. Sending this value will replace the possibly already existing approval task list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "automation": {
+            "type": "array",
+            "description": "Automation events (workflow or pipeline runs) setup for specific event types. Sending this value will replace the possibly already existing automation list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event_name": {
+                  "type": "string",
+                  "enum": [
+                    "release_candidate_set",
+                    "testflight_upload_finished",
+                    "google_play_store_upload_finished",
+                    "beta_review_approved",
+                    "beta_review_rejected",
+                    "release_for_apple_app_store_testing_group",
+                    "release_on_google_play_store_testing_track",
+                    "approvals_completed",
+                    "submitted_for_review",
+                    "review_cancelled",
+                    "review_status_changed",
+                    "release_started",
+                    "release_percentage_changed",
+                    "release_completed"
+                  ]
+                },
+                "workflow_name": {
+                  "type": "string"
+                },
+                "pipeline_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "outgoing_webhooks": {
+            "type": "array",
+            "description": "COMING SOON. A collection of outgoing webhooks configured to trigger for specific event types. Each webhook can be associated with one or more events or set to trigger for all events.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "description": "A list of event names that will trigger this webhook. These events correspond to specific actions or states in the release process.",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "release_candidate_set",
+                      "testflight_upload_finished",
+                      "google_play_store_upload_finished",
+                      "beta_review_approved",
+                      "beta_review_rejected",
+                      "release_for_apple_app_store_testing_group",
+                      "release_on_google_play_store_testing_track",
+                      "approvals_completed",
+                      "submitted_for_review",
+                      "review_cancelled",
+                      "review_status_changed",
+                      "release_started",
+                      "release_percentage_changed",
+                      "release_completed",
+                      "app_store_release_cancelled",
+                      "app_store_release_completed",
+                      "app_store_release_started",
+                      "app_store_review_approved",
+                      "app_store_review_cancelled",
+                      "app_store_review_rejected",
+                      "app_store_review_submitted",
+                      "app_store_version_created",
+                      "app_store_version_updated",
+                      "app_version_added",
+                      "approval_task_added",
+                      "approval_task_changed",
+                      "approval_task_completed",
+                      "approval_task_deleted",
+                      "approval_task_reopened",
+                      "approval_tasks_completed",
+                      "auto-upload_disabled",
+                      "auto-upload_enabled",
+                      "automation_added",
+                      "automation_removed",
+                      "google_play_automated_rollout_cancelled",
+                      "google_play_automated_rollout_configured",
+                      "google_play_automated_rollout_paused",
+                      "google_play_automated_rollout_resumed",
+                      "google_play_release_completed",
+                      "google_play_release_notes_localization_added",
+                      "google_play_release_notes_localization_changed",
+                      "google_play_release_notes_localization_removed",
+                      "google_play_release_started",
+                      "google_play_rollout_percentage_changed",
+                      "google_play_testing_track_release_completed",
+                      "google_play_testing_track_release_failed",
+                      "google_play_upload_completed",
+                      "google_play_upload_failed",
+                      "google_play_upload_started",
+                      "metadata_localization_added",
+                      "metadata_localization_changed",
+                      "metadata_localization_removed",
+                      "microsoft_teams_connection_changed",
+                      "outgoing_webhook_added",
+                      "outgoing_webhook_deleted",
+                      "outgoing_webhook_updated",
+                      "phased_release_disabled",
+                      "phased_release_enabled",
+                      "phased_release_paused",
+                      "phased_release_resumed",
+                      "release_candidate_auto_select_latest_build_disabled",
+                      "release_candidate_auto_select_latest_build_enabled",
+                      "release_candidate_build_selected",
+                      "release_candidate_source_changed",
+                      "release_description_changed",
+                      "release_settings_changed",
+                      "slack_connection_changed",
+                      "stopped_managing_release",
+                      "testflight_app_review_approved",
+                      "testflight_app_review_rejected",
+                      "testflight_app_review_submitted",
+                      "testflight_distribution_start_failed",
+                      "testflight_distribution_started",
+                      "testflight_distribution_stopped",
+                      "testflight_processing_completed",
+                      "testflight_processing_failed",
+                      "testflight_upload_completed",
+                      "testflight_upload_failed",
+                      "testflight_upload_started",
+                      "testflight_what_to_test_added",
+                      "testflight_what_to_test_changed",
+                      "testflight_what_to_test_deleted"
+                    ]
+                  }
+                },
+                "all_events": {
+                  "type": "boolean",
+                  "description": "Indicates whether this webhook should be triggered for all events. Set to true to enable the webhook for every event."
+                },
+                "webhook_configuration_id": {
+                  "type": "string",
+                  "description": "The unique identifier of the webhook, that can be found in the workspace integration settings. This ID links the webhook to the workspace."
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_app_versions",
+      "description": "Gets a list of app versions. Gives back a list of app versions.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string"
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of app versions returned per request"
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario"
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "items_per_page",
+        "page"
+      ]
+    },
+    {
+      "name": "create_app_version",
+      "description": "Creates an app version. Creates an app version under the given app.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "artifact_source": {
+            "type": "string",
+            "description": "The source of the artifact. Can be 'ci' or 'api'."
+          },
+          "app_id": {
+            "type": "string",
+            "description": "The app id for the app version. An UUIDv4 identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of your app version. In case of iOS platform this will be used in the App Store Connect for the app version and only allows X.Y.Z format"
+          },
+          "description": {
+            "type": "string",
+            "description": "The description for your app version."
+          },
+          "release_branch": {
+            "type": "string",
+            "description": "The release branch part of the build configuration for the Release candidate stage."
+          },
+          "workflow": {
+            "type": "string",
+            "description": "The workflow part of the build configuration for the Release candidate stage."
+          },
+          "slack_webhook_url": {
+            "type": "string",
+            "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/.*\\.slack\\.com\\/services\\/T[a-zA-Z0-9]*\\/B[a-zA-Z0-9]*\\/[a-zA-Z0-9]*$"
+          },
+          "slack_notification_integration_id": {
+            "type": "string",
+            "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the integration ID found in Workspace Settings."
+          },
+          "teams_webhook_url": {
+            "type": "string",
+            "description": "You can get notifications about release updates on Teams by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/(?:.*\\.webhook|outlook)\\.office(?:365)?\\.com\\/webhookb2\\/.*"
+          },
+          "automatic_store_upload": {
+            "type": "boolean",
+            "description": "If set to true, Release Management will upload all successful builds that ran on the given branch with the given workflow to the App Store."
+          },
+          "release_candidate_locked": {
+            "type": "boolean",
+            "description": "Set to true to lock the release candidate and prevent automatic selection of the latest artifact. When false or omitted, the latest matching artifact is selected automatically."
+          },
+          "approvals": {
+            "type": "array",
+            "description": "Tasks for the approval stage.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "due_date": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "automation": {
+            "type": "array",
+            "description": "Automation events (workflow or pipeline runs) setup for specific event types.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event_name": {
+                  "type": "string",
+                  "enum": [
+                    "release_candidate_set",
+                    "testflight_upload_finished",
+                    "google_play_store_upload_finished",
+                    "beta_review_approved",
+                    "beta_review_rejected",
+                    "release_for_apple_app_store_testing_group",
+                    "release_on_google_play_store_testing_track",
+                    "approvals_completed",
+                    "submitted_for_review",
+                    "review_cancelled",
+                    "review_status_changed",
+                    "release_started",
+                    "release_percentage_changed",
+                    "release_completed"
+                  ]
+                },
+                "workflow_name": {
+                  "type": "string"
+                },
+                "pipeline_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "outgoing_webhooks": {
+            "type": "array",
+            "description": "COMING SOON. A collection of outgoing webhooks configured to trigger for specific event types. Each webhook can be associated with one or more events or set to trigger for all events.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "description": "A list of event names that will trigger this webhook. These events correspond to specific actions or states in the release process.",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "release_candidate_set",
+                      "testflight_upload_finished",
+                      "google_play_store_upload_finished",
+                      "beta_review_approved",
+                      "beta_review_rejected",
+                      "release_for_apple_app_store_testing_group",
+                      "release_on_google_play_store_testing_track",
+                      "approvals_completed",
+                      "submitted_for_review",
+                      "review_cancelled",
+                      "review_status_changed",
+                      "release_started",
+                      "release_percentage_changed",
+                      "release_completed",
+                      "app_store_release_cancelled",
+                      "app_store_release_completed",
+                      "app_store_release_started",
+                      "app_store_review_approved",
+                      "app_store_review_cancelled",
+                      "app_store_review_rejected",
+                      "app_store_review_submitted",
+                      "app_store_version_created",
+                      "app_store_version_updated",
+                      "app_version_added",
+                      "approval_task_added",
+                      "approval_task_changed",
+                      "approval_task_completed",
+                      "approval_task_deleted",
+                      "approval_task_reopened",
+                      "approval_tasks_completed",
+                      "auto-upload_disabled",
+                      "auto-upload_enabled",
+                      "automation_added",
+                      "automation_removed",
+                      "google_play_automated_rollout_cancelled",
+                      "google_play_automated_rollout_configured",
+                      "google_play_automated_rollout_paused",
+                      "google_play_automated_rollout_resumed",
+                      "google_play_release_completed",
+                      "google_play_release_notes_localization_added",
+                      "google_play_release_notes_localization_changed",
+                      "google_play_release_notes_localization_removed",
+                      "google_play_release_started",
+                      "google_play_rollout_percentage_changed",
+                      "google_play_testing_track_release_completed",
+                      "google_play_testing_track_release_failed",
+                      "google_play_upload_completed",
+                      "google_play_upload_failed",
+                      "google_play_upload_started",
+                      "metadata_localization_added",
+                      "metadata_localization_changed",
+                      "metadata_localization_removed",
+                      "microsoft_teams_connection_changed",
+                      "outgoing_webhook_added",
+                      "outgoing_webhook_deleted",
+                      "outgoing_webhook_updated",
+                      "phased_release_disabled",
+                      "phased_release_enabled",
+                      "phased_release_paused",
+                      "phased_release_resumed",
+                      "release_candidate_auto_select_latest_build_disabled",
+                      "release_candidate_auto_select_latest_build_enabled",
+                      "release_candidate_build_selected",
+                      "release_candidate_source_changed",
+                      "release_description_changed",
+                      "release_settings_changed",
+                      "slack_connection_changed",
+                      "stopped_managing_release",
+                      "testflight_app_review_approved",
+                      "testflight_app_review_rejected",
+                      "testflight_app_review_submitted",
+                      "testflight_distribution_start_failed",
+                      "testflight_distribution_started",
+                      "testflight_distribution_stopped",
+                      "testflight_processing_completed",
+                      "testflight_processing_failed",
+                      "testflight_upload_completed",
+                      "testflight_upload_failed",
+                      "testflight_upload_started",
+                      "testflight_what_to_test_added",
+                      "testflight_what_to_test_changed",
+                      "testflight_what_to_test_deleted"
+                    ]
+                  }
+                },
+                "all_events": {
+                  "type": "boolean",
+                  "description": "Indicates whether this webhook should be triggered for all events. Set to true to enable the webhook for every event."
+                },
+                "webhook_configuration_id": {
+                  "type": "string",
+                  "description": "The unique identifier of the webhook configuration, that can be found in the workspace integration settings. This ID links the webhook configuration to the workspace."
+                }
+              }
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "description": "Timeline settings for the app version. Dates set here will appear in the sidebar. These deadlines serve purely informational purposes, no automatic action will take place at the scheduled times.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "release-candidate",
+                    "approvals",
+                    "testflight-upload",
+                    "google-play-upload",
+                    "app-store-review",
+                    "release"
+                  ]
+                },
+                "target_date": {
+                  "type": "string",
+                  "description": "A valid date."
+                }
+              }
+            }
+          },
+          "use_presets": {
+            "type": "boolean",
+            "description": "(DEPRECATED use presets_id instead) If set the release will be filled with data from previously set presets. Presets can contain release branch and workflow, automatic store upload, notification urls, approvals and automation lists. In case any of these values are set both in presets and in the release request the variables set in the request will take precedence."
+          },
+          "presets_id": {
+            "type": "string",
+            "description": "The presets id to be used for the release. Presets can contain release branch and workflow, automatic store upload, notification URLs, approvals, and automation lists. In case any of these values are set both in presets and in the release request, the variables set in the request will take precedence. The presets id can be retrieved using the presets listing endpoint."
+          }
+        },
+        "required": [
+          "name",
+          "app_id"
+        ]
+      }
+    },
+    {
+      "name": "get_app_version",
+      "description": "Gets an app version. Gives back an app version.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "update_app_version",
+      "description": "Updates an app version. Updates an app version.",
+      "method": "PATCH",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "artifact_source": {
+            "type": "string",
+            "description": "Determines if artifacts are coming from the Bitrise CI or from external source via API upload. Valid values are \"api\" or \"ci\". If release_branch or workflow is configured it should be \"ci\"."
+          },
+          "description": {
+            "type": "string"
+          },
+          "release_branch": {
+            "type": "string",
+            "description": "The release branch part of the build configuration for the Release candidate stage."
+          },
+          "release_candidate_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the artifact."
+          },
+          "release_candidate_locked": {
+            "type": "string",
+            "description": "Set to true to lock the currently selected release candidate and prevent automatic selection of the latest artifact."
+          },
+          "workflow": {
+            "type": "string",
+            "description": "The workflow part of the build configuration for the Release candidate stage."
+          },
+          "automatic_store_upload": {
+            "type": "boolean",
+            "description": "If set to true, Release Management will upload all successful builds that ran on the given branch with the given workflow to the App Store."
+          },
+          "slack_webhook_url": {
+            "type": "string",
+            "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/.*\\.slack\\.com\\/services\\/T[a-zA-Z0-9]*\\/B[a-zA-Z0-9]*\\/[a-zA-Z0-9]*$"
+          },
+          "slack_notification_integration_id": {
+            "type": "string",
+            "description": "You can get notifications about release updates on Slack by setting this value. Make sure to send the integration ID found in Workspace Settings."
+          },
+          "status": {
+            "type": "string",
+            "description": "The new status of the app version. Only the following statuses can be set externally: abandoned, completed_externally.",
+            "enum": [
+              "abandoned",
+              "completed_externally"
+            ]
+          },
+          "teams_webhook_url": {
+            "type": "string",
+            "description": "You can get notifications about release updates on Teams by setting this value. Make sure to send the properly formatted webhook url. Regex for validation: ^https:\\/\\/(?:.*\\.webhook|outlook)\\.office(?:365)?\\.com\\/webhookb2\\/.*"
+          },
+          "approvals": {
+            "type": "array",
+            "description": "Tasks for the approval stage. Sending this value will replace the possibly already existing approval task list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "due_date": {
+                  "type": "string",
+                  "description": "A valid date in the future."
+                },
+                "summary": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "automation": {
+            "type": "array",
+            "description": "Automation events (workflow or pipeline runs) setup for specific event types. Sending this value will replace the possibly already existing automation list.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event_name": {
+                  "type": "string",
+                  "enum": [
+                    "release_candidate_set",
+                    "testflight_upload_finished",
+                    "google_play_store_upload_finished",
+                    "beta_review_approved",
+                    "beta_review_rejected",
+                    "release_for_apple_app_store_testing_group",
+                    "release_on_google_play_store_testing_track",
+                    "approvals_completed",
+                    "submitted_for_review",
+                    "review_cancelled",
+                    "review_status_changed",
+                    "release_started",
+                    "release_percentage_changed",
+                    "release_completed"
+                  ]
+                },
+                "workflow_name": {
+                  "type": "string"
+                },
+                "pipeline_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "description": "Timeline settings for the app version. Dates set here will appear in the sidebar. These deadlines serve purely informational purposes, no automatic action will take place at the scheduled times. Sending this value will replace the possibly already existing timeline.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "stage": {
+                  "type": "string",
+                  "enum": [
+                    "release-candidate",
+                    "approvals",
+                    "testflight-upload",
+                    "google-play-upload",
+                    "app-store-review",
+                    "release"
+                  ]
+                },
+                "target_date": {
+                  "type": "string",
+                  "description": "A valid date."
+                }
+              }
+            }
+          },
+          "outgoing_webhooks": {
+            "type": "array",
+            "description": "COMING SOON. A collection of outgoing webhooks configured to trigger for specific event types. Each webhook can be associated with one or more events or set to trigger for all events.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "events": {
+                  "type": "array",
+                  "description": "A list of event names that will trigger this webhook. These events correspond to specific actions or states in the release process.",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "release_candidate_set",
+                      "testflight_upload_finished",
+                      "google_play_store_upload_finished",
+                      "beta_review_approved",
+                      "beta_review_rejected",
+                      "release_for_apple_app_store_testing_group",
+                      "release_on_google_play_store_testing_track",
+                      "approvals_completed",
+                      "submitted_for_review",
+                      "review_cancelled",
+                      "review_status_changed",
+                      "release_started",
+                      "release_percentage_changed",
+                      "release_completed",
+                      "app_store_release_cancelled",
+                      "app_store_release_completed",
+                      "app_store_release_started",
+                      "app_store_review_approved",
+                      "app_store_review_cancelled",
+                      "app_store_review_rejected",
+                      "app_store_review_submitted",
+                      "app_store_version_created",
+                      "app_store_version_updated",
+                      "app_version_added",
+                      "approval_task_added",
+                      "approval_task_changed",
+                      "approval_task_completed",
+                      "approval_task_deleted",
+                      "approval_task_reopened",
+                      "approval_tasks_completed",
+                      "auto-upload_disabled",
+                      "auto-upload_enabled",
+                      "automation_added",
+                      "automation_removed",
+                      "google_play_automated_rollout_cancelled",
+                      "google_play_automated_rollout_configured",
+                      "google_play_automated_rollout_paused",
+                      "google_play_automated_rollout_resumed",
+                      "google_play_release_completed",
+                      "google_play_release_notes_localization_added",
+                      "google_play_release_notes_localization_changed",
+                      "google_play_release_notes_localization_removed",
+                      "google_play_release_started",
+                      "google_play_rollout_percentage_changed",
+                      "google_play_testing_track_release_completed",
+                      "google_play_testing_track_release_failed",
+                      "google_play_upload_completed",
+                      "google_play_upload_failed",
+                      "google_play_upload_started",
+                      "metadata_localization_added",
+                      "metadata_localization_changed",
+                      "metadata_localization_removed",
+                      "microsoft_teams_connection_changed",
+                      "outgoing_webhook_added",
+                      "outgoing_webhook_deleted",
+                      "outgoing_webhook_updated",
+                      "phased_release_disabled",
+                      "phased_release_enabled",
+                      "phased_release_paused",
+                      "phased_release_resumed",
+                      "release_candidate_auto_select_latest_build_disabled",
+                      "release_candidate_auto_select_latest_build_enabled",
+                      "release_candidate_build_selected",
+                      "release_candidate_source_changed",
+                      "release_description_changed",
+                      "release_settings_changed",
+                      "slack_connection_changed",
+                      "stopped_managing_release",
+                      "testflight_app_review_approved",
+                      "testflight_app_review_rejected",
+                      "testflight_app_review_submitted",
+                      "testflight_distribution_start_failed",
+                      "testflight_distribution_started",
+                      "testflight_distribution_stopped",
+                      "testflight_processing_completed",
+                      "testflight_processing_failed",
+                      "testflight_upload_completed",
+                      "testflight_upload_failed",
+                      "testflight_upload_started",
+                      "testflight_what_to_test_added",
+                      "testflight_what_to_test_changed",
+                      "testflight_what_to_test_deleted"
+                    ]
+                  }
+                },
+                "all_events": {
+                  "type": "boolean",
+                  "description": "Indicates whether this webhook should be triggered for all events. Set to true to enable the webhook for every event."
+                },
+                "webhook_configuration_id": {
+                  "type": "string",
+                  "description": "The unique identifier of the webhook configuration, that can be found in the workspace integration settings. This ID links the webhook configuration to the workspace."
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_release_candidate",
+      "description": "Gets data on the release candidate. Gets data on the release candidate.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/release-candidate",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "set_release_candidate",
+      "description": "Uploads a release candidate. Uploads the release candidate to the Store.",
+      "method": "PUT",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/release-candidate/upload",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_release_candidate_status",
+      "description": "Gets the upload status of a release candidate. Gets the upload status of a release candidate.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/release-candidate/upload/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "list_app_version_testing_groups",
+      "description": "Gets a list of testing groups/tracks. Gives back a list of testing groups/tracks.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/beta-distribution/testing-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "start_beta_distribution",
+      "description": "Start beta distribution on the testing group/track. Initiate the beta distribution testing of the release candidate on the given group/track.",
+      "method": "PATCH",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/beta-distribution/testing-groups/{group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "stop_beta_distribution",
+      "description": "Stop beta distribution on the testing group - IOS only. Finish the beta distribution testing of the release candidate on the given group.",
+      "method": "DELETE",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/beta-distribution/testing-groups/{group_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "get_app_store_review_status",
+      "description": "Gets App Store review status. Gets App Store review status. - IOS only",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/apple-app-store/review/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "submit_app_store_review",
+      "description": "Submit release candidate for App Store review. Submits the chosen release candidate for App Store review. - IOS only",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/apple-app-store/review/submit",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "copy_primary_whats_new": {
+            "type": "boolean",
+            "description": "If true, whats_new from the primary localization will be copied into other localized languages where whats_new is empty. The default value is false."
+          },
+          "localizations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "description": "The maximum length of this parameter is 4000 characters."
+                },
+                "keywords": {
+                  "type": "string",
+                  "description": "The maximum length of this parameter is 100 characters."
+                },
+                "locale": {
+                  "type": "string",
+                  "description": "You can find the [supported locales](https://developer.apple.com/documentation/appstoreconnectapi/app_store/app_metadata/app_info_localizations/managing_metadata_in_your_app_by_using_locale_shortcodes)."
+                },
+                "marketing_url": {
+                  "type": "string"
+                },
+                "promotional_text": {
+                  "type": "string",
+                  "description": "The maximum length of this parameter is 170 characters."
+                },
+                "support_url": {
+                  "type": "string"
+                },
+                "whats_new": {
+                  "type": "string",
+                  "description": "The maximum length of this parameter is 4000 characters."
+                }
+              },
+              "required": [
+                "locale"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "cancel_app_store_review",
+      "description": "Cancel App Store review. Cancels App Store review. - IOS only",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/apple-app-store/review/cancel",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "get_app_store_release_status",
+      "description": "Gets the release status of the app version. Gets the release status of the app version. - IOS only",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/apple-app-store/release/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "release_to_app_store",
+      "description": "Release App Store app. - iOS only. Release app",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/apple-app-store/release",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "release_to_google_play",
+      "description": "Release app for all users or for a fraction of users. - Android only. Release app for a user fraction",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/google-play-store/release",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "user_fraction": {
+            "type": "number",
+            "description": "A number that is bigger than 0 and smaller or equal to 1. 1 means a full release.",
+            "default": 1
+          }
+        },
+        "required": [
+          "id",
+          "user_fraction"
+        ]
+      }
+    },
+    {
+      "name": "get_google_play_rollout_schedule",
+      "description": "Get staged rollout schedule - Android only. Get scheduled staged rollout for the given app version.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/google-play-store/staged-rollout-schedule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "create_google_play_rollout_schedule",
+      "description": "Create staged rollout schedule - Android only. Create a staged rollout schedule for the given app version.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/google-play-store/staged-rollout-schedule",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string",
+            "description": "The time zone in which the schedule dates are provided. It can be any TZ database time zone or UTC if the dates are given in Coordinated Universal Time."
+          },
+          "schedule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "percentage": {
+                  "type": "number",
+                  "description": "A number greater than 0 and less than or equal to 100 representing the release percentage, where 100 indicates a full release."
+                },
+                "when": {
+                  "type": "string",
+                  "description": "A date in ISO 8601 string format specifying when to run the schedule."
+                }
+              },
+              "required": [
+                "percentage",
+                "when"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "location",
+          "schedule"
+        ]
+      }
+    },
+    {
+      "name": "pause_google_play_rollout",
+      "description": "Pause staged rollout schedule - Android only. Pause staged rollout schedule for the given app version.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/google-play-store/staged-rollout-schedule/pause",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "resume_google_play_rollout",
+      "description": "Resume staged rollout schedule - Android only. Resume a paused staged rollout schedule for the given app version.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/store-releases/v1",
+      "path": "/app-versions/{id}/google-play-store/staged-rollout-schedule/resume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string",
+            "description": "The time zone in which the schedule dates are provided. It can be any TZ database time zone or UTC if the dates are given in Coordinated Universal Time."
+          },
+          "schedule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The id of the existing schedule item, returned by the corresponding GET endpoint."
+                },
+                "percentage": {
+                  "type": "number",
+                  "description": "A number greater than 0 and less than or equal to 100 representing the release percentage, where 100 indicates a full release."
+                },
+                "when": {
+                  "type": "string",
+                  "description": "A date in ISO 8601 string format specifying when to run the schedule."
+                }
+              },
+              "required": [
+                "id",
+                "percentage",
+                "when"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "location",
+          "schedule"
+        ]
+      }
+    },
+    {
+      "name": "list_build_distributions",
+      "description": "Gets the list of the build distribution versions.. Gives back a list of build distributions versions.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app the build distribution is connected to."
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of build distribution versions returned per request."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario."
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "items_per_page",
+        "page"
+      ]
+    },
+    {
+      "name": "list_test_builds",
+      "description": "Gets a list of test builds. Gives back a list of test builds for the given build distribution version.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/test-builds",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app the tester group is connected to."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version of the build distribution."
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of test builds returned per request."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario."
+          }
+        },
+        "required": [
+          "app_id",
+          "version"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "version",
+        "items_per_page",
+        "page"
+      ]
+    },
+    {
+      "name": "list_tester_groups",
+      "description": "Gets a list of tester groups. Gives back a list of tester groups for the app. The `type` query parameter selects which groups are returned: `internal` (the default, Bitrise users) or `external` (email-only testers). For example, `?type=external` returns only the external tester groups.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/tester-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app the tester group is connected to."
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of tester groups returned per request."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          },
+          "installable_artifact_id": {
+            "type": "string",
+            "description": "When provided, each tester group is decorated with `notification_sent` (whether a notification for this artifact has already been sent to the group) and, for external tester groups, `custom_access_link` (the access link sent to the testers: id, name, url, expires_at, access_code; omitted when there is none). The access code is not exposed via the public API."
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "items_per_page",
+        "page",
+        "type",
+        "installable_artifact_id"
+      ]
+    },
+    {
+      "name": "create_tester_group",
+      "description": "Creates a tester group. Creates a tester group for the app. Without a `type` (or with `type=internal`) an internal group of Bitrise users is created. With `type=external` an external group of email-only testers is created: provide a non-empty `emails` array (at most 1000 addresses, each at most 255 characters, syntactically validated) and a tester is created for every address and added to the group. The `emails` field is ignored for internal groups. For example, create an external group with `?type=external` and body `{ \"app_id\": \"<uuid>\", \"name\": \"My external testers\", \"emails\": [\"tester1@example.com\", \"tester2@example.com\"] }`.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/tester-groups",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          },
+          "app_id": {
+            "type": "string",
+            "description": "An uuidV4 identifier for your app."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the new tester group. Should be unique in the scope of the app.",
+            "example": "My favorite tester group"
+          },
+          "auto_notify": {
+            "type": "boolean",
+            "description": "If set to true it indicates the tester group will receive notifications automatically."
+          },
+          "emails": {
+            "type": "array",
+            "description": "Email addresses added as external testers to the group. Required for external tester groups (at least one, at most 1000, each at most 255 characters). Ignored for internal tester groups.",
+            "maxItems": 1000,
+            "items": {
+              "type": "string",
+              "example": "tester@example.com",
+              "maxLength": 255
+            }
+          }
+        },
+        "required": [
+          "app_id",
+          "name"
+        ]
+      },
+      "query_params": [
+        "type"
+      ]
+    },
+    {
+      "name": "get_tester_group",
+      "description": "Gets Tester group details. Gives back the details of the selected tester group. The `type` query parameter must match the group's type (`internal` by default, or `external`); for example, use `?type=external` to fetch an external group. A non-matching type returns a validation error.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/tester-groups/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the tester group."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "type"
+      ]
+    },
+    {
+      "name": "update_tester_group",
+      "description": "Updates tester group. Updates the given tester group. Internal tester groups can update their `name` and `auto_notify`. External tester groups have no `auto_notify`, so for them this endpoint only renames the group (any `auto_notify` value sent is ignored). The `type` query parameter must match the group's type.",
+      "method": "PUT",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/tester-groups/{id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the tester group."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          },
+          "name": {
+            "type": "string",
+            "description": "The new name of the tester group. Should be unique in the scope of the app.",
+            "example": "My favorite tester group NEW"
+          },
+          "auto_notify": {
+            "type": "boolean",
+            "description": "If set to true it indicates the tester group will receive notifications automatically."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "type"
+      ]
+    },
+    {
+      "name": "add_testers_to_group",
+      "description": "Add testers to a tester group. Adds testers to a tester group for the app. For internal groups provide `user_slugs` (Bitrise users); for external groups (`type=external`) provide an `emails` array (at most 1000) and a tester is created/reused for each address. The array that does not match the group type is ignored.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/tester-groups/{id}/add-testers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the tester group."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          },
+          "user_slugs": {
+            "type": "array",
+            "description": "User slugs to add as internal testers. Required for internal tester groups; ignored for external groups.",
+            "items": {
+              "type": "string",
+              "example": "user-slug-1"
+            }
+          },
+          "emails": {
+            "type": "array",
+            "description": "Email addresses to add as external testers. Required for external tester groups (at most 1000); ignored for internal groups.",
+            "items": {
+              "type": "string",
+              "example": "tester@example.com"
+            }
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "query_params": [
+        "type"
+      ]
+    },
+    {
+      "name": "notify_tester_group",
+      "description": "Notify the tester group. Notify an internal tester group about a new test build. To notify external tester groups, use the custom access link creation endpoint with tester_group_id.",
+      "method": "POST",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/tester-groups/{id}/notify",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the tester group."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          },
+          "test_build_id": {
+            "type": "string",
+            "description": "The unique identifier of the test build what will be sent in the notification of the tester group.",
+            "example": "test-build-id"
+          }
+        },
+        "required": [
+          "id",
+          "test_build_id"
+        ]
+      },
+      "query_params": [
+        "type"
+      ]
+    },
+    {
+      "name": "list_testers",
+      "description": "Gets a list of testers. Gives back a list of testers.",
+      "method": "GET",
+      "base_url": "https://api.bitrise.io/release-management/v2/build-distributions/v1",
+      "path": "/testers",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of the app the tester group is connected to."
+          },
+          "tester_group_id": {
+            "type": "string",
+            "description": "The uuidV4 identifier of a tester group."
+          },
+          "items_per_page": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Specifies the maximum number of testers returned per request."
+          },
+          "page": {
+            "type": "integer",
+            "default": 1,
+            "minimum": 1,
+            "description": "Specifies which page should be returned from the whole result set in a paginated scenario."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "description": "Tester type. Defaults to internal."
+          }
+        },
+        "required": [
+          "app_id"
+        ]
+      },
+      "query_params": [
+        "app_id",
+        "tester_group_id",
+        "items_per_page",
+        "page",
+        "type"
+      ]
+    },
+    {
+      "name": "upload_presigned_artifact",
+      "description": "Upload binary content to a pre-signed URL returned by a Bitrise release-management upload-url operation. Do not reuse an expired URL.",
+      "method": "PUT",
+      "path": "{upload_url}",
+      "omit_auth_headers": [
+        "Authorization",
+        "Content-Type"
+      ],
+      "body_binary_param": "file",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "upload_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "file": {
+            "description": "Binary file, base64 value, data URL, or Apteva binary envelope."
+          }
+        },
+        "required": [
+          "upload_url",
+          "file"
+        ]
+      }
+    }
+  ]
+}
