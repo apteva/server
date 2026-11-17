@@ -472,6 +472,9 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid MCP caller context: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if tool := peekMCPToolName(r); tool != "" {
+			noteAuditMCPTool(r, appName, tool, "")
+		}
 	}
 	// An agent granted this app in other projects may name one per call.
 	// Without a grant (or without the parameter) routing below is unchanged.

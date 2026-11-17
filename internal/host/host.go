@@ -17,11 +17,19 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/apteva/server/internal/sshwatch"
 )
 
 type Config struct {
 	Home, DBPath, DataDir, ListenAddr, ServerBinary string
 	StartupTimeout, DrainTimeout                    time.Duration
+	// Security configures the in-process SSH collector; nil derives it from
+	// the APTEVA_SECURITY_* environment.
+	Security *sshwatch.Config
+	// SecurityCollector is "on" (default), "reader" (never collect, serve the
+	// shared store) or "off"; empty reads APTEVA_SECURITY_COLLECTOR.
+	SecurityCollector string
 }
 type Candidate struct {
 	ExistingSchema bool   `json:"existing_schema,omitempty"`
@@ -57,6 +65,8 @@ type Host struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	deploying    bool
+	controlToken string
+	security     *sshwatch.Collector
 }
 
 func New(cfg Config) (*Host, error) {
@@ -106,7 +116,11 @@ func New(cfg Config) (*Host, error) {
 		return nil, err
 	}
 	if prior, e := ReadState(cfg.Home); e == nil {
-		if (prior.DataDir != "" && prior.DataDir != cfg.DataDir) || prior.DBPath != cfg.DBPath || prior.ListenAddr != cfg.ListenAddr {
+		// The port is the identity; the bind address may change (e.g. the
+		// management listener moving from 0.0.0.0 to loopback).
+		_, priorPort, _ := net.SplitHostPort(prior.ListenAddr)
+		_, port, _ := net.SplitHostPort(cfg.ListenAddr)
+		if (prior.DataDir != "" && prior.DataDir != cfg.DataDir) || prior.DBPath != cfg.DBPath || priorPort != port {
 			return nil, errors.New("host identity changed; refusing to open a different database or port")
 		}
 		// A durable committed active slot takes precedence over a stale CLI symlink.
@@ -163,7 +177,11 @@ func (h *Host) Run(ctx context.Context) error {
 		return err
 	}
 	defer release()
+	if h.controlToken, err = h.prepareControlToken(); err != nil {
+		return fmt.Errorf("host control token: %w", err)
+	}
 	h.ctx, h.cancel = context.WithCancel(ctx)
+	securityDone := h.startSecurity(h.ctx)
 	var ctl, listener net.Listener
 	var control, frontend *http.Server
 	defer func() {
@@ -192,7 +210,12 @@ func (h *Host) Run(ctx context.Context) error {
 		}
 		_ = os.Remove(SocketPath(h.cfg.Home))
 		h.closeListeners()
+		if securityDone != nil {
+			<-securityDone
+		}
 		if cleanStop {
+			// No slot outlives a clean stop, so the next start mints a new token.
+			_ = os.Remove(ControlTokenPath(h.cfg.Home))
 			h.mu.Lock()
 			h.state.CleanStop = true
 			h.state.ActiveSlot = nil
@@ -210,7 +233,7 @@ func (h *Host) Run(ctx context.Context) error {
 	if err = os.Chmod(SocketPath(h.cfg.Home), 0600); err != nil {
 		return err
 	}
-	control = &http.Server{Handler: h.control(), ReadHeaderTimeout: 5 * time.Second}
+	control = &http.Server{Handler: h.authorizeControl(h.control()), ConnContext: controlConnContext, ReadHeaderTimeout: 5 * time.Second}
 	go control.Serve(ctl)
 	listener, err = net.Listen("tcp", h.cfg.ListenAddr)
 	if err != nil {
@@ -340,6 +363,7 @@ func (h *Host) control() http.Handler {
 		}
 		_ = json.NewEncoder(w).Encode(state)
 	})
+	h.securityRoutes(mux)
 	return mux
 }
 func (h *Host) begin(c Candidate) error {
@@ -407,7 +431,7 @@ func (h *Host) preflight(ctx context.Context, c *Candidate) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, c.Binary, "--preflight")
-	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_UPDATE_PREFLIGHT": filepath.Join(dir, "apteva.db"), "APTEVA_HOST_SOCKET": "", "APTEVA_HOST_SLOT_SOCKET": ""})
+	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_UPDATE_PREFLIGHT": filepath.Join(dir, "apteva.db"), "APTEVA_HOST_SOCKET": "", "APTEVA_HOST_SLOT_SOCKET": "", ControlTokenEnv: ""})
 	logf, err := os.OpenFile(filepath.Join(dir, "preflight.log"), os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -671,7 +695,7 @@ func (h *Host) startSlot(ctx context.Context, c Candidate) (*slot, error) {
 	if core == "" || core == filepath.Join(h.cfg.Home, "bin", "apteva-core") {
 		core = filepath.Join(filepath.Dir(c.Binary), "apteva-core")
 	}
-	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "PORT": publicPort, "APTEVA_HOST_SLOT_SOCKET": socket, "APTEVA_HOST_SOCKET": SocketPath(h.cfg.Home), "APTEVA_HOST_BACKEND_ADDR": addr, "APTEVA_HOST_PROXY_SECRET": b.secret, "APTEVA_HOST_EXISTING_SCHEMA": map[bool]string{true: "1", false: ""}[c.ExistingSchema], "APTEVA_HOST_SCHEMA_HASH": c.SchemaHash, "CORE_CMD": core})
+	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "PORT": publicPort, "APTEVA_HOST_SLOT_SOCKET": socket, "APTEVA_HOST_SOCKET": SocketPath(h.cfg.Home), "APTEVA_HOST_BACKEND_ADDR": addr, "APTEVA_HOST_PROXY_SECRET": b.secret, "APTEVA_HOST_EXISTING_SCHEMA": map[bool]string{true: "1", false: ""}[c.ExistingSchema], "APTEVA_HOST_SCHEMA_HASH": c.SchemaHash, ControlTokenEnv: h.controlToken, "CORE_CMD": core})
 	cmd.Stdout = logfile
 	cmd.Stderr = logfile
 	if err = cmd.Start(); err != nil {
@@ -819,7 +843,7 @@ func (h *Host) probeProtocol(ctx context.Context, c Candidate) error {
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, c.Binary, "--host-protocol")
-	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": dir, "DATA_DIR": dir, "DB_PATH": filepath.Join(dir, "probe.db"), "PORT": "0", "APTEVA_BIND": "127.0.0.1", "APTEVA_CLONE_QUARANTINE": "1", "APTEVA_HOST_SLOT_SOCKET": "", "APTEVA_HOST_SOCKET": "", "APTEVA_INGRESS_ENABLED": "", "APTEVA_HTTP_LISTEN_ADDR": "", "APTEVA_HTTPS_LISTEN_ADDR": "", "APTEVA_TLS_LISTEN_ADDR": ""})
+	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": dir, "DATA_DIR": dir, "DB_PATH": filepath.Join(dir, "probe.db"), "PORT": "0", "APTEVA_BIND": "127.0.0.1", "APTEVA_CLONE_QUARANTINE": "1", "APTEVA_HOST_SLOT_SOCKET": "", "APTEVA_HOST_SOCKET": "", ControlTokenEnv: "", "APTEVA_INGRESS_ENABLED": "", "APTEVA_HTTP_LISTEN_ADDR": "", "APTEVA_HTTPS_LISTEN_ADDR": "", "APTEVA_TLS_LISTEN_ADDR": ""})
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("server lacks the hosted standby protocol; an explicit restart migration is required: %w", err)

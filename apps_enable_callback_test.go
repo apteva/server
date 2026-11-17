@@ -73,6 +73,8 @@ func TestEnableLocalAppAuthenticatesTelemetryBeforeHealth(t *testing.T) {
 	result := filepath.Join(dir, "callback-status")
 	t.Setenv("APTEVA_ENABLE_CALLBACK_HELPER", "1")
 	t.Setenv("APTEVA_ENABLE_CALLBACK_RESULT", result)
+	// Apps only inherit allowlisted server env; the helper needs its own vars.
+	t.Setenv("APTEVA_CHILD_ENV_ALLOW", "APTEVA_ENABLE_CALLBACK_*")
 	if _, err := s.store.db.Exec(`UPDATE app_installs SET status='disabled',local_bin_path=?,local_port=? WHERE id=?`, bin, port, id); err != nil {
 		t.Fatal(err)
 	}

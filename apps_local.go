@@ -510,6 +510,19 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	}
 
 	cmd.Dir = dataDir
+	iso, isoErr := appIsolationFor(appName, installID)
+	if isoErr == nil {
+		isoErr = prepareAppIsolationLayout(iso, sup.cacheDir, bin, persistentRoot, logPath, env["APTEVA_RUNTIME_PID_FILE"])
+	}
+	if isoErr != nil {
+		logf.Close()
+		return isoErr
+	}
+	if iso.Enabled {
+		// The shared <version>/data dir would mix installs of the same app
+		// version under different users; each install works in its own dir.
+		cmd.Dir = persistentRoot
+	}
 	overrides := make(map[string]string, len(env)+3)
 	overrides["APTEVA_APP_PORT"] = fmt.Sprintf("%d", port)
 	overrides["DB_PATH"] = dbPath
@@ -522,10 +535,22 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 		overrides[k] = v
 	}
 	overrides["APTEVA_DATA_DIR"] = persistentRoot
-	cmd.Env = childEnvWithOverrides(os.Environ(), overrides)
+	if iso.Enabled {
+		if _, set := env["HOME"]; !set {
+			// The server's HOME is not writable by the app user; tools that
+			// keep caches or profiles under $HOME (Go, Chrome) land here.
+			overrides["HOME"] = persistentRoot
+		}
+		log.Printf("[APPS] %s install=%d runs as uid=%d gid=%d", appName, installID, iso.UID, iso.GID)
+	}
+	inherited := childBaseEnv(os.Environ(), childEnvApp, appName)
+	if withheld := withheldChildEnvNames(os.Environ(), inherited); len(withheld) > 0 {
+		log.Printf("[APPS] %s: not forwarding %d server environment variable(s) (allow with APTEVA_CHILD_ENV_ALLOW): %s", appName, len(withheld), strings.Join(withheld, ","))
+	}
+	cmd.Env = childEnvWithOverrides(inherited, overrides)
 	if os.Getenv("APTEVA_HOST_SOCKET") != "" {
 		logf.Close()
-		return sup.spawnHosted(spec, cmd, logPath)
+		return sup.spawnHosted(spec, cmd, logPath, iso)
 	}
 	cmd.Stdout, cmd.Stderr = logf, logf
 	// Setpgid puts the child into a new process group with itself as
@@ -538,6 +563,7 @@ func (sup *LocalSupervisor) spawn(spec activationSpec) error {
 	//      every sidecar before our own shutdown handler runs (we
 	//      want to stop apps cleanly, not have them die mid-flush).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	iso.apply(cmd)
 	releaseResources, resourceErr := configureLocalProcessResources(cmd, overrides)
 	if resourceErr != nil {
 		logf.Close()

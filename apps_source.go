@@ -617,7 +617,7 @@ func goBuildInEnvironment(srcDir, entry, binPath, cacheDir string, goEnv []strin
 		if err != nil {
 			return "", fmt.Errorf("resolve app build cache: %w", err)
 		}
-		envv := os.Environ()
+		envv := childBaseEnv(os.Environ(), childEnvBuild, "")
 		if buildEnv != nil {
 			envv = append([]string(nil), buildEnv...)
 		}
@@ -798,7 +798,7 @@ func resolvedGoRootBinary(goBin, dir string, envOverrides []string) string {
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Env = append(os.Environ(), envOverrides...)
+	cmd.Env = append(childBaseEnv(os.Environ(), childEnvBuild, ""), envOverrides...)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

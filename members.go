@@ -377,7 +377,17 @@ func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "role must be 'user' or 'admin'", http.StatusBadRequest)
 		return
 	}
+	if !s.requirePrivilegedAuth(w, r, "permission.platform_role") {
+		return
+	}
+	previousRole := s.store.GetPlatformRole(targetID)
+	roleEvent := s.securityEventFromRequest(r, "permission", "permission.platform_role", securityResultSuccess)
+	roleEvent.TargetType, roleEvent.TargetID = "user", strconv.FormatInt(targetID, 10)
+	roleEvent.Severity = securitySeverityWarning
+	roleEvent.Details = map[string]any{"from": string(previousRole), "to": string(role)}
+	defer func() { s.recordSecurity(r, roleEvent) }()
 	if err := s.store.SetPlatformRole(targetID, role); err != nil {
+		roleEvent.Result = securityResultFailure
 		if errors.Is(err, ErrLastAdmin) {
 			http.Error(w, ErrLastAdmin.Error(), http.StatusConflict)
 			return
