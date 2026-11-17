@@ -279,7 +279,7 @@ func main() {
 		fmt.Println(serverUsage())
 		return
 	case serverModeHostProtocol:
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": host.Protocol, "version": CLIVersion, "existing_schema": true})
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": host.Protocol, "version": CLIVersion, "existing_schema": true, "capabilities": host.ServerCapabilities})
 		return
 	case serverModeHostCheckSchema:
 		identity, err := hostedDiskIdentity(os.Getenv("DB_PATH"), os.Getenv("DATA_DIR"))

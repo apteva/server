@@ -31,7 +31,11 @@ func TestHostProcess(t *testing.T) {
 	version := filepath.Base(filepath.Dir(binary))
 	for _, arg := range os.Args {
 		if arg == "--host-protocol" {
-			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": Protocol, "version": version, "existing_schema": true})
+			response := map[string]any{"protocol": Protocol, "version": version, "existing_schema": true, "capabilities": ServerCapabilities}
+			if _, err := os.Stat(binary + ".legacy-protocol"); err == nil {
+				delete(response, "capabilities")
+			}
+			_ = json.NewEncoder(os.Stdout).Encode(response)
 			os.Exit(0)
 		}
 		if arg == "--host-check-schema" {
@@ -49,6 +53,9 @@ func TestHostProcess(t *testing.T) {
 			_ = os.WriteFile(p+".json", b, 0600)
 			os.Exit(0)
 		}
+	}
+	if _, err := os.Stat(binary + ".fail-standby"); err == nil {
+		os.Exit(6)
 	}
 	socket := os.Getenv("APTEVA_HOST_SLOT_SOCKET")
 	listener, err := net.Listen("unix", socket)
@@ -74,6 +81,22 @@ func TestHostProcess(t *testing.T) {
 	mux.HandleFunc("GET /runtimes", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "{}") })
 	go http.Serve(listener, mux)
 	<-activate
+	if os.Getenv("APTEVA_HOST_EXISTING_SCHEMA") != "1" {
+		_ = os.WriteFile(binary+".fresh-boot", nil, 0600)
+		// A fresh boot runs migrations; model a schema-changing release.
+		if _, err := os.Stat(binary + ".incompatible"); err == nil {
+			f, e := os.OpenFile(os.Getenv("DB_PATH"), os.O_APPEND|os.O_WRONLY, 0600)
+			if e != nil {
+				os.Exit(5)
+			}
+			_, _ = f.WriteString("migrated by " + version + "\n")
+			_ = f.Sync()
+			f.Close()
+		}
+	}
+	if err := os.Remove(binary + ".fail-activation-once"); err == nil {
+		os.Exit(9)
+	}
 	if _, err = os.Stat(binary + ".fail-activation"); err == nil {
 		os.Exit(9)
 	}

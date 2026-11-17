@@ -402,3 +402,38 @@ func equalInt64Slices(a, b []int64) bool {
 	}
 	return true
 }
+
+// An install the stable host refused to start (for example while a server
+// too old for the host's control token ran) is retried on the next fresh
+// boot. Installs that failed for their own reasons stay failed, and a hosted
+// handoff, which only adopts live processes, retries nothing.
+func TestLocalResumeRetriesHostRefusedInstalls(t *testing.T) {
+	s := newTestServer(t)
+	seed := func(name, status, message string) int64 {
+		id := seedRunningInstall(t, s, name, "", sdk.Manifest{Name: name, Version: "1.0.0"}, nil)
+		if _, err := s.store.db.Exec(`UPDATE app_installs SET status=?, error_message=?, local_bin_path=?, local_port=40000+id WHERE id=?`,
+			status, message, filepath.Join(t.TempDir(), "bin"), id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	running := seed("running-app", "running", "")
+	refused := seed("refused-app", "error", hostSpawnRefusedPrefix+" host /process/start: HTTP 401: missing or invalid host control token; binary fallback does not restore committed database changes")
+	seed("broken-app", "error", "cached binary missing at /gone/bin")
+	seed("disabled-app", "disabled", hostSpawnRefusedPrefix+" host /process/start: HTTP 401")
+
+	ids := func() []int64 {
+		var out []int64
+		for _, r := range s.localResumeRows() {
+			out = append(out, r.id)
+		}
+		return out
+	}
+	if got := ids(); len(got) != 2 || got[0] != running || got[1] != refused {
+		t.Fatalf("fresh boot resumes %v, want [%d %d]", got, running, refused)
+	}
+	t.Setenv("APTEVA_HOST_EXISTING_SCHEMA", "1")
+	if got := ids(); len(got) != 1 || got[0] != running {
+		t.Fatalf("hosted handoff resumes %v, want [%d]", got, running)
+	}
+}
