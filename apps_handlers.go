@@ -1833,7 +1833,8 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, "enable app: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if err := s.RespawnLocalInstall(installID); err != nil {
+			if err := s.RespawnLocalInstall(installID, restartAuditForRequest(r, "install_enabled", nil)); err != nil {
+				// Keep the previous status so Enable stays available for a retry.
 				s.store.dbExecContext(r.Context(), `UPDATE app_installs SET status=?, status_message='', error_message=? WHERE id=?`, previousStatus, err.Error(), installID)
 				http.Error(w, "enable app: "+err.Error(), http.StatusInternalServerError)
 				return
@@ -1982,7 +1983,7 @@ func (s *Server) handleSetInstallBindings2(w http.ResponseWriter, r *http.Reques
 	// every other bind-time resolution lives in OnMount). We still
 	// return 200 if the respawn fails — the binding write succeeded;
 	// the operator gets a status_message they can check.
-	respawnErr := s.RespawnLocalInstall(installID)
+	respawnErr := s.RespawnLocalInstall(installID, restartAuditForRequest(r, "integration_bindings_changed", []string{"integration_bindings"}))
 	if respawnErr != nil {
 		log.Printf("[APPS] bindings updated but respawn failed install=%d: %v", installID, respawnErr)
 	}

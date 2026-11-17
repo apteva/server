@@ -1723,7 +1723,14 @@ func envResumeConcurrency() int {
 // Returns nil on success, non-nil if the install isn't found, the
 // cached binary is missing, or the new process fails its health
 // check. Updates app_installs.local_pid + status on success/failure.
-func (s *Server) RespawnLocalInstall(installID int64) error {
+func (s *Server) RespawnLocalInstall(installID int64, audits ...appRestartAudit) (restartErr error) {
+	audit := appRestartAudit{Reason: "runtime_restart"}
+	if len(audits) > 0 {
+		audit = audits[0]
+	}
+	oldPID, oldGeneration := s.restartProcessIdentity(installID)
+	defer func() { s.logAppRestart(installID, audit, oldPID, oldGeneration, restartErr) }()
+
 	if s.runtimeManaged(installID) {
 		return s.managedRuntimeRestart(installID)
 	}

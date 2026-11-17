@@ -428,6 +428,10 @@ func (s *Server) handleTelemetryRead(w http.ResponseWriter, r *http.Request, ins
 	if !ok {
 		return
 	}
+	if strings.HasPrefix(suffix, "/catalogs/") {
+		s.handleToolCatalogRead(w, r, p, suffix)
+		return
+	}
 	switch suffix {
 	case "/history", "/stream":
 		q, e := parseTelemetryQuery(r.URL.Query())
@@ -536,7 +540,7 @@ func (s *Server) observedRuntime(rt *Environment) sdk.ObservedRuntime {
 
 // Inventory and topology are read-only resources on the existing telemetry API.
 func (s *Server) registerTelemetryReadRoutes(mux *http.ServeMux) {
-	for _, path := range []string{"/telemetry/agents", "/telemetry/agents/", "/telemetry/runtimes", "/telemetry/runtimes/"} {
+	for _, path := range []string{"/telemetry/catalogs/", "/telemetry/agents", "/telemetry/agents/", "/telemetry/runtimes", "/telemetry/runtimes/"} {
 		mux.HandleFunc(path, s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 			s.handleTelemetryRead(w, r, 0, strings.TrimPrefix(r.URL.Path, "/telemetry"))
 		}))
