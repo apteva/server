@@ -625,10 +625,10 @@ type visibleProjectPresetApp struct {
 }
 
 func (s *Server) visibleProjectPresetApps(projectID string) (map[string]visibleProjectPresetApp, error) {
-	rows, err := s.store.db.Query(`
+	rows, err := s.store.dbQuery(`
 		SELECT a.name, i.id, COALESCE(i.project_id,'')
 		FROM app_installs i JOIN apps a ON a.id=i.app_id
-		WHERE i.status='running' AND (COALESCE(i.project_id,'')='' OR i.project_id=?)
+		WHERE i.is_default=1 AND i.status='running' AND (COALESCE(i.project_id,'')='' OR i.project_id=?)
 		ORDER BY a.name, CASE WHEN i.project_id=? THEN 0 ELSE 1 END, i.id`, projectID, projectID)
 	if err != nil {
 		return nil, err
@@ -931,9 +931,9 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 	existing := []Agent{}
 	for _, agent := range preview.Agents {
 		var priorID int64
-		lookupErr := s.store.db.QueryRow(`SELECT k.agent_id FROM agent_creation_keys k JOIN agents a ON a.id=k.agent_id WHERE k.project_id=? AND k.scope_user_id=0 AND k.idempotency_key=? AND a.project_id=?`, projectID, "preset:"+body.PresetID+":"+agent.Key, projectID).Scan(&priorID)
+		lookupErr := s.store.dbQueryRowContext(r.Context(), `SELECT k.agent_id FROM agent_creation_keys k JOIN agents a ON a.id=k.agent_id WHERE k.project_id=? AND k.scope_user_id=0 AND k.idempotency_key=? AND a.project_id=?`, projectID, "preset:"+body.PresetID+":"+agent.Key, projectID).Scan(&priorID)
 		if lookupErr == nil {
-			if prior, err := s.store.GetAgentByID(priorID); err == nil {
+			if prior, err := s.store.GetAgentByIDContext(r.Context(), priorID); err == nil {
 				existing = append(existing, *prior)
 				agentIDs[agent.Key] = prior.ID
 				warnings = append(warnings, s.presetExistingAgentWarnings(prior.ID, agent)...)
@@ -1018,7 +1018,7 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 func (s *Server) findPresetAgentByName(projectID, name string) (Agent, bool) {
 	var agent Agent
 	var createdAt string
-	err := s.store.db.QueryRow(`
+	err := s.store.dbQueryRow(`
 		SELECT id,user_id,name,directive,mode,proactivity,config,port,pid,core_api_key,status,project_id,kind,created_at
 		FROM agents WHERE project_id=? AND name=? AND kind='user' ORDER BY id LIMIT 1`, projectID, name).
 		Scan(&agent.ID, &agent.UserID, &agent.Name, &agent.Directive, &agent.Mode, &agent.Proactivity, &agent.Config,
@@ -1068,7 +1068,7 @@ func (s *Server) presetExistingAgentWarnings(agentID int64, expected ProjectPres
 	}
 	for _, installID := range expected.AppInstallIDs {
 		var bound int
-		err := s.store.db.QueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`, agentID, installID).Scan(&bound)
+		err := s.store.dbQueryRow(`SELECT COUNT(*) FROM app_agent_bindings WHERE agent_id=? AND install_id=? AND enabled=1`, agentID, installID).Scan(&bound)
 		if err != nil || bound == 0 {
 			warnings = append(warnings, fmt.Sprintf("%s is preserved but still needs app install %d attached in its Capabilities settings", expected.Name, installID))
 		}
