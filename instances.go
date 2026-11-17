@@ -2798,17 +2798,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON object", http.StatusBadRequest)
 		return
 	}
-	if inst.Kind == "platform_helper" {
-		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
-			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
-			return
-		}
-		if body.Config != "" {
-			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
-			return
-		}
-	}
-
 	if err := validateAgentAttachmentSettings(body.Config); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -2842,6 +2831,16 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	if _, ok := rawBody["computer"]; ok {
 		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
 		return
+	}
+	if inst.Kind == "platform_helper" {
+		if _, ok := rawBody["mcp_servers"]; ok || rawBody["_mcp_action"] != nil {
+			http.Error(w, "platform Helper capabilities must be updated through /platform/helper/capabilities", http.StatusForbidden)
+			return
+		}
+		if body.Config != "" {
+			http.Error(w, "platform Helper runtime config is server-managed", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Advanced config updates are patches. Replacing the saved object here
