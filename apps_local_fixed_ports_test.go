@@ -317,10 +317,29 @@ import (
   "os"
   "os/signal"
   "syscall"
+  "sort"
+  "strings"
+  "sync"
   "sync/atomic"
   "strconv"
   "time"
 )
+// Models the SDK's database lifecycle when TEST_SIDECAR_STATE=1: each start
+// applies new *.sql names from APTEVA_MIGRATIONS_DIR once, recording them in
+// DB_PATH beside the app's records, as the SDK's _migrations table does.
+type sidecarState struct {
+  Applied []string ` + "`json:\"applied\"`" + `
+  Records []string ` + "`json:\"records\"`" + `
+}
+func loadSidecarState() sidecarState {
+  var s sidecarState
+  if raw, err := os.ReadFile(os.Getenv("DB_PATH")); err == nil { json.Unmarshal(raw, &s) }
+  return s
+}
+func saveSidecarState(s sidecarState) {
+  raw, _ := json.Marshal(s)
+  os.WriteFile(os.Getenv("DB_PATH"), raw, 0644)
+}
 func event(kind string) {
   path := os.Getenv("TEST_SIDECAR_EVENTS")
   if path == "" { return }
@@ -344,6 +363,35 @@ func main() {
   var admitting atomic.Bool
   admitting.Store(os.Getenv("APTEVA_RUNTIME_MODE")!="standby")
   mux := http.NewServeMux()
+  // Mirror the SDK: UI routes are mounted only when the directory exists
+  // during startup, so an incorrect resume path produces an actual 404.
+  if dir := os.Getenv("APTEVA_UI_DIR"); dir != "" {
+    if info, err := os.Stat(dir); err == nil && info.IsDir() {
+      mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.Dir(dir))))
+    }
+  }
+  if os.Getenv("TEST_SIDECAR_STATE") == "1" {
+    var stateMu sync.Mutex
+    st := loadSidecarState()
+    if dir := os.Getenv("APTEVA_MIGRATIONS_DIR"); dir != "" {
+      entries, _ := os.ReadDir(dir)
+      var names []string
+      for _, e := range entries { if strings.HasSuffix(e.Name(), ".sql") { names = append(names, e.Name()) } }
+      sort.Strings(names)
+      for _, name := range names {
+        seen := false
+        for _, a := range st.Applied { if a == name { seen = true } }
+        if !seen { st.Applied = append(st.Applied, name) }
+      }
+    }
+    saveSidecarState(st)
+    mux.HandleFunc("/state", func(w http.ResponseWriter, r *http.Request) {
+      stateMu.Lock(); defer stateMu.Unlock()
+      st := loadSidecarState()
+      if r.Method == http.MethodPost { st.Records = append(st.Records, r.URL.Query().Get("title")); saveSidecarState(st) }
+      json.NewEncoder(w).Encode(map[string]any{"ui_dir": os.Getenv("APTEVA_UI_DIR"), "migrations_dir": os.Getenv("APTEVA_MIGRATIONS_DIR"), "applied": st.Applied, "records": st.Records})
+    })
+  }
   mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
     if time.Since(started) < delay { w.WriteHeader(503); fmt.Fprint(w, "{\"status\":\"initializing\",\"phase\":\"tables\",\"completed\":1,\"total\":55}"); return }
     if os.Getenv("TEST_SIDECAR_FAIL_HEALTH") == "1" { http.Error(w, "not ready", 503); return }

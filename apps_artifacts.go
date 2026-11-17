@@ -37,16 +37,6 @@ func artifactAppRoot(m *sdk.Manifest, bin string) string {
 	}
 	return root
 }
-func applyArtifactResourceEnv(m *sdk.Manifest, bin string, env map[string]string) {
-	if filepath.Base(filepath.Dir(filepath.Dir(bin))) != "artifacts" {
-		return
-	}
-	root := artifactAppRoot(m, bin)
-	env["APTEVA_UI_DIR"] = filepath.Join(root, "ui")
-	if m.DB != nil && m.DB.Migrations != "" {
-		env["APTEVA_MIGRATIONS_DIR"] = filepath.Join(root, m.DB.Migrations)
-	}
-}
 func safeArtifactRelative(name string) bool {
 	return name != "" && !filepath.IsAbs(name) && !strings.Contains(name, "\\") && name != ".." && !strings.HasPrefix(filepath.Clean(name), ".."+string(filepath.Separator))
 }

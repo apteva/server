@@ -230,20 +230,20 @@ func (sup *LocalSupervisor) spawnBuiltSource(installID int64, m *sdk.Manifest, s
 	if env == nil {
 		env = map[string]string{}
 	}
-	env["APTEVA_UI_DIR"] = filepath.Join(entryDir, "ui")
 	// Resolve the manifest's relative migrations path to an absolute
 	// directory inside the source tree. The SDK respects
 	// APTEVA_MIGRATIONS_DIR over the manifest field — without this,
 	// a sidecar spawned with cmd.Dir = <bin>/data would look up
 	// "migrations/" in the wrong place and apps would start with no
-	// schema (the "no such table: files" failure).
-	if m.DB != nil && m.DB.Migrations != "" {
-		migrations := m.DB.Migrations
-		if !filepath.IsAbs(migrations) {
-			migrations = filepath.Join(entryDir, migrations)
+	// schema (the "no such table: files" failure). Restarts resolve the
+	// same directories through installResourceEnv.
+	resources := appResourceDirsAt(m, entryDir)
+	if pkg, ok := packagedBinaryPath(binPath); ok && filepath.Clean(srcDir) == filepath.Join(filepath.Dir(binPath), "src") {
+		if err := verifyPackagedResources(installID, m, binPath, pkg, resources); err != nil {
+			return 0, err
 		}
-		env["APTEVA_MIGRATIONS_DIR"] = migrations
 	}
+	resources.applyEnv(env)
 	// Materialize declared native-binary deps (ffmpeg / ffprobe / …)
 	// and prepend their cache dirs to PATH so the spawned sidecar's
 	// exec.LookPath / exec.Command calls resolve to the bundled
