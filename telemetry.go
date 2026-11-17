@@ -215,7 +215,9 @@ func generateID() string {
 // --- Store methods ---
 
 func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
-	tx, err := s.dbBegin()
+	// Batch ingest and catalog deduplication can outlast the guard's per-call
+	// deadline; a cancelled transaction would drop the whole batch.
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
@@ -459,7 +461,8 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 }
 
 func (s *Store) WipeTelemetry() (int64, error) {
-	tx, err := s.dbBegin()
+	// Wiping a large table can outlast the guard's per-call deadline.
+	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
 	}
