@@ -974,9 +974,7 @@ func (s *Server) handleLocalOAuthCallback(w http.ResponseWriter, r *http.Request
 	for k, v := range preBlobCreds {
 		merged[k] = v
 	}
-	for k, v := range tokens {
-		merged[k] = v
-	}
+	mergeOAuthTokens(merged, tokens)
 	encJSON, _ := json.Marshal(merged)
 	enc, err := Encrypt(s.secret, string(encJSON))
 	if err != nil {

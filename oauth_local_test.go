@@ -241,3 +241,98 @@ func TestCollectOAuthSupplementalCredentialsAppliesAndValidatesSelectDefault(t *
 		t.Fatal("expected closed select validation error")
 	}
 }
+
+// A re-authorization replaces every saved copy of the previous token, so
+// templates reading {{token}} or {{accessToken}} send the new grant at once
+// instead of after the next refresh.
+func TestLocalOAuthReauthReplacesEveryTokenAlias(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"NEW","refresh_token":"NEW-REFRESH","expires_in":3600,"scope":"adwords datamanager"}`))
+	}))
+	defer tokenServer.Close()
+
+	store, err := NewStore(filepath.Join(t.TempDir(), "server.db"))
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if _, err := store.CreateUser("oauth-reauth-alias@test.local", "hash"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	app := &AppTemplate{
+		Slug: "google-ads-test",
+		Name: "Google Ads Test",
+		Auth: AppAuthConfig{
+			Types:   []string{"oauth2"},
+			Headers: map[string]string{"Authorization": "Bearer {{token}}"},
+			OAuth2:  &OAuthConfig{AuthorizeURL: "https://accounts.example.test/oauth", TokenURL: tokenServer.URL},
+		},
+	}
+	catalog := NewAppCatalog()
+	catalog.apps[app.Slug] = app
+	s := &Server{store: store, catalog: catalog, secret: []byte("0123456789abcdef0123456789abcdef"), port: "5280"}
+
+	saved, _ := json.Marshal(map[string]string{
+		"client_id": "oauth-client", "client_secret": "oauth-secret", "developer_token": "developer-secret",
+		"access_token": "OLD", "accessToken": "OLD", "token": "OLD",
+		"refresh_token": "OLD-REFRESH", "refreshToken": "OLD-REFRESH", "scope": "datamanager",
+	})
+	encrypted, err := Encrypt(s.secret, string(saved))
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	conn, err := store.CreateConnectionExt(ConnectionInput{UserID: 1, AppSlug: app.Slug, AppName: app.Name, Name: "Google Ads",
+		AuthType: "oauth2", Status: "active", EncryptedCreds: encrypted})
+	if err != nil {
+		t.Fatalf("CreateConnectionExt: %v", err)
+	}
+	state, err := store.mintOAuthState(1, conn.ID, app.Slug, "", time.Minute, 0, "", oauthStatePurposeReauth)
+	if err != nil {
+		t.Fatalf("mintOAuthState: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	s.handleLocalOAuthCallback(rec, httptest.NewRequest(http.MethodGet, "/oauth/local/callback?state="+url.QueryEscape(state)+"&code=auth-code", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("callback status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	_, stored, err := store.GetConnection(1, conn.ID)
+	if err != nil {
+		t.Fatalf("GetConnection: %v", err)
+	}
+	plain, err := Decrypt(s.secret, stored)
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	var credentials map[string]string
+	if err := json.Unmarshal([]byte(plain), &credentials); err != nil {
+		t.Fatalf("credentials JSON: %v", err)
+	}
+	for key, want := range map[string]string{
+		"access_token": "NEW", "accessToken": "NEW", "token": "NEW",
+		"refresh_token": "NEW-REFRESH", "refreshToken": "NEW-REFRESH",
+		"scope": "adwords datamanager", "developer_token": "developer-secret", "client_id": "oauth-client",
+	} {
+		if credentials[key] != want {
+			t.Errorf("credential %s=%q, want %q", key, credentials[key], want)
+		}
+	}
+	if got := resolveTemplate(app.Auth.Headers["Authorization"], credentials); got != "Bearer NEW" {
+		t.Errorf("Authorization header resolves to %q, want the new token", got)
+	}
+	if got := resolveTemplate("{{accessToken}}|{{refreshToken}}", credentials); got != "NEW|NEW-REFRESH" {
+		t.Errorf("camelCase aliases resolve to %q", got)
+	}
+}
+
+func TestMergeOAuthTokensKeepsRefreshTokenWhenResponseHasNone(t *testing.T) {
+	credentials := map[string]string{"access_token": "OLD", "token": "OLD", "accessToken": "OLD",
+		"refresh_token": "KEEP", "refreshToken": "KEEP", "api_key": "unrelated"}
+	mergeOAuthTokens(credentials, map[string]string{"access_token": "NEW", "expires_in": "3600"})
+	for key, want := range map[string]string{"access_token": "NEW", "token": "NEW", "accessToken": "NEW",
+		"refresh_token": "KEEP", "refreshToken": "KEEP", "api_key": "unrelated", "expires_in": "3600"} {
+		if credentials[key] != want {
+			t.Errorf("%s=%q, want %q", key, credentials[key], want)
+		}
+	}
+}

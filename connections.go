@@ -1817,21 +1817,28 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string, pa
 	if out["access_token"] == "" {
 		return fmt.Errorf("no access_token in refresh response: %s", string(body))
 	}
-	// Merge new tokens into credentials. Don't clobber the refresh_token
-	// if the response didn't include a new one (Google's behavior).
-	for k, v := range out {
+	// The refresh_token stays when the response has no new one (Google's
+	// behavior).
+	mergeOAuthTokens(credentials, out)
+	return nil
+}
+
+// mergeOAuthTokens writes an OAuth token response (code exchange or refresh)
+// over saved credentials, including the alias names templates read
+// ({{token}}, {{accessToken}}). normalizeCredentials fills an alias only when
+// it is empty, so an alias left holding the previous token would keep being
+// sent after a re-authorization.
+func mergeOAuthTokens(credentials, tokens map[string]string) {
+	for k, v := range tokens {
 		credentials[k] = v
 	}
-	// Update the camelCase mirrors so resolveTemplate's normalization
-	// stays consistent for templates that use {{accessToken}} etc.
-	if v := out["access_token"]; v != "" {
+	if v := tokens["access_token"]; v != "" {
 		credentials["accessToken"] = v
 		credentials["token"] = v
 	}
-	if v := out["refresh_token"]; v != "" {
+	if v := tokens["refresh_token"]; v != "" {
 		credentials["refreshToken"] = v
 	}
-	return nil
 }
 
 // integrationInterceptorFn answers an integration call from a fixture

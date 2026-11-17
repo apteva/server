@@ -215,9 +215,7 @@ func (s *Server) finishAppOAuthReconnect(w http.ResponseWriter, r *http.Request,
 	for _, key := range []string{"access_token", "refresh_token", "refreshToken", "expires_at", "token_expires_at", "expires_in", "refresh_expires_in", "token_type", "scope", "scopes", "id_token", "open_id"} {
 		delete(old, key)
 	}
-	for k, v := range candidate {
-		old[k] = v
-	}
+	mergeOAuthTokens(old, candidate)
 	old["client_id"], old["client_secret"] = clientID, clientSecret
 	match, err := verifyOAuthReconnectIdentities(r, app, old, identities)
 	if err != nil {
