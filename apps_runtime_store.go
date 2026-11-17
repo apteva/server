@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -36,12 +37,12 @@ func (s *Store) migrateAppRuntime() error {
 		`CREATE TABLE IF NOT EXISTS app_runtime_scaling (install_id INTEGER PRIMARY KEY REFERENCES app_installs(id),record_json TEXT NOT NULL)`,
 	}
 	for _, q := range statements {
-		if _, err := s.db.Exec(q); err != nil {
+		if _, err := s.dbExec(q); err != nil {
 			return fmt.Errorf("runtime schema: %w", err)
 		}
 	}
 	for _, q := range []string{`ALTER TABLE app_runtime_execution_owners ADD COLUMN admission_confirmed INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE app_runtime_operations ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0`, `ALTER TABLE app_runtime_operations ADD COLUMN desired_replicas INTEGER NOT NULL DEFAULT 1`} {
-		if _, e := s.db.Exec(q); e != nil && !isRuntimeDuplicateColumn(e) {
+		if _, e := s.dbExec(q); e != nil && !isRuntimeDuplicateColumn(e) {
 			return e
 		}
 	}
@@ -53,13 +54,13 @@ func (s *Store) migrateAppRuntime() error {
 		`ALTER TABLE app_installs ADD COLUMN runtime_pending_deployment TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE app_installs ADD COLUMN runtime_generation INTEGER NOT NULL DEFAULT 0`,
 	} {
-		if _, err := s.db.Exec(q); err != nil && !isRuntimeDuplicateColumn(err) {
+		if _, err := s.dbExec(q); err != nil && !isRuntimeDuplicateColumn(err) {
 			return err
 		}
 	}
 	// Upgrade only installations that predate the ownership journal. Revocation
 	// tombstones prevent a later restart from re-authorizing an old route.
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO app_runtime_execution_owners(deployment_id,install_id,generation,operation_id,granted,admission_confirmed)
+	_, err := s.dbExec(`INSERT OR IGNORE INTO app_runtime_execution_owners(deployment_id,install_id,generation,operation_id,granted,admission_confirmed)
 	 SELECT d.id,d.install_id,d.generation,'legacy-active',1,1 FROM app_runtime_deployments d
 	 JOIN app_installs i ON i.id=d.install_id JOIN app_runtime_deployments a ON a.id=i.runtime_active_deployment
 	 WHERE i.runtime_managed=1 AND i.status='running' AND d.status='active' AND a.status='active' AND d.generation=a.generation
@@ -95,20 +96,23 @@ func (m *appRuntimeManager) saveDeployment(d runtimeDeployment) error {
 		runtimeIngressEndpoints(&d)
 	}
 	raw := runtimeJSON(runtimeStoredDeployment{runtimeDeployment: d, Credential: d.CredentialEncrypted, Environment: d.EnvironmentEncrypted, Bin: d.LocalBin, Port: d.LocalPort, PID: d.LocalPID})
-	_, err := m.s.store.db.Exec(`INSERT INTO app_runtime_deployments(id,install_id,generation,replica,status,record_json) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,record_json=excluded.record_json`, d.ID, d.InstallID, d.Generation, d.Replica, d.Status, raw)
+	_, err := m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_deployments(id,install_id,generation,replica,status,record_json) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,record_json=excluded.record_json`, d.ID, d.InstallID, d.Generation, d.Replica, d.Status, raw)
 	if err == nil && d.CredentialEncrypted != "" {
 		token, e := Decrypt(m.s.secret, d.CredentialEncrypted)
 		if e != nil {
 			return e
 		}
-		_, err = m.s.store.db.Exec(`INSERT INTO app_runtime_credentials(deployment_id,token_hash) VALUES(?,?) ON CONFLICT(deployment_id) DO UPDATE SET token_hash=excluded.token_hash`, d.ID, HashAPIKey(token))
+		_, err = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_credentials(deployment_id,token_hash) VALUES(?,?) ON CONFLICT(deployment_id) DO UPDATE SET token_hash=excluded.token_hash`, d.ID, HashAPIKey(token))
 	}
 	return err
 }
 func (m *appRuntimeManager) loadDeployment(id string) (runtimeDeployment, error) {
+	return m.loadDeploymentContext(m.ctx, id)
+}
+func (m *appRuntimeManager) loadDeploymentContext(ctx context.Context, id string) (runtimeDeployment, error) {
 	var v runtimeStoredDeployment
 	var raw string
-	err := m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_deployments WHERE id=?`, id).Scan(&raw)
+	err := m.s.store.dbQueryRowContext(ctx, `SELECT record_json FROM app_runtime_deployments WHERE id=?`, id).Scan(&raw)
 	if err != nil {
 		return v.runtimeDeployment, err
 	}
@@ -132,7 +136,7 @@ type runtimeStoredOperation struct {
 func (m *appRuntimeManager) operation(id string) (runtimeOperation, error) {
 	var op runtimeOperation
 	var raw string
-	err := m.s.store.db.QueryRow(`SELECT record_json,owner,lease_until FROM app_runtime_operations WHERE id=?`, id).Scan(&raw, &op.Owner, &op.LeaseUntil)
+	err := m.s.store.dbQueryRowContext(m.ctx, `SELECT record_json,owner,lease_until FROM app_runtime_operations WHERE id=?`, id).Scan(&raw, &op.Owner, &op.LeaseUntil)
 	if err != nil {
 		return op, err
 	}
@@ -160,7 +164,12 @@ func (m *appRuntimeManager) saveOperation(op runtimeOperation) error {
 		op.DeploymentID = op.FailedID
 	}
 	op.UpdatedAt = runtimeTimestamp()
-	result, err := m.s.store.db.Exec(`UPDATE app_runtime_operations SET status=?,record_json=? WHERE id=? AND owner=?`, op.Status, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), op.ID, m.owner)
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`UPDATE app_runtime_operations SET status=?,record_json=? WHERE id=? AND owner=?`, op.Status, runtimeJSON(runtimeStoredOperation{op, op.SnapshotPath}), op.ID, m.owner)
 	if err == nil {
 		n, e := result.RowsAffected()
 		if e != nil {
@@ -170,17 +179,65 @@ func (m *appRuntimeManager) saveOperation(op runtimeOperation) error {
 			return fmt.Errorf("operation ownership lost")
 		}
 	}
-	if err == nil && m.s.appBus != nil {
+	if err == nil {
 		var name, project string
-		m.s.store.db.QueryRow(`SELECT a.name,COALESCE(i.project_id,'') FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, op.InstallID).Scan(&name, &project)
+		if err = tx.QueryRow(`SELECT a.name,COALESCE(i.project_id,'') FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, op.InstallID).Scan(&name, &project); err != nil {
+			return err
+		}
 		b, _ := json.Marshal(op)
-		m.s.appBus.Publish(name, project, op.InstallID, "runtime.operation.updated", b)
+		topics := []string{"runtime.operation.updated"}
+		if runtimeOperationTerminal(op.Status) {
+			topics = append(topics, "runtime.operation."+op.Status)
+		}
+		for _, topic := range topics {
+			if err = m.s.queueRuntimeOperationEventTx(tx, op, name, project, topic); err != nil {
+				return err
+			}
+		}
+		// Global installs may have a verified waiter in a project conversation.
+		// Project only the matching operation's completion, never all app events.
+		if project == "" && runtimeOperationTerminal(op.Status) {
+			rows, e := tx.Query(`SELECT DISTINCT project_id FROM subscriptions WHERE kind='ephemeral' AND source_install_id=? AND project_id!='' AND match_json=?`, op.InstallID, runtimeJSON(map[string]any{"id": op.ID}))
+			if e != nil {
+				return e
+			}
+			projects := []string{}
+			for rows.Next() {
+				var p string
+				if e = rows.Scan(&p); e != nil {
+					rows.Close()
+					return e
+				}
+				projects = append(projects, p)
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				return e
+			}
+			for _, p := range projects {
+				if err = m.s.queueRuntimeOperationEventTx(tx, op, name, p, "runtime.operation."+op.Status); err != nil {
+					return err
+				}
+			}
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		if m.s.appBus != nil {
+			for _, topic := range topics {
+				m.s.appBus.Publish(name, project, op.InstallID, topic, b, true)
+			}
+		}
+		if m.s.appEventDispatcher != nil {
+			m.s.appEventDispatcher.wakeOutbox()
+		}
 	}
 	return err
 }
 func (m *appRuntimeManager) active(id int64) (runtimeDeployment, error) {
 	var ref string
-	if err := m.s.store.db.QueryRow(`SELECT runtime_active_deployment FROM app_installs WHERE id=?`, id).Scan(&ref); err != nil {
+	if err := m.s.store.dbQueryRowContext(m.ctx, `SELECT runtime_active_deployment FROM app_installs WHERE id=?`, id).Scan(&ref); err != nil {
 		return runtimeDeployment{}, err
 	}
 	if ref == "" {
@@ -190,11 +247,11 @@ func (m *appRuntimeManager) active(id int64) (runtimeDeployment, error) {
 }
 func (s *Server) runtimeManaged(id int64) bool {
 	var n int
-	s.store.db.QueryRow(`SELECT runtime_managed FROM app_installs WHERE id=?`, id).Scan(&n)
+	s.store.dbQueryRow(`SELECT runtime_managed FROM app_installs WHERE id=?`, id).Scan(&n)
 	return n == 1
 }
 func (m *appRuntimeManager) reservePorts(d runtimeDeployment) error {
-	tx, err := m.s.store.db.Begin()
+	tx, err := m.s.store.dbBeginTx(m.ctx, nil)
 	if err != nil {
 		return err
 	}

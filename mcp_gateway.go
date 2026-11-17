@@ -120,9 +120,9 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		})}},
 		// Apps
 		{Name: "apps_list", Description: "List compact installed-app summaries with short descriptions. Searchable and paginated; defaults to the current project and includes global installs. Use apps_get only when full metadata for one install is needed.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional app name or description search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset; use next_offset from the previous result"}}}},
-		{Name: "apps_get", Description: "Get details for one installed app without returning dashboard UI component schemas.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "Installed app ID"}, "project_id": {Type: "string", Description: "Optional project scope; defaults to the current project"}}, Required: []string{"install_id"}}},
+		{Name: "apps_get", Description: "Inspect an installed app. Use view=readiness for compact progress, errors and published widgets; watch=true resumes this conversation on completion without polling.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"view": {Type: "string", Description: "readiness for compact status; details for metadata (default)."}, "watch": {Type: "boolean", Description: "Optional. Subscribe this conversation to the current operation instead of polling."}, "install_id": {Type: "integer", Description: "Installed app ID"}, "project_id": {Type: "string", Description: "Optional project scope; defaults to the current project"}}, Required: []string{"install_id"}}},
 		{Name: "apps_marketplace", Description: "Search the app marketplace using compact paginated results, marking apps installed in the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "registry_url": {Type: "string", Description: "Optional registry URL override."}, "query": {Type: "string", Description: "Optional app name, description or tag search"}, "category": {Type: "string", Description: "Optional marketplace category"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based result offset"}}}},
-		{Name: "apps_install", Description: "Install an app through the normal server path and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"manifest_url": {Type: "string", Description: "Manifest URL to install"}, "manifest_yaml": {Type: "string", Description: "Inline manifest YAML"}, "repo": {Type: "string", Description: "Optional source repository"}, "ref": {Type: "string", Description: "Optional source ref"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "global": {Type: "boolean", Description: "Install globally when explicitly true"}, "config": {Type: "object", Description: "Optional app configuration"}, "upgrade_policy": {Type: "string", Description: "manual, auto-patch, or auto-minor"}, "bindings": {Type: "object", Description: "Required role to connection/install ID map"}}}},
+		{Name: "apps_install", Description: "Install or reuse a compatible app and return a trackable readiness receipt. When _apteva_async.will_notify is true, completion resumes this conversation; do not poll or sleep.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"manifest_url": {Type: "string", Description: "Manifest URL to install"}, "manifest_yaml": {Type: "string", Description: "Inline manifest YAML"}, "repo": {Type: "string", Description: "Optional source repository"}, "ref": {Type: "string", Description: "Optional source ref"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "global": {Type: "boolean", Description: "Install globally when explicitly true"}, "config": {Type: "object", Description: "Optional app configuration"}, "upgrade_policy": {Type: "string", Description: "manual, auto-patch, or auto-minor"}, "bindings": {Type: "object", Description: "Required role to connection/install ID map"}}}},
 		{Name: "apps_upgrade", Description: "Upgrade an installed app and return a compact receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "App install ID"}, "approve_new_permissions": {Type: "boolean", Description: "Approve newly requested permissions"}}, Required: []string{"install_id"}}},
 		{Name: "apps_uninstall", Description: "Uninstall an app from the explicitly named project and return an authoritative receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"install_id": {Type: "integer", Description: "App install ID"}, "project_id": {Type: "string", Description: "Project that owns this install"}, "force": {Type: "boolean", Description: "Override dependency blockers"}}, Required: []string{"install_id", "project_id"}}},
 		// Integrations
@@ -158,7 +158,6 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "enable_apps_for_projects", Description: "Create idempotent project-scoped suite connections from selected apps and external projects.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}, "selections": {Type: "array", Description: "Objects containing app_slug, external_project_id and label", Items: &toolParam{Type: "object"}}, "replace": {Type: "boolean", Description: "Remove child connections absent from this selection"}}, Required: []string{"group_id", "selections"}}},
 		{Name: "delete_group_credential", Description: "Remove a suite's account credential and every child connection fanned out from it. Use with care — equivalent to the dashboard's 'Disconnect all'.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"group_id": {Type: "string"}}, Required: []string{"group_id"}}},
 	}
-
 	tools = append(tools, workspacePageToolDefinitions()...)
 
 	// Handler dispatch
@@ -537,7 +536,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}
 			// For local integrations, get tools from catalog
 			var connID int64
-			store.db.QueryRow("SELECT connection_id FROM mcp_servers WHERE id = ? AND user_id = ?", id, userID).Scan(&connID)
+			store.dbQueryRow("SELECT connection_id FROM mcp_servers WHERE id = ? AND user_id = ?", id, userID).Scan(&connID)
 			if connID > 0 {
 				conn, _, err := store.GetConnection(userID, connID)
 				if err == nil {
@@ -1308,7 +1307,7 @@ func gatewayMCPConnectionMeta(store *Store, connID int64) (string, int64) {
 	}
 	var createdVia string
 	var ownerID int64
-	_ = store.db.QueryRow(
+	_ = store.dbQueryRow(
 		`SELECT COALESCE(created_via, ''), COALESCE(owner_app_install_id, 0) FROM connections WHERE id=?`,
 		connID,
 	).Scan(&createdVia, &ownerID)
@@ -1478,9 +1477,27 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		return page, nil
 
 	case "apps_get":
+		if raw, ok := args["view"]; ok {
+			view, valid := raw.(string)
+			if !valid || (view != "" && view != "readiness" && view != "details") {
+				return nil, fmt.Errorf("view must be readiness or details")
+			}
+		}
+		if _, _, err := optionalBoolArg(args["watch"]); err != nil {
+			return nil, fmt.Errorf("watch must be true or false")
+		}
 		installID, err := parseInstallIDArg(args)
 		if err != nil {
 			return nil, err
+		}
+		if view, _ := args["view"].(string); platformInstallIsReadiness(args) {
+			var out any
+			if err := serverAPI.do(http.MethodGet, fmt.Sprintf("/apps/readiness?install_id=%d", installID), nil, &out); err != nil {
+				return nil, err
+			}
+			return out, nil
+		} else if view != "" && view != "details" {
+			return nil, fmt.Errorf("view must be readiness or details")
 		}
 		pid := gatewayProjectIDArg(args, defaultProjectID)
 		path := "/apps"
@@ -1538,6 +1555,15 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 			}
 		}
 		root["apps"] = compact
+		if suggestions := gatewayArray(root["suggestions"]); len(suggestions) > 0 {
+			items := []any{}
+			for _, suggestion := range suggestions {
+				if row := compactGatewayMarketplaceApp(suggestion); row != nil {
+					items = append(items, row)
+				}
+			}
+			root["suggestions"] = items
+		}
 		root["offset"] = offset
 		root["limit"] = limit
 		root["has_more"] = offset+len(compact) < gatewayIntFromAny(root["total"])
@@ -1568,9 +1594,10 @@ func handleGatewayAppTool(name string, args map[string]any, defaultProjectID str
 		}
 
 		body := map[string]any{
-			"manifest_url":  manifestURL,
-			"manifest_yaml": manifestYAML,
-			"project_id":    pid,
+			"manifest_url":   manifestURL,
+			"manifest_yaml":  manifestYAML,
+			"project_id":     pid,
+			"reuse_existing": true,
 		}
 		if repo, _ := args["repo"].(string); strings.TrimSpace(repo) != "" {
 			body["repo"] = strings.TrimSpace(repo)

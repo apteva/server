@@ -201,6 +201,9 @@ func compactGatewayMarketplaceApp(value any) map[string]any {
 		out["deprecation"] = gatewayCompactText(message, gatewayDescriptionSize)
 	}
 	if surfaces := gatewayObject(row["surfaces"]); surfaces != nil {
+		if widgets, ok := surfaces["widgets"]; ok {
+			out["widgets"] = widgets
+		}
 		out["capabilities"] = map[string]any{
 			"kind": surfaces["kind"], "mcp_tools": surfaces["mcp_tool_count"],
 			"skills": surfaces["skill_count"], "ui_panels": surfaces["ui_panel_count"],

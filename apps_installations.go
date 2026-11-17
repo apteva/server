@@ -121,7 +121,7 @@ type appInstallation struct {
 
 func (s *Server) appInstallation(id int64) (appInstallation, error) {
 	var out appInstallation
-	err := s.store.db.QueryRow(`SELECT installation_key,installation_name,is_default FROM app_installs WHERE id=?`, id).Scan(&out.Key, &out.Name, &out.Default)
+	err := s.store.dbQueryRow(`SELECT installation_key,installation_name,is_default FROM app_installs WHERE id=?`, id).Scan(&out.Key, &out.Name, &out.Default)
 	return out, err
 }
 
@@ -163,7 +163,7 @@ func (s *Server) handleAppInstallation(w http.ResponseWriter, r *http.Request, i
 		http.Error(w, "select another installation as default instead", 400)
 		return
 	}
-	tx, err := s.store.db.Begin()
+	tx, err := s.store.dbBeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "installation unavailable", 503)
 		return
@@ -221,7 +221,7 @@ func installationMCPName(app, key string, id int64) string {
 // Load defaults from every status. A stopped project default must not route to
 // a candidate or a global install. A zero records a scope with no default.
 func (s *Server) loadInstallationDefaults() (map[appInstallScope]int64, error) {
-	rows, err := s.store.db.Query(`SELECT a.name,COALESCE(i.project_id,''),MAX(CASE WHEN i.is_default=1 THEN i.id ELSE 0 END) FROM app_installs i JOIN apps a ON a.id=i.app_id GROUP BY a.name,i.project_id`)
+	rows, err := s.store.dbQuery(`SELECT a.name,COALESCE(i.project_id,''),MAX(CASE WHEN i.is_default=1 THEN i.id ELSE 0 END) FROM app_installs i JOIN apps a ON a.id=i.app_id GROUP BY a.name,i.project_id`)
 	if err != nil {
 		return nil, err
 	}

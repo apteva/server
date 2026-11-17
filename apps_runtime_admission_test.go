@@ -339,11 +339,13 @@ func TestManagedRuntimeReadmissionResumesAfterControllerRestart(t *testing.T) {
 	f.admitting[d.ID] = false
 	f.events = nil
 	f.mu.Unlock()
-	m.Close()
+	// Persist the pending operation before stopping its controller. Closed
+	// controllers cancel database work and must not accept new operations.
 	op, err := m.beginExpected(d.InstallID, "readmit", "durable-readmission", d.Placement, nil, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	m.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	restarted := &appRuntimeManager{s: s, ctx: ctx, cancel: cancel, owner: "restarted-admission-controller", http: m.http, workers: map[string]bool{}}
 	s.appRuntime = restarted

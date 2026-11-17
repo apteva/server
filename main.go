@@ -723,6 +723,7 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeServerHealth(w, s.ready.Load())
 	})
+	mux.HandleFunc("/ready", s.handleDatabaseReadiness)
 	mux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
@@ -735,6 +736,7 @@ func main() {
 	apiMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeServerHealth(w, s.ready.Load())
 	})
+	apiMux.HandleFunc("/ready", s.handleDatabaseReadiness)
 	apiMux.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, versionInfo())
 	})
@@ -767,6 +769,7 @@ func main() {
 	apiMux.HandleFunc("/auth/delegated-users", s.authMiddleware(s.handleCreateDelegatedUser))
 	s.registerSecurityRoutes(apiMux)
 	apiMux.HandleFunc("/ui-layout/tools", s.authMiddleware(s.handleWorkspacePageTool))
+	apiMux.HandleFunc("/apps/readiness", s.authMiddleware(s.handleAppReadiness))
 	apiMux.HandleFunc("/ui-layout/pages", s.authMiddleware(s.handleUIPages))
 	apiMux.HandleFunc("/ui-layout/projects/", s.authMiddleware(s.handleUILayoutSurface))
 	apiMux.HandleFunc("/ui-layout/global/surfaces/", s.authMiddleware(s.handleUILayoutGlobalSurface))

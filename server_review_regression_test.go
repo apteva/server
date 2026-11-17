@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -377,7 +379,13 @@ func TestAuditUnsignedEmailWebhook(t *testing.T) {
 func TestAuditEventFailureSkippedByCursor(t *testing.T) {
 	s := newTestServer(t)
 	var calls atomic.Int32
+	ids := make(chan string, 4)
 	a, _ := auditCore(t, s, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		ids <- payload["event_id"]
 		if calls.Add(1) == 1 {
 			w.WriteHeader(503)
 		} else {
@@ -391,20 +399,42 @@ func TestAuditEventFailureSkippedByCursor(t *testing.T) {
 	d := NewAppEventDispatcher(s)
 	lane := &appEventLane{rows: []*Subscription{sub}}
 	first := AppEvent{Seq: 1, App: "audit", Topic: "changed", Data: []byte(`{}`)}
+	second := AppEvent{Seq: 2, App: "audit", Topic: "changed", Data: []byte(`{}`)}
 	d.dispatch(lane, first)
-	d.dispatch(lane, AppEvent{Seq: 2, App: "audit", Topic: "changed", Data: []byte(`{}`)})
-	// Neither a later event nor an immediate replay may overtake retry backoff.
+	d.dispatch(lane, second)
 	d.dispatch(lane, first)
+	// Failed delivery is durable and backed off; later events cannot overtake it.
+	d.drainOutbox(context.Background())
 	if calls.Load() != 1 {
-		t.Fatalf("failed delivery did not preserve retry ordering: calls=%d", calls.Load())
+		t.Fatal("retry ignored backoff or later event overtook failure")
 	}
-	// Simulate backoff expiry, then replay both events in order.
-	if _, err := s.store.db.Exec("UPDATE app_subscription_outbox SET next_attempt=0 WHERE subscription_id=? AND status='pending'", sub.ID); err != nil {
+	var pending int
+	if err := s.store.db.QueryRow(`SELECT count(*) FROM app_subscription_outbox WHERE subscription_id=? AND status='pending'`, sub.ID).Scan(&pending); err != nil || pending != 2 {
+		t.Fatalf("failed event was lost or duplicated: pending=%d err=%v", pending, err)
+	}
+	// Advance the persisted retry deadline without a timing-dependent sleep.
+	if _, err := s.store.db.Exec(`UPDATE app_subscription_outbox SET next_attempt=0 WHERE subscription_id=?`, sub.ID); err != nil {
 		t.Fatal(err)
 	}
-	d.dispatch(lane, first)
-	d.dispatch(lane, AppEvent{Seq: 2, App: "audit", Topic: "changed", Data: []byte(`{}`)})
+	d.drainOutbox(context.Background())
+	if calls.Load() != 2 {
+		t.Fatal("failed event was not retried")
+	}
+	d.drainOutbox(context.Background())
 	if calls.Load() != 3 {
-		t.Fatalf("failed event became permanently skipped: calls=%d cursor=%d", calls.Load(), sub.LastSeqDelivered)
+		t.Fatal("next event did not resume after successful retry")
+	}
+	failedID, retryID, secondID := <-ids, <-ids, <-ids
+	if failedID == "" || failedID != retryID || secondID == failedID || secondID == "" {
+		t.Fatal("retry identity changed or distinct events shared a delivery ID")
+	}
+	d.dispatch(lane, first)
+	d.dispatch(lane, second)
+	if calls.Load() != 3 {
+		t.Fatal("replay redelivered acknowledged events")
+	}
+	var cursor uint64
+	if err := s.store.db.QueryRow(`SELECT last_seq_delivered FROM subscriptions WHERE id=?`, sub.ID).Scan(&cursor); err != nil || cursor != 2 {
+		t.Fatalf("cursor=%d err=%v", cursor, err)
 	}
 }

@@ -62,7 +62,7 @@ func (s *Store) migrateRuntimeConsole() error {
 		`CREATE TABLE IF NOT EXISTS app_runtime_target_catalog (backend_install_id INTEGER NOT NULL,backend_id TEXT NOT NULL,resource_type TEXT NOT NULL,resource_id TEXT NOT NULL,record_json TEXT NOT NULL,PRIMARY KEY(backend_install_id,backend_id,resource_type,resource_id))`,
 		`CREATE TABLE IF NOT EXISTS app_runtime_observations (deployment_id TEXT PRIMARY KEY,checked_at TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT 'unknown',message TEXT NOT NULL DEFAULT '',admission_state TEXT NOT NULL DEFAULT 'unknown')`,
 	} {
-		if _, e := s.db.Exec(q); e != nil {
+		if _, e := s.dbExec(q); e != nil {
 			return e
 		}
 	}
@@ -79,7 +79,10 @@ func validateTargetDiscovery(d *runtimeTargetDiscovery) error {
 	return nil
 }
 func (m *appRuntimeManager) backendName(ref runtimeBackendRef) string {
-	manifest, e := installManifest(m.s, ref.InstallID)
+	return m.backendNameContext(m.ctx, ref)
+}
+func (m *appRuntimeManager) backendNameContext(ctx context.Context, ref runtimeBackendRef) string {
+	manifest, e := installManifestContext(ctx, m.s, ref.InstallID)
 	if e == nil && manifest != nil {
 		if manifest.DisplayName != "" {
 			return manifest.DisplayName
@@ -98,7 +101,7 @@ func (m *appRuntimeManager) listTargets(ctx context.Context, ref runtimeBackendR
 		return page, fmt.Errorf("backend does not advertise target listing; enter a target ID or configure target discovery")
 	}
 	var owner, base, status string
-	if e = m.s.store.db.QueryRow(`SELECT COALESCE(project_id,''),sidecar_url_override,status FROM app_installs WHERE id=?`, ref.InstallID).Scan(&owner, &base, &status); e != nil {
+	if e = m.s.store.dbQueryRowContext(m.ctx, `SELECT COALESCE(project_id,''),sidecar_url_override,status FROM app_installs WHERE id=?`, ref.InstallID).Scan(&owner, &base, &status); e != nil {
 		return page, e
 	}
 	if owner != "" && owner != project {
@@ -198,7 +201,7 @@ func (m *appRuntimeManager) listTargets(ctx context.Context, ref runtimeBackendR
 		if t.Name == "" {
 			t.Name = t.Ref.ID
 		}
-		_, e = m.s.store.db.Exec(`INSERT INTO app_runtime_target_catalog VALUES(?,?,?,?,?) ON CONFLICT(backend_install_id,backend_id,resource_type,resource_id) DO UPDATE SET record_json=excluded.record_json`, ref.InstallID, ref.ID, t.Ref.Type, t.Ref.ID, runtimeJSON(t))
+		_, e = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_target_catalog VALUES(?,?,?,?,?) ON CONFLICT(backend_install_id,backend_id,resource_type,resource_id) DO UPDATE SET record_json=excluded.record_json`, ref.InstallID, ref.ID, t.Ref.Type, t.Ref.ID, runtimeJSON(t))
 		if e != nil {
 			return page, e
 		}
@@ -273,7 +276,7 @@ func (s *Server) handleRuntimeConsolePreflight(w http.ResponseWriter, r *http.Re
 		}
 		manifest, e = installManifest(s, body.InstallID)
 		if e == nil {
-			e = s.store.db.QueryRow(`SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, body.InstallID).Scan(&body.ProjectID)
+			e = s.store.dbQueryRowContext(r.Context(), `SELECT COALESCE(project_id,'') FROM app_installs WHERE id=?`, body.InstallID).Scan(&body.ProjectID)
 		}
 	} else {
 		var raw []byte
@@ -290,18 +293,21 @@ func (s *Server) handleRuntimeConsolePreflight(w http.ResponseWriter, r *http.Re
 	writeJSON(w, map[string]any{"compatible": firstRuntimeBlock(checks) == nil, "placement": p, "checks": checks})
 }
 func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary {
+	return m.deploymentSummaryContext(m.ctx, id)
+}
+func (m *appRuntimeManager) deploymentSummaryContext(ctx context.Context, id int64) runtimeDeploymentSummary {
 	v := runtimeDeploymentSummary{Type: "local", State: "unknown", TargetName: "This Server"}
 	var raw, active, pending, status, statusMsg string
 	var managed int
-	if m.s.store.db.QueryRow(`SELECT runtime_managed,runtime_placement_json,runtime_active_deployment,runtime_pending_deployment,status,COALESCE(status_message,'') FROM app_installs WHERE id=?`, id).Scan(&managed, &raw, &active, &pending, &status, &statusMsg) != nil {
+	if m.s.store.dbQueryRowContext(ctx, `SELECT runtime_managed,runtime_placement_json,runtime_active_deployment,runtime_pending_deployment,status,COALESCE(status_message,'') FROM app_installs WHERE id=?`, id).Scan(&managed, &raw, &active, &pending, &status, &statusMsg) != nil {
 		return v
 	}
 	var p runtimePlacement
 	_ = json.Unmarshal([]byte(raw), &p)
 	v.Managed = managed != 0
-	d, e := m.loadDeployment(active)
+	d, e := m.loadDeploymentContext(ctx, active)
 	if e != nil && pending != "" {
-		if candidate, err := m.loadDeployment(pending); err == nil {
+		if candidate, err := m.loadDeploymentContext(ctx, pending); err == nil {
 			p = candidate.Placement
 		}
 	}
@@ -312,11 +318,11 @@ func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary
 	if p.Type == "backend" {
 		v.Type = "backend"
 		v.Backend = &p.Backend
-		v.BackendName = m.backendName(p.Backend)
+		v.BackendName = m.backendNameContext(ctx, p.Backend)
 		v.Target = p.Target
 		v.TargetName = p.Target.ID
 		var tr string
-		if m.s.store.db.QueryRow(`SELECT record_json FROM app_runtime_target_catalog WHERE backend_install_id=? AND backend_id=? AND resource_type=? AND resource_id=?`, p.Backend.InstallID, p.Backend.ID, p.Target.Type, p.Target.ID).Scan(&tr) == nil {
+		if m.s.store.dbQueryRowContext(ctx, `SELECT record_json FROM app_runtime_target_catalog WHERE backend_install_id=? AND backend_id=? AND resource_type=? AND resource_id=?`, p.Backend.InstallID, p.Backend.ID, p.Target.Type, p.Target.ID).Scan(&tr) == nil {
 			var t runtimeTarget
 			if json.Unmarshal([]byte(tr), &t) == nil {
 				v.TargetName = t.Name
@@ -332,7 +338,7 @@ func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary
 	}
 	if e == nil {
 		var checked, state, message, admission string
-		if m.s.store.db.QueryRow(`SELECT checked_at,state,message,admission_state FROM app_runtime_observations WHERE deployment_id=?`, d.ID).Scan(&checked, &state, &message, &admission) == nil {
+		if m.s.store.dbQueryRowContext(ctx, `SELECT checked_at,state,message,admission_state FROM app_runtime_observations WHERE deployment_id=?`, d.ID).Scan(&checked, &state, &message, &admission) == nil {
 			v.CheckedAt = checked
 			v.State = state
 			v.Message = message
@@ -354,7 +360,7 @@ func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary
 	}
 	if pending != "" {
 		var count int
-		m.s.store.db.QueryRow(`SELECT COUNT(*) FROM app_runtime_operations WHERE install_id=? AND status IN ('queued','running')`, id).Scan(&count)
+		m.s.store.dbQueryRowContext(ctx, `SELECT COUNT(*) FROM app_runtime_operations WHERE install_id=? AND status IN ('queued','running')`, id).Scan(&count)
 		if count > 0 {
 			v.State = "deploying"
 		}
@@ -363,7 +369,7 @@ func (m *appRuntimeManager) deploymentSummary(id int64) runtimeDeploymentSummary
 }
 func (m *appRuntimeManager) consoleOperations(id int64) []runtimeOperation {
 	out := []runtimeOperation{}
-	rows, e := m.s.store.db.Query(`SELECT record_json FROM app_runtime_operations WHERE install_id=? ORDER BY rowid DESC LIMIT 20`, id)
+	rows, e := m.s.store.dbQueryContext(m.ctx, `SELECT record_json FROM app_runtime_operations WHERE install_id=? ORDER BY rowid DESC LIMIT 20`, id)
 	if e != nil {
 		return out
 	}
