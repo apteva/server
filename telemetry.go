@@ -229,7 +229,12 @@ func (s *Store) InsertTelemetry(events []TelemetryEvent) error {
 	}
 	defer stmt.Close()
 
-	for _, e := range events {
+	for i := range events {
+		e := events[i]
+		if err := compactToolCatalog(tx, &e); err != nil {
+			return err
+		}
+		events[i] = e
 		if e.ID == "" {
 			e.ID = generateID()
 		}
@@ -444,6 +449,9 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 		n, err := result.RowsAffected()
 		total += n
 		if err != nil || n < 1000 {
+			if err == nil {
+				err = s.cleanToolCatalogs(cutoff)
+			}
 			return total, err
 		}
 	}
@@ -451,11 +459,25 @@ func (s *Store) CleanOldTelemetry(maxAge time.Duration) (int64, error) {
 }
 
 func (s *Store) WipeTelemetry() (int64, error) {
-	result, err := s.db.Exec("DELETE FROM telemetry")
+	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	defer tx.Rollback()
+	result, err := tx.Exec("DELETE FROM telemetry")
+	if err != nil {
+		return 0, err
+	}
+	for _, table := range []string{"tool_catalog_agents", "tool_catalogs"} {
+		if _, err = tx.Exec("DELETE FROM " + table); err != nil {
+			return 0, err
+		}
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return count, tx.Commit()
 }
 
 // --- HTTP Handlers ---
@@ -535,7 +557,7 @@ func (s *Server) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	// No broadcast here — /telemetry/live handles real-time broadcast.
 	// This endpoint is for DB persistence only.
 
-	writeJSON(w, map[string]int{"inserted": len(events)})
+	writeJSON(w, map[string]any{"inserted": len(events), "missing_catalogs": s.store.missingToolCatalogs(events)})
 }
 
 const storedToolResultPreviewBytes = 1000
@@ -641,6 +663,10 @@ func (s *Server) handleLiveTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.store.compactLiveToolCatalogs(events); err != nil {
+		http.Error(w, "catalog ingest failed", http.StatusInternalServerError)
+		return
+	}
 	// Enrich live events too — the dashboard's per-instance streaming
 	// cost + context bars all read cost_usd. If we skip this, the
 	// streaming path shows $0.00 until the persistence ingest catches
