@@ -47,6 +47,20 @@ type SnapshotManifest struct {
 	Clock               *sdk.RuntimeClockState        `json:"clock,omitempty"`
 	HTTPMocks           []HTTPMock                    `json:"http_mocks,omitempty"`
 	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures,omitempty"`
+	// DataProjectID, DataInstallIDs and PublicURL are the ids and base URL the
+	// captured app data was written under (the environment's own project id
+	// and install ids, not the source project's). Restore rewrites them to the
+	// new environment's values. Snapshots taken before these fields existed
+	// restore by plain copy.
+	DataProjectID  string           `json:"data_project_id,omitempty"`
+	DataInstallIDs map[string]int64 `json:"data_install_ids,omitempty"`
+	PublicURL      string           `json:"public_url,omitempty"`
+}
+
+// restoreMapped reports whether the snapshot records the ids its app data
+// was written under, which a restore needs to rewrite them.
+func (m *SnapshotManifest) restoreMapped() bool {
+	return m != nil && m.DataProjectID != "" && len(m.DataInstallIDs) > 0
 }
 
 // SnapshotStore manages snapshot artifacts on disk.
@@ -85,6 +99,9 @@ type CaptureSpec struct {
 	Clock               *sdk.RuntimeClockState
 	HTTPMocks           []HTTPMock
 	IntegrationFixtures []IntegrationFixture
+	DataProjectID       string
+	DataInstallIDs      map[string]int64
+	PublicURL           string
 }
 
 // Capture writes a new snapshot. Fails if the id already exists.
@@ -112,6 +129,9 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 		Clock:               spec.Clock,
 		HTTPMocks:           append([]HTTPMock(nil), spec.HTTPMocks...),
 		IntegrationFixtures: append([]IntegrationFixture(nil), spec.IntegrationFixtures...),
+		DataProjectID:       spec.DataProjectID,
+		DataInstallIDs:      cloneInt64Map(spec.DataInstallIDs),
+		PublicURL:           spec.PublicURL,
 	}
 
 	if spec.AgentInstanceDir != "" {

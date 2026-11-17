@@ -1319,12 +1319,7 @@ func (s *Server) handleEnvironmentSnapshot(w http.ResponseWriter, r *http.Reques
 			appDirs[name] = a.DataDir
 		}
 	}
-	for _, name := range environment.InstallNames() {
-		if inst, ok := environment.Install(name); ok && inst.DataDir != "" {
-			appDirs[name] = inst.DataDir
-		}
-	}
-	man, err := s.environments.Snapshots().Capture(CaptureSpec{
+	man, err := s.captureEnvironmentSnapshot(environment, CaptureSpec{
 		ID:            req.SnapshotID,
 		ProjectID:     environment.ProjectID,
 		Description:   req.Description,
@@ -1332,6 +1327,10 @@ func (s *Server) handleEnvironmentSnapshot(w http.ResponseWriter, r *http.Reques
 		Cassette:      environment.Edge().Cassette(),
 		Subscriptions: environment.SubscriptionSpecs(),
 	})
+	if err != nil && man != nil {
+		http.Error(w, "snapshot: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err != nil {
 		http.Error(w, "snapshot: "+err.Error(), http.StatusBadRequest)
 		return

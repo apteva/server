@@ -17,12 +17,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	sdk "github.com/apteva/app-sdk"
 )
 
 // localInstall is the result of installing an app from local source.
@@ -41,14 +44,31 @@ type localInstall struct {
 // env the caller wants threaded to the sidecar (e.g. HTTP_PROXY=<edge>,
 // APTEVA_ENVIRONMENT_ID); installLocalSource fills in the platform identity vars.
 func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int64, env map[string]string, restoredDataDir string, initialBindings map[string]any, progress func(string)) (*localInstall, error) {
+	pending, err := s.reserveLocalInstall(srcDir, projectID, creatorUserID, initialBindings)
+	if err != nil {
+		return nil, err
+	}
+	return s.startLocalInstall(pending, env, restoredDataDir, nil, progress)
+}
+
+// reservedLocalInstall is an install row created before its sidecar is built.
+// Environments reserve every app first, so a snapshot restore knows each new
+// install id before any app rewrites its restored data.
+type reservedLocalInstall struct {
+	srcDir   string
+	manifest *sdk.Manifest
+	install  *localInstall // Port and SidecarURL are set once started
+}
+
+// reserveLocalInstall creates the apps/app_installs rows for srcDir without
+// building or starting anything. The caller must either start it with
+// startLocalInstall or remove it with deleteEnvironmentInstall.
+func (s *Server) reserveLocalInstall(srcDir, projectID string, creatorUserID int64, initialBindings map[string]any) (*reservedLocalInstall, error) {
 	if s.localApps == nil {
 		return nil, fmt.Errorf("installLocalSource: local supervisor not configured")
 	}
 	if creatorUserID <= 0 {
 		return nil, fmt.Errorf("installLocalSource: authenticated creator required")
-	}
-	if progress == nil {
-		progress = func(string) {}
 	}
 
 	// 1. Parse the manifest from the working copy.
@@ -104,6 +124,31 @@ func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int6
 	}
 	installID, _ := res.LastInsertId()
 	dataDir := localInstallDataDir(s.localApps, m.Name, installID)
+	return &reservedLocalInstall{
+		srcDir:   srcDir,
+		manifest: m,
+		install: &localInstall{
+			InstallID: installID,
+			AppName:   m.Name,
+			ProjectID: projectID,
+			DataDir:   dataDir,
+			DBPath:    filepath.Join(dataDir, "app.db"),
+		},
+	}, nil
+}
+
+// startLocalInstall builds and starts a reserved install. restoredDataDir,
+// when set, replaces the fresh data dir before the app serves; restore, when
+// set, makes the app rewrite that data to its new ids before it serves. Any
+// failure removes the install.
+func (s *Server) startLocalInstall(pending *reservedLocalInstall, env map[string]string, restoredDataDir string, restore *localRestore, progress func(string)) (*localInstall, error) {
+	if progress == nil {
+		progress = func(string) {}
+	}
+	m := pending.manifest
+	installID := pending.install.InstallID
+	projectID := pending.install.ProjectID
+	dataDir := pending.install.DataDir
 	committed := false
 	defer func() {
 		if committed {
@@ -131,13 +176,13 @@ func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int6
 	env["APTEVA_PROJECT_ID"] = projectID
 
 	// 5. Build from local source with a temp go.work overlaying local app-sdk.
-	goWork, cleanupGoWork, err := genLocalGoWork(srcDir)
+	goWork, cleanupGoWork, err := genLocalGoWork(pending.srcDir)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanupGoWork()
 
-	port, binPath, err := s.localApps.BuildFromLocalSource(installID, m, srcDir, []string{"GOWORK=" + goWork}, env, progress)
+	port, binPath, err := s.localApps.BuildFromLocalSource(installID, m, pending.srcDir, []string{"GOWORK=" + goWork}, env, progress)
 	if err != nil {
 		return nil, fmt.Errorf("build/spawn %s: %w", m.Name, err)
 	}
@@ -156,8 +201,31 @@ func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int6
 		if err := copyTree(restoredDataDir, dataDir); err != nil {
 			return nil, fmt.Errorf("restore %s data: %w", m.Name, err)
 		}
-		if err := s.localApps.Restart(installID, m, port, binPath, env); err != nil {
+		restartEnv := env
+		if restore != nil {
+			restartEnv, err = restore.prepare(env)
+			if err != nil {
+				return nil, fmt.Errorf("restore %s: %w", m.Name, err)
+			}
+		}
+		if err := s.localApps.Restart(installID, m, port, binPath, restartEnv); err != nil {
+			if restore != nil {
+				if cause := restore.failure(); cause != "" {
+					return nil, fmt.Errorf("restore %s: %s", m.Name, cause)
+				}
+			}
 			return nil, fmt.Errorf("restart %s after restore: %w", m.Name, err)
+		}
+		if restore != nil {
+			if err := restore.verify(sidecarURL); errors.Is(err, errRestoreUnsupported) {
+				// Apps built before restore support keep working as they
+				// always did: the data is copied, and ids in it are not
+				// rewritten.
+				log.Printf("[ENVIRONMENT] %s (install %d) has no snapshot restore support; restored %s by plain copy, ids in its data still refer to %s",
+					m.Name, installID, projectID, restore.Context.OldProjectID)
+			} else if err != nil {
+				return nil, fmt.Errorf("restore %s: %w", m.Name, err)
+			}
 		}
 	}
 
@@ -176,15 +244,10 @@ func (s *Server) installLocalSource(srcDir, projectID string, creatorUserID int6
 	// Data dir layout mirrors spawn(): persistentRoot is under the canonical
 	// app cache root, independent of the local build binary's _local path —
 	//   <cacheDir>/<appName>/data/<installID>/app.db
-	return &localInstall{
-		InstallID:  installID,
-		AppName:    m.Name,
-		ProjectID:  projectID,
-		Port:       port,
-		SidecarURL: sidecarURL,
-		DataDir:    dataDir,
-		DBPath:     filepath.Join(dataDir, "app.db"),
-	}, nil
+	out := *pending.install
+	out.Port = port
+	out.SidecarURL = sidecarURL
+	return &out, nil
 }
 
 func localInstallDataDir(supervisor *LocalSupervisor, appName string, installID int64) string {
