@@ -22,6 +22,7 @@ type appMetadataCache struct {
 
 type appInstallMetadata struct {
 	name, status, project string
+	source                string // app_installs.source; "environment" for runtime installs
 	owner                 int64
 	manifest              sdk.Manifest
 	manifestErr           error
@@ -66,10 +67,10 @@ func (s *Server) appMetadataContext(ctx context.Context, installID int64) (*appI
 	c.mu.Unlock()
 	entry := &appInstallMetadata{permissions: map[sdk.Permission]bool{}, bindings: map[string]any{}}
 	var manifest, permissions, bindings string
-	err := s.store.dbQueryRowContext(ctx, `SELECT a.name, i.status, COALESCE(i.project_id,''), COALESCE(i.installed_by,0),
+	err := s.store.dbQueryRowContext(ctx, `SELECT a.name, i.status, COALESCE(i.project_id,''), COALESCE(i.source,''), COALESCE(i.installed_by,0),
 		COALESCE(NULLIF(i.manifest_json,''),a.manifest_json), COALESCE(i.permissions_json,'[]'), COALESCE(i.integration_bindings,'{}')
 		FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.id=?`, installID).
-		Scan(&entry.name, &entry.status, &entry.project, &entry.owner, &manifest, &permissions, &bindings)
+		Scan(&entry.name, &entry.status, &entry.project, &entry.source, &entry.owner, &manifest, &permissions, &bindings)
 	if err != nil {
 		return nil, err
 	}
