@@ -2036,31 +2036,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// connection's tools using the stored credentials.
 		extraServers := []map[string]any{}
 		for _, cid := range body.BoundConnectionIDs {
-			conn, _, err := s.store.GetConnection(userID, cid)
-			if err != nil || conn == nil {
+			mcpRecord, err := s.connectionMCPServer(userID, cid, "", true)
+			if err != nil || mcpRecord == nil {
 				log.Printf("[CREATE] skip bound connection id=%d: %v", cid, err)
 				continue
-			}
-			mcpRecord, lookupErr := s.store.FindCanonicalMCPServerByConnection(conn.ID)
-			if lookupErr != nil {
-				log.Printf("[CREATE] resolve MCP for bound connection id=%d: %v", cid, lookupErr)
-				continue
-			}
-			if mcpRecord == nil {
-				toolCount := 0
-				if app := s.catalog.Get(conn.AppSlug); app != nil {
-					toolCount = len(app.Tools)
-				}
-				mcpID, createErr := s.store.CreateMCPServerFromConnection(userID, conn, toolCount)
-				if createErr != nil {
-					log.Printf("[CREATE] create MCP for bound connection id=%d: %v", cid, createErr)
-					continue
-				}
-				mcpRecord, lookupErr = s.store.GetMCPServerByIDUnscoped(mcpID)
-				if lookupErr != nil || mcpRecord == nil {
-					log.Printf("[CREATE] reload MCP for bound connection id=%d mcp=%d: %v", cid, mcpID, lookupErr)
-					continue
-				}
 			}
 			extraServers = append(extraServers, map[string]any{
 				"name":      mcpRecord.Name,
@@ -2911,6 +2890,25 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			serverIDs = append(serverIDs, appMCPIDs...)
 		}
+		if value := rawBody["_connection_ids"]; value != nil {
+			connectionIDs, err := positiveAttachmentIDs(value)
+			if err != nil {
+				http.Error(w, "bound_connection_ids must contain positive integers", http.StatusBadRequest)
+				return
+			}
+			for _, connectionID := range connectionIDs {
+				// Removing never creates the connection's MCP server; with
+				// none there is nothing attached to remove.
+				record, err := s.connectionMCPServer(getUserID(r), connectionID, inst.ProjectID, action != "remove")
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if record != nil {
+					serverIDs = append(serverIDs, record.ID)
+				}
+			}
+		}
 		current, err := s.currentAgentMCPServers(inst, port)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -2925,6 +2923,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		delete(rawBody, "_mcp_action")
 		delete(rawBody, "_mcp_server_ids")
 		delete(rawBody, "_app_install_ids")
+		delete(rawBody, "_connection_ids")
 	} else if _, hasMCPServers := rawBody["mcp_servers"]; !hasMCPServers {
 		// Dashboard and gateway config writes are patch-shaped (directive,
 		// mode, provider selection, reset). Core's config endpoint is not:
