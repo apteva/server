@@ -10,7 +10,25 @@ import (
 	"time"
 )
 
+// Protocol stays 1: hosts compare it exactly, so a bump would make every
+// existing host refuse every newer server. New behaviour is advertised as
+// capabilities instead, which older hosts and CLIs ignore.
 const Protocol = 1
+
+const (
+	// CapabilityControlToken: the server sends the host control token on
+	// control-socket calls (process starts, listeners).
+	CapabilityControlToken = "control_token"
+	// CapabilityRestartMigration: the host can deploy a release that changes
+	// stored schema by stopping the current server and booting the new one.
+	CapabilityRestartMigration = "restart_migration"
+)
+
+// ServerCapabilities is what a server reports from --host-protocol.
+var ServerCapabilities = []string{CapabilityControlToken}
+
+// HostCapabilities is what the host reports from GET /status.
+var HostCapabilities = []string{CapabilityRestartMigration}
 
 type Deployment struct {
 	ID        string    `json:"id"`
@@ -38,10 +56,18 @@ type State struct {
 	Binary      string                     `json:"binary"`
 	Version     string                     `json:"version"`
 	Job         *Deployment                `json:"job,omitempty"`
+	// Capabilities is filled only in status responses, never persisted.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 func StatePath(home string) string  { return filepath.Join(home, "host", "state.json") }
 func SocketPath(home string) string { return filepath.Join(home, "host", "control.sock") }
+
+// NextServerPath holds a request, written by `apteva update --restart` while
+// it restarts an older host that cannot run restart migrations itself, for
+// the next host start to boot this server fresh so it migrates. The request
+// is honoured only after a clean stop and removed once the server serves.
+func NextServerPath(home string) string { return filepath.Join(home, "host", "next-server.json") }
 
 func WriteState(path string, state State) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

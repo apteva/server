@@ -38,7 +38,7 @@ func (sup *LocalSupervisor) spawnHosted(spec activationSpec, cmd *exec.Cmd, logP
 		}
 	}
 	if startErr != nil {
-		return fmt.Errorf("stable host spawn: %w", startErr)
+		return fmt.Errorf("%s %w", hostSpawnRefusedPrefix, startErr)
 	}
 	if status.PID < 1 || !status.Running {
 		return fmt.Errorf("stable host did not publish a running process")

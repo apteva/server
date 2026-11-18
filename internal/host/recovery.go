@@ -171,11 +171,17 @@ func (h *Host) recoverController() error {
 	h.state.Version = recovered.candidate.Version
 	h.state.ActiveSlot = recordSlot(recovered)
 	h.state.PendingSlot = nil
+	h.state.CleanStop = false
 	err = h.saveLocked()
+	// A deployment that needed recovery is complete once its version serves.
+	completed := h.state.Job != nil && h.state.Job.Phase == "recovery_required" && h.state.Job.Version == recovered.candidate.Version
 	h.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	h.router.Publish(recovered.backend)
+	if completed {
+		_ = h.phase("succeeded", "Recovered: the new version is serving")
+	}
 	return nil
 }
