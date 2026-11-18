@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1652,6 +1653,23 @@ func (im *AgentManager) GetCoreAPIKey(instanceID int64) string {
 	return ""
 }
 
+// AgentForCoreAPIKey returns the agent whose running core holds key. A core
+// this server started uses its key as soon as it boots, before
+// syncAgentRuntime records the key on the agent row.
+func (im *AgentManager) AgentForCoreAPIKey(key string) (int64, bool) {
+	if key == "" {
+		return 0, false
+	}
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	for id, ri := range im.processes {
+		if ri.coreAPIKey != "" && subtle.ConstantTimeCompare([]byte(ri.coreAPIKey), []byte(key)) == 1 && ri.isRunning() {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
 // GetPort returns the port for a running instance, or 0 if not running.
 func (im *AgentManager) GetPort(instanceID int64) int {
 	im.mu.RLock()
@@ -2877,6 +2895,25 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			serverIDs = append(serverIDs, appMCPIDs...)
 		}
+		if value := rawBody["_connection_ids"]; value != nil {
+			connectionIDs, err := positiveAttachmentIDs(value)
+			if err != nil {
+				http.Error(w, "bound_connection_ids must contain positive integers", http.StatusBadRequest)
+				return
+			}
+			for _, connectionID := range connectionIDs {
+				// Removing never creates the connection's MCP server; with
+				// none there is nothing attached to remove.
+				record, err := s.connectionMCPServer(getUserID(r), connectionID, inst.ProjectID, action != "remove")
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if record != nil {
+					serverIDs = append(serverIDs, record.ID)
+				}
+			}
+		}
 		current, err := s.currentAgentMCPServers(inst, port)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -2891,6 +2928,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		delete(rawBody, "_mcp_action")
 		delete(rawBody, "_mcp_server_ids")
 		delete(rawBody, "_app_install_ids")
+		delete(rawBody, "_connection_ids")
 	} else if _, hasMCPServers := rawBody["mcp_servers"]; !hasMCPServers {
 		// Dashboard and gateway config writes are patch-shaped (directive,
 		// mode, provider selection, reset). Core's config endpoint is not:

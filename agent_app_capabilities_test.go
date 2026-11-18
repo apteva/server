@@ -367,3 +367,71 @@ func TestAppCapabilityUpdatesRunningCoreThroughSharedPath(t *testing.T) {
 		t.Fatal("hot attachment did not synchronize app binding")
 	}
 }
+
+// agents_update attaches an integration connection the way agents_create
+// does: the connection resolves to its MCP server, created on first attach.
+// It used to drop bound_connection_ids and answer "nothing to update".
+func TestGatewayAgentUpdateAttachesConnections(t *testing.T) {
+	f := newAppCapabilityFixture(t)
+	connection := func(userID int64, project string) int64 {
+		t.Helper()
+		conn, err := f.s.store.CreateConnectionExt(ConnectionInput{UserID: userID, AppSlug: "pushover", AppName: "Pushover",
+			Name: "Pushover", AuthType: "api_key", Status: "active", ProjectID: project})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conn.ID
+	}
+	connID := connection(1, "cap-project")
+	if record, _ := f.s.store.FindCanonicalMCPServerByConnection(connID); record != nil {
+		t.Fatal("fixture connection already has an MCP server")
+	}
+
+	var name string
+	for i := 0; i < 2; i++ {
+		result := f.update(t, map[string]any{"bound_connection_ids": []any{float64(connID)}})
+		record, err := f.s.store.FindCanonicalMCPServerByConnection(connID)
+		if err != nil || record == nil {
+			t.Fatalf("attach did not create the connection's MCP server: %v", err)
+		}
+		name = record.Name
+		attached := false
+		for _, id := range result["capabilities"].(map[string]any)["mcp_server_ids"].([]int64) {
+			attached = attached || id == record.ID
+		}
+		cfg, err := f.s.currentAgentMCPServers(f.agent, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !attached || !hasMCPName(cfg, name) || !hasMCPName(cfg, "existing") {
+			t.Fatalf("connection not attached additively: receipt=%#v config=%#v", result, cfg)
+		}
+	}
+	var rows int
+	if err := f.s.store.db.QueryRow(`SELECT COUNT(*) FROM mcp_servers WHERE connection_id=?`, connID).Scan(&rows); err != nil || rows != 1 {
+		t.Fatalf("attaching twice left %d MCP servers for the connection (%v)", rows, err)
+	}
+
+	f.update(t, map[string]any{"bound_connection_ids": []any{float64(connID)}, "mcp_action": "remove"})
+	cfg, _ := f.s.currentAgentMCPServers(f.agent, 0)
+	if hasMCPName(cfg, name) || !hasMCPName(cfg, "existing") {
+		t.Fatalf("remove did not detach only the connection: %#v", cfg)
+	}
+
+	// Connections the caller may not attach are refused, never ignored and
+	// never given an MCP server.
+	if _, err := f.s.store.CreateUser("other-owner@test.local", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	otherProject := connection(1, "other-project")
+	for label, id := range map[string]int64{"missing": 999999, "other user's": connection(2, "cap-project"), "other project's": otherProject} {
+		_, err := handleGatewayAgentTool("agents_update", map[string]any{"id": f.agent.ID, "bound_connection_ids": []any{float64(id)}},
+			f.agent.ProjectID, f.client, f.s.store, "")
+		if err == nil || strings.Contains(err.Error(), "nothing to update") {
+			t.Errorf("%s connection: err=%v, want a refusal", label, err)
+		}
+	}
+	if record, _ := f.s.store.FindCanonicalMCPServerByConnection(otherProject); record != nil {
+		t.Fatal("a refused connection got an MCP server")
+	}
+}

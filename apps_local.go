@@ -1196,7 +1196,8 @@ func (s *Server) rebuildLocalFixedPortReservations() {
 
 }
 
-// ResumeLocalInstalls re-spawns every local install whose status is running.
+// ResumeLocalInstalls re-spawns every local install whose status is running,
+// and retries installs the stable host refused to start (localResumeRows).
 // Boot order follows exact app-install bindings: dependencies become healthy
 // before dependents start their OnMount callbacks. Independent installs still
 // resume in parallel, preserving the fast common path.
@@ -1211,26 +1212,7 @@ func (s *Server) ResumeLocalInstalls() {
 	// installedVersion, not from m.Version. Otherwise APTEVA_UI_DIR
 	// points at a not-yet-cached version and every dashboard request
 	// for /api/apps/<name>/ui/<Panel>.mjs returns 404.
-	rows, err := s.store.dbQuery(
-		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port, a.name,
-				COALESCE(i.project_id,''), i.config_encrypted, i.version,
-				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
-				COALESCE(i.integration_bindings, '{}')
-		 FROM app_installs i JOIN apps a ON a.id = i.app_id
-		 WHERE i.status='running' AND i.local_bin_path != '' AND i.runtime_managed=0`)
-	if err != nil {
-		return
-	}
-	var todo []localResumeRow
-	for rows.Next() {
-		var r localResumeRow
-		if err := rows.Scan(&r.id, &r.pid, &r.binPath, &r.port, &r.appName,
-			&r.projectID, &r.cfgEnc, &r.installedVersion, &r.manifestJSON, &r.bindingsJSON); err == nil {
-			r.dependencyIDs = localResumeDependencyIDs(r.manifestJSON, r.bindingsJSON)
-			todo = append(todo, r)
-		}
-	}
-	rows.Close()
+	todo := s.localResumeRows()
 	if len(todo) == 0 {
 		return
 	}
@@ -1268,6 +1250,44 @@ func (s *Server) ResumeLocalInstalls() {
 			s.LoadInstalledApps()
 		}
 	}
+}
+
+// hostSpawnRefusedPrefix starts the error recorded when the stable host
+// refused to start an install's process (spawnHosted).
+const hostSpawnRefusedPrefix = "stable host spawn:"
+
+// localResumeRows lists the local installs a booting server starts: every
+// running one, plus those marked error only because the stable host refused
+// to start them. That refusal says nothing about the app (for example a
+// server too old for the host's control token ran for a while), so a fresh
+// boot retries it once. A hosted handoff only adopts live processes and
+// leaves failed installs alone.
+func (s *Server) localResumeRows() []localResumeRow {
+	statuses := `i.status='running'`
+	if os.Getenv("APTEVA_HOST_EXISTING_SCHEMA") != "1" {
+		statuses = `(i.status='running' OR (i.status='error' AND i.error_message LIKE '` + hostSpawnRefusedPrefix + `%'))`
+	}
+	rows, err := s.store.dbQuery(
+		`SELECT i.id, i.local_pid, i.local_bin_path, i.local_port, a.name,
+				COALESCE(i.project_id,''), i.config_encrypted, i.version,
+				COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
+				COALESCE(i.integration_bindings, '{}')
+		 FROM app_installs i JOIN apps a ON a.id = i.app_id
+		 WHERE ` + statuses + ` AND i.local_bin_path != '' AND i.runtime_managed=0`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var todo []localResumeRow
+	for rows.Next() {
+		var r localResumeRow
+		if err := rows.Scan(&r.id, &r.pid, &r.binPath, &r.port, &r.appName,
+			&r.projectID, &r.cfgEnc, &r.installedVersion, &r.manifestJSON, &r.bindingsJSON); err == nil {
+			r.dependencyIDs = localResumeDependencyIDs(r.manifestJSON, r.bindingsJSON)
+			todo = append(todo, r)
+		}
+	}
+	return todo
 }
 
 func localResumeDependencyIDs(manifestJSON, bindingsJSON string) []int64 {

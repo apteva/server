@@ -21,7 +21,7 @@ import (
 // replace-all mcp_servers config field.
 //
 // POST /instances/:id/mcp-servers
-// {"action":"add"|"remove"|"set","mcp_server_ids":[1,2]}
+// {"action":"add"|"remove"|"set","mcp_server_ids":[1,2],"bound_app_install_ids":[3],"bound_connection_ids":[4]}
 //
 // The actual read/modify/write happens inside handleUpdateConfig while holding
 // the per-agent config lock. Rewriting the request here keeps every config
@@ -43,6 +43,7 @@ func (s *Server) handleAgentMCPServers(w http.ResponseWriter, r *http.Request) {
 		Action        string  `json:"action"`
 		MCPServerIDs  []int64 `json:"mcp_server_ids"`
 		AppInstallIDs []int64 `json:"bound_app_install_ids"`
+		ConnectionIDs []int64 `json:"bound_connection_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -61,6 +62,7 @@ func (s *Server) handleAgentMCPServers(w http.ResponseWriter, r *http.Request) {
 		"_mcp_action":      body.Action,
 		"_mcp_server_ids":  body.MCPServerIDs,
 		"_app_install_ids": body.AppInstallIDs,
+		"_connection_ids":  body.ConnectionIDs,
 	})
 	r.Method = http.MethodPut
 	r.URL.Path = "/instances/" + strconv.FormatInt(instanceID, 10) + "/config"
@@ -68,6 +70,44 @@ func (s *Server) handleAgentMCPServers(w http.ResponseWriter, r *http.Request) {
 	r.ContentLength = int64(len(encoded))
 	r.Header.Set("Content-Type", "application/json")
 	s.handleUpdateConfig(w, r)
+}
+
+// connectionMCPServer returns the canonical MCP server that exposes a
+// connection's tools. With create, a connection that has none yet gets one,
+// as when it is attached to a new agent. A nil record without error means the
+// connection has no MCP server and create was false. A non-empty projectID
+// refuses a connection that belongs to another project before anything is
+// created for it.
+func (s *Server) connectionMCPServer(userID, connectionID int64, projectID string, create bool) (*MCPServerRecord, error) {
+	conn, _, err := s.store.GetConnection(userID, connectionID)
+	if err != nil || conn == nil {
+		return nil, fmt.Errorf("connection %d not found", connectionID)
+	}
+	if projectID != "" && conn.ProjectID != "" && conn.ProjectID != projectID {
+		return nil, fmt.Errorf("connection %d belongs to project %q, agent belongs to project %q", connectionID, conn.ProjectID, projectID)
+	}
+	record, err := s.store.FindCanonicalMCPServerByConnection(conn.ID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve MCP server for connection %d: %w", connectionID, err)
+	}
+	if record != nil || !create {
+		return record, nil
+	}
+	toolCount := 0
+	if s.catalog != nil {
+		if app := s.catalog.Get(conn.AppSlug); app != nil {
+			toolCount = len(app.Tools)
+		}
+	}
+	mcpID, err := s.store.CreateMCPServerFromConnection(userID, conn, toolCount)
+	if err != nil {
+		return nil, fmt.Errorf("create MCP server for connection %d: %w", connectionID, err)
+	}
+	record, err = s.store.GetMCPServerByIDUnscoped(mcpID)
+	if err != nil || record == nil {
+		return nil, fmt.Errorf("reload MCP server %d for connection %d: %v", mcpID, connectionID, err)
+	}
+	return record, nil
 }
 
 func (s *Server) lockAgentConfig(agentID int64) func() {

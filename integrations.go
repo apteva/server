@@ -73,6 +73,9 @@ type AppTemplate struct {
 	// storing env var names as literal keys in the credential blob.
 	// See integrations/src/types.ts AppRuntimeConfig.
 	Runtime *AppRuntimeConfig `json:"runtime,omitempty"`
+	// Mock is the provider simulation used only by fake runtime connections
+	// bound with simulate=true. See integration_mock_spec.go.
+	Mock *AppMockConfig `json:"mock,omitempty"`
 }
 
 // AppRuntimeConfig declares how a connection's credentials become an

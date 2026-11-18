@@ -2035,13 +2035,18 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	// Environment test-mode seam: a call inside a Environment must NEVER reach the real
 	// API. Resolve it fail-safe, in order:
 	//   1. a per-environment interceptor fixture;
-	//   2. the catalog tool's curated mock_response (faithful default);
-	//   3. a generic stub-ok.
+	//   2. for a simulate=true connection, the catalog simulation, which
+	//      fails tools it does not define instead of stubbing them;
+	//   3. the catalog tool's curated mock_response (faithful default);
+	//   4. a generic stub-ok.
 	if environmentID != "" && environmentIntegrationMode(environmentID) != IntegrationModeReal {
 		if v, ok := environmentInterceptors.Load(environmentID); ok {
 			if res, handled := v.(integrationInterceptorFn)(app, tool, input); handled {
 				return res, nil
 			}
+		}
+		if res, handled := simulateIntegrationTool(requestCtx, environmentID, app, tool, input); handled {
+			return res, nil
 		}
 		if len(tool.MockResponse) > 0 {
 			var data any

@@ -89,6 +89,8 @@ type EnvironmentSpec struct {
 	HealthBudget  time.Duration
 	Clock         *sdk.RuntimeClockSpec
 	RestoredClock *sdk.RuntimeClockState
+	// RestoredSimulations seeds simulate=true bindings from a snapshot.
+	RestoredSimulations []IntegrationSimulationSnapshot
 	// RestoreSource is the snapshot RestoredAppDataDirs came from. When it
 	// records the ids its data was written under, each app rewrites that
 	// data to this environment's ids before it serves.
@@ -134,6 +136,11 @@ type Environment struct {
 	managedMCPManager *MCPManager
 	removeInterceptor func() // unregisters this environment's integration interceptor
 	createdAt         time.Time
+	// simulations are the catalog provider simulations of simulate=true
+	// bindings; restoredSimulations is their state from the snapshot this
+	// environment was created from.
+	simulations         *environmentSimulations
+	restoredSimulations []IntegrationSimulationSnapshot
 }
 
 func (w *Environment) OwnerInstallID() int64 { return w.ownerInstallID }
@@ -652,6 +659,8 @@ func (w *Environment) Stop() {
 	w.managedMCPs = map[string]*RuntimeManagedMCP{}
 	w.mu.Unlock()
 
+	// Stop simulated provider deliveries before the apps they target go away.
+	w.stopSimulations()
 	if managedMCPManager != nil {
 		managedMCPManager.StopAll()
 	}
@@ -779,6 +788,10 @@ type RuntimeIntegrationBinding struct {
 	AuthType       string            `json:"auth_type,omitempty"`
 	Credentials    map[string]string `json:"credentials,omitempty"`
 	ExposeToAgents bool              `json:"expose_to_agents,omitempty"`
+	// Simulate runs the integration's catalog simulation for this fake
+	// connection; Seed pre-populates its seedable collections.
+	Simulate bool                        `json:"simulate,omitempty"`
+	Seed     map[string][]map[string]any `json:"seed,omitempty"`
 }
 
 // RegisterEnvironmentInterceptor registers a PER-WORLD integration interceptor
@@ -850,6 +863,9 @@ func (wm *EnvironmentManager) CreateFromSnapshot(spec EnvironmentSpec, snapshotI
 	}
 	if man.HTTPMocks != nil {
 		spec.Policy.Mocks = append([]HTTPMock(nil), man.HTTPMocks...)
+	}
+	if man.IntegrationSimulations != nil {
+		spec.RestoredSimulations = append([]IntegrationSimulationSnapshot(nil), man.IntegrationSimulations...)
 	}
 	if man.IntegrationFixtures != nil {
 		spec.IntegrationFixtures = append([]IntegrationFixture(nil), man.IntegrationFixtures...)
@@ -974,6 +990,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		managedMCPs:         map[string]*RuntimeManagedMCP{},
 		managedMCPManager:   NewMCPManager(),
 		createdAt:           time.Now(),
+		restoredSimulations: append([]IntegrationSimulationSnapshot(nil), spec.RestoredSimulations...),
 	}
 	removeIntegrationMode := registerEnvironmentIntegrationMode(spec.ID, integrationMode)
 
@@ -1416,6 +1433,10 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 			credentials[k] = v
 		}
 		applyEnvironmentMockCredentialDefaults(slug, credentials)
+		simulation, err := s.prepareSimulatedBinding(w, b, slug, credentials)
+		if err != nil {
+			return fmt.Errorf("binding %d: %w", i, err)
+		}
 		raw, err := json.Marshal(credentials)
 		if err != nil {
 			return fmt.Errorf("binding %d: marshal credentials: %w", i, err)
@@ -1451,6 +1472,9 @@ func (s *Server) bindEnvironmentIntegrationMocks(userID int64, w *Environment, b
 		})
 		if err != nil {
 			return fmt.Errorf("binding %d: create connection: %w", i, err)
+		}
+		if err := s.attachSimulatedBinding(w, simulation, b, slug, conn.ID); err != nil {
+			return fmt.Errorf("binding %d: %w", i, err)
 		}
 
 		existing := map[string]any{}
@@ -1589,6 +1613,10 @@ func (s *Server) createEnvironmentMockConnection(userID int64, w *Environment, b
 		credentials[k] = v
 	}
 	applyEnvironmentMockCredentialDefaults(slug, credentials)
+	simulation, err := s.prepareSimulatedBinding(w, b, slug, credentials)
+	if err != nil {
+		return nil, err
+	}
 	raw, err := json.Marshal(credentials)
 	if err != nil {
 		return nil, fmt.Errorf("marshal credentials: %w", err)
@@ -1616,6 +1644,9 @@ func (s *Server) createEnvironmentMockConnection(userID int64, w *Environment, b
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create connection: %w", err)
+	}
+	if err := s.attachSimulatedBinding(w, simulation, b, slug, conn.ID); err != nil {
+		return nil, err
 	}
 	return conn, nil
 }

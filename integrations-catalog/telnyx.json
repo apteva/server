@@ -38,6 +38,8 @@
       { "name": "call.gather.ended", "description": "A gather command completed." },
       { "name": "call.playback.started", "description": "Call audio playback started." },
       { "name": "call.playback.ended", "description": "Call audio playback ended." },
+      { "name": "call.speak.started", "description": "Text-to-speech playback started on a call." },
+      { "name": "call.speak.ended", "description": "Text-to-speech playback ended on a call." },
       { "name": "call.recording.saved", "description": "A call recording was saved." },
       { "name": "call.streaming.started", "description": "Media streaming started on a call." },
       { "name": "call.streaming.stopped", "description": "Media streaming stopped on a call." },
@@ -185,5 +187,218 @@
     { "name": "delete_fqdn_connection", "description": "Delete a Telnyx FQDN SIP connection.", "method": "DELETE", "path": "/fqdn_connections/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
     { "name": "create_fqdn", "description": "Attach a destination FQDN and SIP port to a Telnyx FQDN connection.", "method": "POST", "path": "/fqdns", "input_schema": { "type": "object", "properties": { "connection_id": { "type": "string" }, "fqdn": { "type": "string" }, "dns_record_type": { "type": "string", "enum": ["a", "srv"] }, "port": { "type": "integer" } }, "required": ["connection_id", "fqdn", "dns_record_type", "port"] } },
     { "name": "delete_fqdn", "description": "Delete a Telnyx FQDN destination.", "method": "DELETE", "path": "/fqdns/{id}", "path_params": ["id"], "input_schema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } }
-  ]
+  ],
+  "mock": {
+    "version": 1,
+    "signing": {
+      "algorithm": "ed25519",
+      "public_key_field": "public_key",
+      "signature_header": "telnyx-signature-ed25519",
+      "timestamp_header": "telnyx-timestamp",
+      "message": "{timestamp}|{body}"
+    },
+    "delivery": { "max_attempts": 3, "retry_statuses": [408, 429, 500, 502, 503, 504] },
+    "envelope": {
+      "data": {
+        "record_type": "event",
+        "event_type": "{{event}}",
+        "id": "{{event_id}}",
+        "occurred_at": "{{occurred_at}}",
+        "payload": "{{payload}}"
+      },
+      "meta": { "attempt": "{{attempt}}" }
+    },
+    "errors": {
+      "not_found": { "status": 404, "body": { "errors": [{ "code": "10005", "title": "Resource not found", "detail": "{{detail}}" }] } },
+      "invalid_parameter": { "status": 422, "body": { "errors": [{ "code": "mock.invalid_parameter", "title": "Invalid parameter", "detail": "{{detail}}" }] } },
+      "invalid_call_control_id": { "status": 422, "body": { "errors": [{ "code": "90015", "title": "Invalid Call Control ID", "detail": "{{detail}}" }] } },
+      "call_ended": { "status": 422, "body": { "errors": [{ "code": "90018", "title": "Call has already ended", "detail": "This call is no longer active and can't receive commands." }] } },
+      "invalid_call_state": { "status": 422, "body": { "errors": [{ "code": "mock.invalid_call_state", "title": "Invalid call state", "detail": "{{detail}}" }] } }
+    },
+    "templates": {
+      "call": {
+        "call_control_id": "{{call.call_control_id}}",
+        "call_leg_id": "{{call.call_leg_id}}",
+        "call_session_id": "{{call.call_session_id}}",
+        "connection_id": "{{call.connection_id}}",
+        "client_state": "{{call.client_state}}",
+        "from": "{{call.from}}",
+        "to": "{{call.to}}",
+        "direction": "{{call.direction}}",
+        "state": "{{call.state}}"
+      },
+      "ok": { "data": { "result": "ok" } }
+    },
+    "collections": {
+      "phone_numbers": { "id": "numeric", "seedable": true, "defaults": { "record_type": "phone_number", "status": "active", "connection_id": null, "tags": [] } },
+      "outbound_voice_profiles": { "id": "numeric", "seedable": true, "defaults": { "record_type": "outbound_voice_profile", "enabled": true } },
+      "call_control_applications": { "id": "numeric", "seedable": true, "defaults": { "record_type": "call_control_application", "active": true, "webhook_api_version": "2" } },
+      "calls": { "key": "call_control_id" }
+    },
+    "tools": {
+      "list_phone_numbers": { "steps": [
+        { "list": "phone_numbers", "where": { "phone_number": "{{input['filter[phone_number]']}}", "connection_id": "{{input['filter[connection_id]']}}", "status": "{{input['filter[status]']}}" }, "as": "numbers" },
+        { "respond": { "data": "{{numbers}}", "meta": { "page_number": 1, "page_size": "{{input['page[size]'] || 20}}", "total_pages": 1, "total_results": "{{len(numbers)}}" } } }
+      ] },
+      "update_phone_number": { "steps": [
+        { "update": "phone_numbers", "key": "{{input.id}}", "merge": "{{input}}", "omit": ["id"], "set": { "updated_at": "{{now()}}" }, "as": "number", "error": "not_found", "detail": "phone number {{input.id}} not found" },
+        { "respond": { "data": "{{number}}" } }
+      ] },
+      "list_outbound_voice_profiles": { "steps": [
+        { "list": "outbound_voice_profiles", "where": { "name": "{{input['filter[name][eq]']}}" }, "as": "profiles" },
+        { "respond": { "data": "{{profiles}}", "meta": { "page_number": 1, "page_size": "{{input['page[size]'] || 20}}", "total_pages": 1, "total_results": "{{len(profiles)}}" } } }
+      ] },
+      "create_call_control_application": { "steps": [
+        { "require": "input.application_name", "error": "invalid_parameter", "detail": "application_name is required" },
+        { "require": "input.webhook_event_url", "error": "invalid_parameter", "detail": "webhook_event_url is required" },
+        { "create": "call_control_applications", "merge": "{{input}}", "record": { "created_at": "{{now()}}", "updated_at": "{{now()}}" }, "as": "application" },
+        { "respond": { "data": "{{application}}" }, "status": 201 }
+      ] },
+      "get_call_control_application": { "steps": [
+        { "lookup": "call_control_applications", "key": "{{input.id}}", "as": "application", "error": "not_found", "detail": "call control application {{input.id}} not found" },
+        { "respond": { "data": "{{application}}" } }
+      ] },
+      "update_call_control_application": { "steps": [
+        { "update": "call_control_applications", "key": "{{input.id}}", "merge": "{{input}}", "omit": ["id"], "set": { "updated_at": "{{now()}}" }, "as": "application", "error": "not_found", "detail": "call control application {{input.id}} not found" },
+        { "respond": { "data": "{{application}}" } }
+      ] },
+      "delete_call_control_application": { "steps": [
+        { "delete": "call_control_applications", "key": "{{input.id}}", "as": "application", "error": "not_found", "detail": "call control application {{input.id}} not found" },
+        { "respond": { "data": "{{application}}" } }
+      ] },
+      "answer_call": { "steps": [
+        { "when": "input.command_id", "dedupe": "answer:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'parked'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not parked" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "answered", "answered_at": "{{now()}}", "webhook_url": "{{input.webhook_url || call.webhook_url}}", "client_state": "{{input.client_state || call.client_state}}", "stream_url": "{{input.stream_url}}" }, "as": "call" },
+        { "emit": "call.answered", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "start_time": "{{call.answered_at}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "reject_call": { "steps": [
+        { "when": "input.command_id", "dedupe": "reject:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'parked'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not parked" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{lower(input.cause || 'CALL_REJECTED')}}", "hangup_source": "callee", "end_time": "{{now()}}", "client_state": "{{input.client_state || call.client_state}}" }, "unset": ["gather", "playback"], "as": "call" },
+        { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "unspecified", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "hangup_call": { "steps": [
+        { "when": "input.command_id", "dedupe": "hangup:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "normal_clearing", "hangup_source": "callee", "end_time": "{{now()}}", "client_state": "{{input.client_state || call.client_state}}" }, "unset": ["gather", "playback"], "as": "call" },
+        { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "unspecified", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "speak_text": { "steps": [
+        { "when": "input.command_id", "dedupe": "speak:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "input.payload", "error": "invalid_parameter", "detail": "payload is required" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}", "last_speak": "{{input.payload}}" }, "as": "call" },
+        { "emit": "call.speak.started", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call" } },
+        { "emit": "call.speak.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "status": "completed" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "gather_using_speak": { "steps": [
+        { "when": "input.command_id", "dedupe": "gather:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "input.payload", "error": "invalid_parameter", "detail": "payload is required" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}", "last_speak": "{{input.payload}}", "gather": { "gather_id": "{{input.gather_id}}", "valid_digits": "{{input.valid_digits}}", "minimum_digits": "{{input.minimum_digits}}", "maximum_digits": "{{input.maximum_digits}}", "prompt": "{{input.payload}}" } }, "as": "call" },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "play_audio": { "steps": [
+        { "when": "input.command_id", "dedupe": "playback:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "input.audio_url || input.media_name", "error": "invalid_parameter", "detail": "audio_url or media_name is required" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}", "playback": { "media_url": "{{input.audio_url}}", "media_name": "{{input.media_name}}", "loop": "{{input.loop}}" } }, "as": "call" },
+        { "emit": "call.playback.started", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "media_url": "{{call.playback.media_url}}", "media_name": "{{call.playback.media_name}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "stop_audio": { "steps": [
+        { "when": "input.command_id", "dedupe": "playback_stop:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "let": { "playback": "{{call.playback}}" } },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" }, "unset": ["playback"], "as": "call" },
+        { "when": "playback", "emit": "call.playback.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "media_url": "{{playback.media_url}}", "media_name": "{{playback.media_name}}", "status": "completed" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "send_dtmf": { "steps": [
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "input.digits", "error": "invalid_parameter", "detail": "digits is required" },
+        { "respond": { "$use": "ok" } }
+      ] }
+    },
+    "triggers": {
+      "incoming_call": {
+        "description": "A caller dials a provisioned number. Creates a parked call and delivers call.initiated to the Call Control application the number is assigned to.",
+        "input_schema": { "type": "object", "properties": { "to": { "type": "string", "description": "Provisioned number in E.164." }, "from": { "type": "string", "description": "Caller number in E.164." }, "caller_id_name": { "type": "string" }, "sip_headers": { "type": "array", "items": { "type": "object" } } }, "required": ["to", "from"] },
+        "steps": [
+          { "find": "phone_numbers", "where": { "phone_number": "{{input.to}}" }, "as": "number", "error": "not_found", "detail": "{{input.to}} is not a provisioned number" },
+          { "require": "number.connection_id", "error": "invalid_parameter", "detail": "{{input.to}} is not assigned to a Call Control application" },
+          { "lookup": "call_control_applications", "key": "{{number.connection_id}}", "as": "application", "error": "invalid_parameter", "detail": "{{input.to}} is assigned to {{number.connection_id}}, which is not a Call Control application" },
+          { "require": "application.active != false", "error": "invalid_parameter", "detail": "Call Control application {{application.id}} is inactive" },
+          { "create": "calls", "record": { "call_control_id": "{{token('v3:')}}", "call_leg_id": "{{uuid()}}", "call_session_id": "{{uuid()}}", "connection_id": "{{application.id}}", "from": "{{input.from}}", "to": "{{input.to}}", "caller_id_name": "{{input.caller_id_name || input.from}}", "sip_headers": "{{input.sip_headers}}", "direction": "incoming", "state": "parked", "webhook_url": "{{application.webhook_event_url}}", "start_time": "{{now()}}" }, "as": "call" },
+          { "emit": "call.initiated", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "caller_id_name": "{{call.caller_id_name}}", "sip_headers": "{{call.sip_headers}}", "start_time": "{{call.start_time}}" } },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}" } }
+        ]
+      },
+      "caller_hangup": {
+        "description": "The caller hangs up. Delivers call.hangup with hangup_source caller.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "hangup_cause": { "type": "string", "description": "Defaults to normal_clearing." } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state != 'hangup'", "error": "call_ended" },
+          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{input.hangup_cause || 'normal_clearing'}}", "hangup_source": "caller", "end_time": "{{now()}}" }, "unset": ["gather", "playback"], "as": "call" },
+          { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "caller", "sip_hangup_cause": "unspecified", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "state": "{{call.state}}" } }
+        ]
+      },
+      "gather_input": {
+        "description": "The caller answers an active gather. Delivers call.gather.ended with the digits and the gather_id the app supplied.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "digits": { "type": "string", "description": "Digits entered; empty for a timeout." }, "status": { "type": "string", "enum": ["valid", "invalid", "timeout", "cancelled"], "description": "Defaults to valid, or timeout when digits is empty." } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state != 'hangup'", "error": "call_ended" },
+          { "require": "call.gather", "error": "invalid_call_state", "detail": "no gather is active on this call" },
+          { "let": { "gather": "{{call.gather}}" } },
+          { "update": "calls", "key": "{{call.call_control_id}}", "unset": ["gather"], "as": "call" },
+          { "emit": "call.gather.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "digits": "{{input.digits || ''}}", "gather_id": "{{gather.gather_id}}", "status": "{{input.status || (input.digits && 'valid') || 'timeout'}}" } },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "gather_id": "{{gather.gather_id}}" } }
+        ]
+      },
+      "dtmf": {
+        "description": "The caller presses one key outside a gather. Delivers call.dtmf.received.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "digit": { "type": "string" } }, "required": ["call_control_id", "digit"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+          { "emit": "call.dtmf.received", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "digit": "{{input.digit}}" } },
+          { "respond": { "call_control_id": "{{call.call_control_id}}" } }
+        ]
+      },
+      "playback_finished": {
+        "description": "Audio started by play_audio finishes. Delivers call.playback.ended with status completed.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.playback", "error": "invalid_call_state", "detail": "no playback is active on this call" },
+          { "let": { "playback": "{{call.playback}}" } },
+          { "update": "calls", "key": "{{call.call_control_id}}", "unset": ["playback"], "as": "call" },
+          { "emit": "call.playback.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "media_url": "{{playback.media_url}}", "media_name": "{{playback.media_name}}", "status": "completed" } },
+          { "respond": { "call_control_id": "{{call.call_control_id}}" } }
+        ]
+      }
+    }
+  }
 }
