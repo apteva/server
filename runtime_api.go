@@ -92,6 +92,8 @@ func (s *Server) handleCallbackRuntimes(w http.ResponseWriter, r *http.Request, 
 		s.handleRuntimeSnapshots(w, r, runtime, parts[2:])
 	case "clock":
 		s.handleRuntimeClock(w, r, runtime, parts[2:])
+	case "integrations":
+		s.handleRuntimeIntegrations(w, r, runtime, parts[2:])
 	default:
 		http.NotFound(w, r)
 	}
@@ -250,7 +252,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 		}
 		bindings := make([]RuntimeIntegrationBinding, 0, len(req.IntegrationBindings))
 		for _, binding := range req.IntegrationBindings {
-			bindings = append(bindings, RuntimeIntegrationBinding{App: binding.App, Role: binding.Role, Slug: binding.Slug, AppName: binding.AppName, Name: binding.Name, AuthType: binding.AuthType, Credentials: binding.Credentials, ExposeToAgents: binding.ExposeToAgents})
+			bindings = append(bindings, RuntimeIntegrationBinding{App: binding.App, Role: binding.Role, Slug: binding.Slug, AppName: binding.AppName, Name: binding.Name, AuthType: binding.AuthType, Credentials: binding.Credentials, ExposeToAgents: binding.ExposeToAgents, Simulate: binding.Simulate, Seed: binding.Seed})
 		}
 		if err := validateRuntimeBindingOverlap(req.ConnectionBindings, bindings); err != nil {
 			http.Error(w, "runtime connection bindings: "+err.Error(), http.StatusBadRequest)

@@ -117,7 +117,12 @@ func (s *Server) executeConnectionToolWithRefresh(id int64, app *AppTemplate, to
 }
 
 func (s *Server) executeConnectionToolWithRefreshContext(ctx context.Context, id int64, app *AppTemplate, tool *AppToolDef, credentials map[string]string, input map[string]any, environmentID string) (*ExecuteResult, error) {
-	bounded, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	// A simulated runtime connection is always answered by its simulation,
+	// even when the caller did not send its environment id.
+	if environmentID == "" {
+		environmentID = simulatedConnectionEnvironment(id)
+	}
+	bounded, cancel := context.WithTimeout(withIntegrationConnectionID(ctx, id), 10*time.Minute)
 	defer cancel()
 	permit, err := s.admitIntegration(bounded, id, tool.Name)
 	if err != nil {

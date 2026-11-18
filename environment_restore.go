@@ -226,6 +226,9 @@ func (s *Server) captureEnvironmentSnapshot(env *Environment, spec CaptureSpec) 
 		}
 		stopped = append(stopped, paused{name: names[i], resume: resume})
 	}
+	// Apps are paused, so no tool call can change simulated provider state
+	// between the app data copy and this capture.
+	spec.IntegrationSimulations = env.SimulationSnapshots()
 	man, err := s.environments.Snapshots().Capture(spec)
 	if rerr := resumeAll(); rerr != nil {
 		if err != nil {

@@ -47,6 +47,9 @@ type SnapshotManifest struct {
 	Clock               *sdk.RuntimeClockState        `json:"clock,omitempty"`
 	HTTPMocks           []HTTPMock                    `json:"http_mocks,omitempty"`
 	IntegrationFixtures []IntegrationFixture          `json:"integration_fixtures,omitempty"`
+	// IntegrationSimulations is the provider state of simulate=true
+	// bindings, restored into bindings with the same slug, app and role.
+	IntegrationSimulations []IntegrationSimulationSnapshot `json:"integration_simulations,omitempty"`
 	// DataProjectID, DataInstallIDs and PublicURL are the ids and base URL the
 	// captured app data was written under (the environment's own project id
 	// and install ids, not the source project's). Restore rewrites them to the
@@ -99,9 +102,12 @@ type CaptureSpec struct {
 	Clock               *sdk.RuntimeClockState
 	HTTPMocks           []HTTPMock
 	IntegrationFixtures []IntegrationFixture
-	DataProjectID       string
-	DataInstallIDs      map[string]int64
-	PublicURL           string
+	// IntegrationSimulations is filled by captureEnvironmentSnapshot while
+	// the runtime's apps are paused.
+	IntegrationSimulations []IntegrationSimulationSnapshot
+	DataProjectID          string
+	DataInstallIDs         map[string]int64
+	PublicURL              string
 }
 
 // Capture writes a new snapshot. Fails if the id already exists.
@@ -118,20 +124,21 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 	}
 
 	man := &SnapshotManifest{
-		ID:                  spec.ID,
-		ProjectID:           spec.ProjectID,
-		OwnerInstallID:      spec.OwnerInstallID,
-		Description:         spec.Description,
-		SourceInstallIDs:    cloneInt64Map(spec.SourceInstallIDs),
-		ManagedMCPs:         append([]sdk.RuntimeManagedMCP(nil), spec.ManagedMCPs...),
-		Subscriptions:       append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
-		CreatedAt:           time.Now(),
-		Clock:               spec.Clock,
-		HTTPMocks:           append([]HTTPMock(nil), spec.HTTPMocks...),
-		IntegrationFixtures: append([]IntegrationFixture(nil), spec.IntegrationFixtures...),
-		DataProjectID:       spec.DataProjectID,
-		DataInstallIDs:      cloneInt64Map(spec.DataInstallIDs),
-		PublicURL:           spec.PublicURL,
+		ID:                     spec.ID,
+		ProjectID:              spec.ProjectID,
+		OwnerInstallID:         spec.OwnerInstallID,
+		Description:            spec.Description,
+		SourceInstallIDs:       cloneInt64Map(spec.SourceInstallIDs),
+		ManagedMCPs:            append([]sdk.RuntimeManagedMCP(nil), spec.ManagedMCPs...),
+		Subscriptions:          append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
+		CreatedAt:              time.Now(),
+		Clock:                  spec.Clock,
+		HTTPMocks:              append([]HTTPMock(nil), spec.HTTPMocks...),
+		IntegrationFixtures:    append([]IntegrationFixture(nil), spec.IntegrationFixtures...),
+		IntegrationSimulations: append([]IntegrationSimulationSnapshot(nil), spec.IntegrationSimulations...),
+		DataProjectID:          spec.DataProjectID,
+		DataInstallIDs:         cloneInt64Map(spec.DataInstallIDs),
+		PublicURL:              spec.PublicURL,
 	}
 
 	if spec.AgentInstanceDir != "" {
