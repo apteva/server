@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -53,7 +54,8 @@ var claudeSubscriptionDefaultModels = map[string]string{
 }
 
 // claudeSubscriptionModels are the Claude Code model aliases, which always
-// point at the newest model of each family the plan includes.
+// point at the newest model of each family the plan includes. They are
+// what the tiers default to, and the list when Claude Code cannot be asked.
 func claudeSubscriptionModels() []ModelInfo {
 	text := []string{"text", "image"}
 	return []ModelInfo{
@@ -61,6 +63,50 @@ func claudeSubscriptionModels() []ModelInfo {
 		{ID: "sonnet", Name: "Claude Sonnet (latest)", Description: "Fast and capable", ContextSize: 200000, Capabilities: ProviderModelCapabilities{ContextWindow: 200000, InputModalities: text}},
 		{ID: "haiku", Name: "Claude Haiku (latest)", Description: "Fastest, uses the least of your plan", ContextSize: 200000, Capabilities: ProviderModelCapabilities{ContextWindow: 200000, InputModalities: text}},
 	}
+}
+
+// claudeSubscriptionModelList is what Claude Code offers this login (its
+// own model picker), plus any default alias it lists only as a variant.
+func (s *Server) claudeSubscriptionModelList(ctx context.Context, refresh bool) []ModelInfo {
+	aliases := claudeSubscriptionModels()
+	pool, err := s.claudePool()
+	if err != nil {
+		return aliases
+	}
+	maxAge := 10 * time.Minute
+	if refresh {
+		maxAge = 0
+	}
+	options, err := pool.Models(ctx, maxAge)
+	if err != nil {
+		log.Printf("[CLAUDE-SUB] model list unavailable: %v", err)
+		return aliases
+	}
+	var listed []ModelInfo
+	seen := map[string]bool{}
+	for _, option := range options {
+		// "default" follows whatever Claude Code picks; an empty tier
+		// already means that.
+		if option.Value == "default" || seen[option.Value] {
+			continue
+		}
+		seen[option.Value] = true
+		window := 200000
+		if strings.HasSuffix(option.Value, "[1m]") || strings.HasSuffix(option.ResolvedModel, "[1m]") {
+			window = 1000000
+		}
+		listed = append(listed, ModelInfo{
+			ID: option.Value, Name: option.DisplayName, Description: option.Description, ContextSize: window,
+			Capabilities: ProviderModelCapabilities{ContextWindow: window, InputModalities: []string{"text", "image"}},
+		})
+	}
+	var models []ModelInfo
+	for _, alias := range aliases {
+		if !seen[alias.ID] {
+			models = append(models, alias)
+		}
+	}
+	return append(models, listed...)
 }
 
 type claudeSubscriptionService struct {
@@ -890,24 +936,84 @@ func (s *Server) handleClaudeSubscriptionSettings(w http.ResponseWriter, r *http
 	writeJSON(w, map[string]any{"settings": settings})
 }
 
-// claudeSubscriptionUsage reports the plan limits Claude Code last
-// reported. There is no separate usage API: the numbers arrive with each
-// turn, so they are only as fresh as the latest turn.
-func (s *Server) claudeSubscriptionUsage(ctx context.Context, connID int64) ProviderUsageSnapshot {
+// claudeSubscriptionUsage reports the plan usage meter. Claude Code reads
+// it with its own login (its get_usage request); when that fails, the
+// limit state the latest turn reported is shown instead.
+func (s *Server) claudeSubscriptionUsage(ctx context.Context, connID int64, refresh bool) ProviderUsageSnapshot {
 	snapshot := ProviderUsageSnapshot{Supported: true, ProviderID: connID, Kind: "subscription_quota"}
 	pool, err := s.claudePool()
 	if err != nil {
 		return snapshot
 	}
-	if auth, err := pool.Auth(ctx, 5*time.Minute); err == nil {
-		snapshot.Plan = auth.SubscriptionType
+	auth, err := pool.Auth(ctx, 5*time.Minute)
+	if err != nil {
+		return snapshot
 	}
-	limit := pool.Limit()
+	snapshot.Plan = auth.SubscriptionType
+	if !auth.Subscription() {
+		return snapshot
+	}
+	maxAge := providerUsageFreshTTL
+	if refresh {
+		maxAge = providerUsageManualRefreshMin
+	}
+	usage, err := pool.PlanUsage(ctx, maxAge)
+	if usage.CheckedAt.IsZero() {
+		if err != nil {
+			log.Printf("[CLAUDE-SUB] plan usage unavailable: %v", err)
+		}
+		return claudeSubscriptionTurnUsage(snapshot, pool.Limit())
+	}
+	if !usage.Available {
+		return snapshot
+	}
+	if usage.SubscriptionType != "" {
+		snapshot.Plan = usage.SubscriptionType
+	}
+	snapshot.FetchedAt = usage.CheckedAt
+	snapshot.Stale = err != nil || time.Since(usage.CheckedAt) > providerUsageStaleTTL
+	// A turn may have run into a limit since the meter was read.
+	turn := pool.Limit()
+	plan := ProviderUsageLimit{ID: "claude", Label: "Claude plan"}
+	var others []ProviderUsageLimit
+	for _, w := range usage.Windows {
+		window := ProviderUsageWindow{ID: w.ID, DurationMinutes: 7 * 24 * 60, ResetsAt: w.ResetsAt}
+		if w.ID == "five_hour" {
+			window.DurationMinutes = 300
+		}
+		reached := false
+		if w.Utilization != nil {
+			window.UsedPercent = int(math.Round(*w.Utilization))
+			reached = *w.Utilization >= 100
+		}
+		if turn != nil && turn.Status == "rejected" && turn.Type == w.ID && turn.UpdatedAt.After(usage.CheckedAt) {
+			window.UsedPercent, reached = 100, true
+		}
+		if w.Utilization == nil && !reached {
+			continue
+		}
+		if reached && snapshot.RateLimitReachedType == "" {
+			snapshot.RateLimitReachedType = w.ID
+		}
+		if w.ID == "five_hour" || w.ID == "seven_day" {
+			plan.Windows = append(plan.Windows, window)
+			plan.Reached = plan.Reached || reached
+			continue
+		}
+		others = append(others, ProviderUsageLimit{ID: w.ID, Label: w.Label + " (weekly)", Reached: reached, Windows: []ProviderUsageWindow{window}})
+	}
+	snapshot.Limits = append([]ProviderUsageLimit{plan}, others...)
+	return snapshot
+}
+
+// claudeSubscriptionTurnUsage shows the limit state the latest turn
+// reported. Claude Code reports a percentage only near the limit.
+func claudeSubscriptionTurnUsage(snapshot ProviderUsageSnapshot, limit *claudepool.LimitInfo) ProviderUsageSnapshot {
 	if limit == nil {
 		return snapshot
 	}
 	snapshot.FetchedAt = limit.UpdatedAt
-	snapshot.Stale = time.Since(limit.UpdatedAt) > 30*time.Minute
+	snapshot.Stale = time.Since(limit.UpdatedAt) > providerUsageStaleTTL
 	reached := limit.Status == "rejected"
 	window := ProviderUsageWindow{ID: limit.Type, ResetsAt: limit.ResetsAt}
 	switch limit.Type {
@@ -922,7 +1028,6 @@ func (s *Server) claudeSubscriptionUsage(ctx context.Context, connID int64) Prov
 	case reached:
 		window.UsedPercent = 100
 	default:
-		// Claude Code reports the percentage only near the limit.
 		window.UsedPercent = -1
 	}
 	if reached {

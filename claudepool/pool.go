@@ -55,6 +55,13 @@ type Pool struct {
 	auth     *AuthState
 	closed   bool
 
+	// probeMu serializes the short-lived processes that ask Claude Code
+	// for plan usage and models, and guards their cached answers.
+	probeMu  sync.Mutex
+	usage    *PlanUsage
+	models   []ModelOption
+	modelsAt time.Time
+
 	stop chan struct{}
 }
 

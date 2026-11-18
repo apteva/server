@@ -29,9 +29,10 @@ type streamMsg struct {
 	Model string `json:"model,omitempty"`
 	// Response answers a control request.
 	Response *struct {
-		Subtype   string `json:"subtype"`
-		RequestID string `json:"request_id"`
-		Error     string `json:"error,omitempty"`
+		Subtype   string          `json:"subtype"`
+		RequestID string          `json:"request_id"`
+		Error     string          `json:"error,omitempty"`
+		Body      json.RawMessage `json:"response,omitempty"`
 	} `json:"response,omitempty"`
 }
 

@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -230,10 +232,18 @@ func TestClaudeSubscriptionChatRunsToolTurns(t *testing.T) {
 	if st.Running != 1 || st.Processes[0].OwnerLabel != "Helper" || st.Processes[0].Owner != claudeSubscriptionOwner(f.agentID) {
 		t.Fatalf("pool status = %+v", st)
 	}
-	usage := f.s.claudeSubscriptionUsage(t.Context(), f.connID)
-	if !usage.Supported || usage.Plan != "max" || len(usage.Limits) != 1 || len(usage.Limits[0].Windows) != 1 ||
-		usage.Limits[0].Windows[0].UsedPercent != 42 || usage.Limits[0].Windows[0].DurationMinutes != 300 {
+	usage := f.s.claudeSubscriptionUsage(t.Context(), f.connID, false)
+	if !usage.Supported || usage.Plan != "max" || usage.Stale || usage.FetchedAt.IsZero() || len(usage.Limits) != 2 {
 		t.Fatalf("usage = %+v", usage)
+	}
+	plan, fable := usage.Limits[0], usage.Limits[1]
+	if plan.ID != "claude" || plan.Reached || len(plan.Windows) != 2 ||
+		plan.Windows[0].UsedPercent != 45 || plan.Windows[0].DurationMinutes != 300 || plan.Windows[0].ResetsAt == nil ||
+		plan.Windows[1].UsedPercent != 54 || plan.Windows[1].DurationMinutes != 7*24*60 {
+		t.Fatalf("plan limit = %+v", plan)
+	}
+	if fable.ID != "model:fable" || fable.Label != "Fable (weekly)" || len(fable.Windows) != 1 || fable.Windows[0].UsedPercent != 0 {
+		t.Fatalf("model limit = %+v", fable)
 	}
 
 	f.s.claudeSubscriptionAgentStopped(f.agentID)
@@ -444,5 +454,68 @@ func TestClaudeSubscriptionReachesCoreLikeOtherProviders(t *testing.T) {
 	}
 	if env["CLAUDE_SUBSCRIPTION_CONNECTION_ID"] != jsonID(f.connID) || len(env) != 1 {
 		t.Fatalf("runtime env = %+v", env)
+	}
+}
+
+// When Claude Code cannot read the usage meter, the card shows what the
+// latest turn reported.
+func TestClaudeSubscriptionUsageFallsBackToTurnReport(t *testing.T) {
+	t.Setenv("CLAUDEPOOL_FAKE_ASK_FAIL", "1")
+	f := newClaudeSubFixture(t)
+	if usage := f.s.claudeSubscriptionUsage(t.Context(), f.connID, false); usage.Plan != "max" || len(usage.Limits) != 0 {
+		t.Fatalf("usage before any turn = %+v", usage)
+	}
+	r := f.chat(t, map[string]any{"model": "haiku", "stream": true, "messages": []any{map[string]any{"role": "user", "content": "hi"}}})
+	if r.status != http.StatusOK || r.content != "echo: hi" {
+		t.Fatalf("turn = %+v", r)
+	}
+	usage := f.s.claudeSubscriptionUsage(t.Context(), f.connID, true)
+	if len(usage.Limits) != 1 || len(usage.Limits[0].Windows) != 1 ||
+		usage.Limits[0].Windows[0].UsedPercent != 42 || usage.Limits[0].Windows[0].DurationMinutes != 300 {
+		t.Fatalf("usage = %+v", usage)
+	}
+}
+
+func TestClaudeSubscriptionModelsAndDefaultTiers(t *testing.T) {
+	f := newClaudeSubFixture(t)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/connections/%d/models", f.connID), nil)
+	req.Header.Set("X-User-ID", strconv.FormatInt(f.userID, 10))
+	rec := httptest.NewRecorder()
+	f.s.handleConnectionModels(rec, req)
+	var models []ModelInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &models); rec.Code != http.StatusOK || err != nil {
+		t.Fatalf("models %d: %s", rec.Code, rec.Body.String())
+	}
+	var ids []string
+	for _, m := range models {
+		ids = append(ids, m.ID)
+	}
+	// The default alias Claude Code lists only as a variant comes first;
+	// "default" and disabled rows are left out.
+	if strings.Join(ids, ",") != "opus,opus[1m],claude-fable-5-1[1m],sonnet,haiku" {
+		t.Fatalf("models = %v", ids)
+	}
+	if models[2].Name != "Fable" || models[2].ContextSize != 1000000 || models[3].ContextSize != 200000 {
+		t.Fatalf("fable/sonnet = %+v %+v", models[2], models[3])
+	}
+
+	// A new connection lists with its default tiers, before any agent runs.
+	req = httptest.NewRequest(http.MethodGet, "/connections/runtime", nil)
+	req.Header.Set("X-User-ID", strconv.FormatInt(f.userID, 10))
+	rec = httptest.NewRecorder()
+	f.s.handleListRuntimeConnections(rec, req)
+	var listed []struct {
+		ID          int64          `json:"id"`
+		RuntimeConf map[string]any `json:"runtime_config"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); rec.Code != http.StatusOK || err != nil || len(listed) != 1 {
+		t.Fatalf("list %d: %s", rec.Code, rec.Body.String())
+	}
+	conf := listed[0].RuntimeConf
+	if conf["model_large"] != "opus" || conf["model_medium"] != "sonnet" || conf["model_small"] != "haiku" {
+		t.Fatalf("runtime_config = %v", conf)
+	}
+	if saved, err := f.s.store.GetConnectionRuntimeConfig(f.userID, f.connID); err != nil || saved["model_large"] != "opus" {
+		t.Fatalf("saved config = %v %v", saved, err)
 	}
 }

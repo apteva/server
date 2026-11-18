@@ -38,6 +38,24 @@ type FakeLog struct {
 	HasAPIKey   bool   `json:"has_api_key"`
 }
 
+// fakeAnswers are the replies to control requests that only read state,
+// shaped like the real CLI's.
+var fakeAnswers = map[string]string{
+	"get_usage": `{"subscription_type":"max","rate_limits_available":true,"behaviors":null,
+		"rate_limits":{"five_hour":{"utilization":45,"resets_at":"2030-01-01T10:00:00.5+00:00"},
+		"seven_day":{"utilization":54,"resets_at":"2030-01-05T09:00:00+00:00"},
+		"seven_day_opus":null,"seven_day_sonnet":null,
+		"model_scoped":[{"display_name":"Fable","utilization":0,"resets_at":"2030-01-05T09:00:00+00:00"}],
+		"extra_usage":{"is_enabled":false,"monthly_limit":4250,"used_credits":0,"utilization":0,"currency":"EUR"}}}`,
+	"list_models": `{"models":[
+		{"value":"default","resolvedModel":"claude-opus-5-5[1m]","displayName":"Default (recommended)","description":"Opus with 1M context"},
+		{"value":"opus[1m]","resolvedModel":"claude-opus-5-5[1m]","displayName":"Opus (1M context)","description":"Opus with 1M context"},
+		{"value":"claude-fable-5-1[1m]","resolvedModel":"claude-fable-5-1","displayName":"Fable","description":"Most capable"},
+		{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet","description":"Efficient"},
+		{"value":"haiku","resolvedModel":"claude-haiku-4-5","displayName":"Haiku","description":"Fastest"},
+		{"value":"locked","displayName":"Locked","description":"Not on this plan","disabled":true}]}`,
+}
+
 // FakeMain runs the fake CLI with the given arguments and returns its
 // exit code.
 func FakeMain(args []string) int {
@@ -67,6 +85,11 @@ func FakeMain(args []string) int {
 			model = args[i+1]
 		case "--system-prompt-file":
 			systemFile = args[i+1]
+		}
+	}
+	for _, arg := range args {
+		if arg == "--no-session-persistence" {
+			mode = "probe"
 		}
 	}
 	system, _ := os.ReadFile(systemFile)
@@ -146,6 +169,14 @@ func FakeMain(args []string) int {
 			}
 			if json.Unmarshal(line, &ctl) != nil || ctl.Type != "control_request" {
 				lines <- line
+				continue
+			}
+			if body, ok := fakeAnswers[ctl.Request.Subtype]; ok {
+				if os.Getenv("CLAUDEPOOL_FAKE_ASK_FAIL") == "1" {
+					emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "error", "request_id": ctl.RequestID, "error": "usage endpoint unavailable"}})
+					continue
+				}
+				emit(map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success", "request_id": ctl.RequestID, "response": json.RawMessage(body)}})
 				continue
 			}
 			if ctl.Request.Subtype != "set_model" {
