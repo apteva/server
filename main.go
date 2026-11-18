@@ -108,6 +108,8 @@ type Server struct {
 	// Optional transport used by managed-LLM gateway tests. Production uses
 	// the default HTTPS transport.
 	managedLLMTransport http.RoundTripper
+	// claudeSub runs the Claude subscription provider's process pool.
+	claudeSub claudeSubscriptionService
 	// Optional test seam for environment registry package materialization.
 	// Production resolves through the configured curated app registry and the
 	// normal verified app cache.
@@ -850,6 +852,13 @@ func main() {
 	// Agent cores use their row-scoped core_ credential here. The handler
 	// performs its own narrow authentication and never accepts user API keys.
 	apiMux.HandleFunc("/llm/chat/completions", s.handleManagedLLMChat)
+	// Claude subscription provider: core calls the chat route with its core_
+	// key; the MCP route is the tool bridge for local claude processes,
+	// which authenticate with per-session tokens.
+	apiMux.HandleFunc("/llm/claude-subscription/chat/completions", s.handleClaudeSubscriptionChat)
+	apiMux.HandleFunc("/llm/claude-subscription/mcp", s.handleClaudeSubscriptionMCP)
+	apiMux.HandleFunc("/claude-subscription", s.authMiddleware(s.handleClaudeSubscription))
+	apiMux.HandleFunc("/claude-subscription/", s.authMiddleware(s.handleClaudeSubscription))
 	apiMux.HandleFunc("/telemetry/live", s.handleLiveTelemetry) // broadcast-only ingest for chunks
 	s.registerTelemetryReadRoutes(apiMux)
 	apiMux.HandleFunc("/telemetry", func(w http.ResponseWriter, r *http.Request) {
@@ -1949,6 +1958,9 @@ func main() {
 		}
 		if s.mcpManager != nil {
 			s.mcpManager.StopAll()
+		}
+		if pool := s.claudeSub.ready.Load(); pool != nil {
+			pool.Close()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

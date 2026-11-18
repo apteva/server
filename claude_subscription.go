@@ -1,0 +1,937 @@
+package main
+
+// Claude subscription provider: agent turns run through the owner's own,
+// signed-in Claude Code CLI on this machine, so they draw on the owner's
+// Claude plan instead of per-token API billing.
+//
+// Policy boundaries this file keeps:
+//   - Apteva never reads, stores, refreshes or forwards Claude credentials.
+//     Sign-in happens in Claude Code's own command and on Anthropic's page;
+//     the server only asks `claude auth status` whether it succeeded.
+//   - The provider is offered only on installs with a single active user,
+//     so one person's plan never serves other people's agents.
+//
+// Core sees an ordinary OpenAI-style streaming endpoint; the server keeps a
+// small pool of claude processes (see the claudepool package) shared by
+// every agent thread.
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/apteva/server/claudepool"
+)
+
+const (
+	claudeSubscriptionProviderKey = "claude-subscription"
+	claudeSubscriptionSlug        = "claude-subscription"
+	// connectionAuthTypeLocalCLI marks providers that use a CLI signed in
+	// on the server machine; their connections hold no credentials.
+	connectionAuthTypeLocalCLI = "local_cli"
+)
+
+var claudeSubscriptionDefaultModels = map[string]string{
+	"large":  "opus",
+	"medium": "sonnet",
+	"small":  "haiku",
+}
+
+// claudeSubscriptionModels are the Claude Code model aliases, which always
+// point at the newest model of each family the plan includes.
+func claudeSubscriptionModels() []ModelInfo {
+	text := []string{"text", "image"}
+	return []ModelInfo{
+		{ID: "opus", Name: "Claude Opus (latest)", Description: "Most capable model on your plan", ContextSize: 200000, Capabilities: ProviderModelCapabilities{ContextWindow: 200000, InputModalities: text}},
+		{ID: "sonnet", Name: "Claude Sonnet (latest)", Description: "Fast and capable", ContextSize: 200000, Capabilities: ProviderModelCapabilities{ContextWindow: 200000, InputModalities: text}},
+		{ID: "haiku", Name: "Claude Haiku (latest)", Description: "Fastest, uses the least of your plan", ContextSize: 200000, Capabilities: ProviderModelCapabilities{ContextWindow: 200000, InputModalities: text}},
+	}
+}
+
+type claudeSubscriptionService struct {
+	once    sync.Once
+	pool    *claudepool.Pool
+	initErr error
+	ready   atomic.Pointer[claudepool.Pool]
+	login   claudepool.LoginRunner
+}
+
+// claudeSubscriptionCLI is set by the operator through the environment,
+// never through the API: the server runs whatever binary this names.
+func claudeSubscriptionCLI() claudepool.CLI {
+	return claudepool.CLI{
+		Binary:    strings.TrimSpace(os.Getenv("APTEVA_CLAUDE_BIN")),
+		ConfigDir: strings.TrimSpace(os.Getenv("APTEVA_CLAUDE_CONFIG_DIR")),
+	}
+}
+
+func (s *Server) claudePool() (*claudepool.Pool, error) {
+	svc := &s.claudeSub
+	svc.once.Do(func() {
+		base := filepath.Join(s.dataDir, "claude-subscription")
+		if s.dataDir == "" {
+			base = filepath.Join(os.TempDir(), "apteva-claude-subscription")
+		}
+		svc.pool, svc.initErr = claudepool.New(claudepool.Config{
+			CLI:      claudeSubscriptionCLI(),
+			WorkDir:  filepath.Join(base, "work"),
+			StateDir: filepath.Join(base, "sessions"),
+			MCPURL:   "http://127.0.0.1:" + s.port + "/api/llm/claude-subscription/mcp",
+			// Core allows connector calls up to 10 minutes.
+			ToolTimeout: 10*time.Minute + 30*time.Second,
+			Limits:      s.claudeSubscriptionLimits(),
+			Logf: func(format string, args ...any) {
+				log.Printf(format, args...)
+			},
+		})
+		if svc.initErr == nil {
+			svc.ready.Store(svc.pool)
+		}
+	})
+	return svc.pool, svc.initErr
+}
+
+// claudeSubscriptionSettings are the pool settings kept on the provider
+// connection's runtime config.
+type claudeSubscriptionSettings struct {
+	PoolSize     int `json:"pool_size"`
+	IdleSeconds  int `json:"idle_seconds"`
+	QueueSeconds int `json:"queue_seconds"`
+}
+
+func defaultClaudeSubscriptionSettings() claudeSubscriptionSettings {
+	return claudeSubscriptionSettings{PoolSize: 4, IdleSeconds: 90, QueueSeconds: 60}
+}
+
+func (c claudeSubscriptionSettings) validate() error {
+	switch {
+	case c.PoolSize < 1 || c.PoolSize > 16:
+		return errors.New("pool_size must be between 1 and 16")
+	case c.IdleSeconds < 10 || c.IdleSeconds > 3600:
+		return errors.New("idle_seconds must be between 10 and 3600")
+	case c.QueueSeconds < 5 || c.QueueSeconds > 150:
+		// Core gives up on response headers after 180 seconds.
+		return errors.New("queue_seconds must be between 5 and 150")
+	}
+	return nil
+}
+
+func (c claudeSubscriptionSettings) limits() claudepool.Limits {
+	return claudepool.Limits{
+		MaxProcs:     c.PoolSize,
+		IdleTimeout:  time.Duration(c.IdleSeconds) * time.Second,
+		QueueTimeout: time.Duration(c.QueueSeconds) * time.Second,
+	}
+}
+
+// claudeSubscriptionConnection returns the oldest active Claude
+// subscription connection, which holds the pool settings.
+func (s *Server) claudeSubscriptionConnection() (int64, claudeSubscriptionSettings, bool) {
+	settings := defaultClaudeSubscriptionSettings()
+	var id int64
+	var raw string
+	err := s.store.dbQueryRow(`SELECT id, COALESCE(runtime_config,'{}') FROM connections
+		WHERE app_slug=? AND status='active' ORDER BY id LIMIT 1`, claudeSubscriptionSlug).Scan(&id, &raw)
+	if err != nil {
+		return 0, settings, false
+	}
+	var stored map[string]any
+	if json.Unmarshal([]byte(raw), &stored) == nil {
+		for key, target := range map[string]*int{"pool_size": &settings.PoolSize, "idle_seconds": &settings.IdleSeconds, "queue_seconds": &settings.QueueSeconds} {
+			if value, ok := stored[key].(float64); ok && value > 0 {
+				*target = int(value)
+			}
+		}
+	}
+	if settings.validate() != nil {
+		settings = defaultClaudeSubscriptionSettings()
+	}
+	return id, settings, true
+}
+
+func (s *Server) claudeSubscriptionLimits() claudepool.Limits {
+	_, settings, _ := s.claudeSubscriptionConnection()
+	return settings.limits()
+}
+
+// claudeSubscriptionAllowed reports whether this install may offer the
+// provider: Claude plans are personal, so only single-user installs can.
+func (s *Server) claudeSubscriptionAllowed() bool {
+	var count int
+	if err := s.store.dbQueryRow(`SELECT COUNT(*) FROM users WHERE disabled_at IS NULL`).Scan(&count); err != nil {
+		return false
+	}
+	return count <= 1
+}
+
+// connectionUsesLocalCLI reports whether an app signs in through a CLI on
+// the server machine rather than through stored credentials.
+func connectionUsesLocalCLI(app *AppTemplate) bool {
+	return app != nil && containsString(app.Auth.Types, connectionAuthTypeLocalCLI)
+}
+
+func (s *Server) claudeSubscriptionAgentStopped(agentID int64) {
+	// Only a pool that is already running has anything to close.
+	if pool := s.claudeSub.ready.Load(); pool != nil {
+		pool.CloseOwner(claudeSubscriptionOwner(agentID))
+	}
+}
+
+func claudeSubscriptionOwner(agentID int64) string {
+	return "agent:" + strconv.FormatInt(agentID, 10)
+}
+
+// --- Chat completions ---------------------------------------------------
+
+type claudeChatRequest struct {
+	Model    string `json:"model"`
+	Stream   bool   `json:"stream"`
+	Messages []struct {
+		Role      string          `json:"role"`
+		Content   json.RawMessage `json:"content"`
+		ToolCalls []struct {
+			ID       string `json:"id"`
+			Function struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_calls"`
+		ToolCallID string `json:"tool_call_id"`
+	} `json:"messages"`
+	Tools []struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
+		} `json:"function"`
+	} `json:"tools"`
+}
+
+var claudeModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\-\[\]]{0,99}$`)
+
+// claudeContentText flattens OpenAI message content to text. Images are not
+// passed to Claude yet.
+func claudeContentText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var out []string
+	for _, part := range parts {
+		switch part.Type {
+		case "text", "input_text":
+			out = append(out, part.Text)
+		case "image_url", "input_image":
+			out = append(out, "[An image was attached here, but this provider cannot show images to the model.]")
+		case "input_audio", "audio_url":
+			out = append(out, "[An audio clip was attached here, but this provider cannot pass audio to the model.]")
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func (req claudeChatRequest) toPool(owner, label string) (claudepool.Request, error) {
+	out := claudepool.Request{Owner: owner, OwnerLabel: label, Model: req.Model}
+	var system []string
+	leading := true
+	for _, msg := range req.Messages {
+		text := claudeContentText(msg.Content)
+		switch msg.Role {
+		case "system", "developer":
+			if leading {
+				system = append(system, text)
+				continue
+			}
+			out.Messages = append(out.Messages, claudepool.Message{Role: "user", Text: "[system]\n" + text})
+		case "user":
+			out.Messages = append(out.Messages, claudepool.Message{Role: "user", Text: text})
+		case "assistant":
+			m := claudepool.Message{Role: "assistant", Text: text}
+			for _, call := range msg.ToolCalls {
+				m.ToolCalls = append(m.ToolCalls, claudepool.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+			}
+			out.Messages = append(out.Messages, m)
+		case "tool":
+			out.Messages = append(out.Messages, claudepool.Message{Role: "tool", ToolCallID: msg.ToolCallID, Text: text})
+		default:
+			return out, fmt.Errorf("unsupported message role %q", msg.Role)
+		}
+		leading = false
+	}
+	out.System = strings.Join(system, "\n\n")
+	for _, tool := range req.Tools {
+		if tool.Type != "" && tool.Type != "function" {
+			continue
+		}
+		out.Tools = append(out.Tools, claudepool.Tool{Name: tool.Function.Name, Description: tool.Function.Description, InputSchema: tool.Function.Parameters})
+	}
+	if len(out.Messages) == 0 {
+		return out, errors.New("no messages")
+	}
+	return out, nil
+}
+
+func claudeErrorBody(kind, message string) map[string]any {
+	return map[string]any{"error": map[string]any{"type": kind, "message": message}}
+}
+
+// claudeErrorStatus maps a pool error to an HTTP status and error type.
+func claudeErrorStatus(err error) (int, string, time.Duration) {
+	var retry *claudepool.RetryError
+	after := time.Duration(0)
+	if errors.As(err, &retry) {
+		after = retry.RetryAfter
+	}
+	switch {
+	case errors.Is(err, claudepool.ErrNotSignedIn):
+		return http.StatusServiceUnavailable, "not_signed_in", after
+	case errors.Is(err, claudepool.ErrNotInstalled):
+		return http.StatusServiceUnavailable, "not_installed", 0
+	case errors.Is(err, claudepool.ErrLimited):
+		return http.StatusTooManyRequests, "usage_limit", after
+	case errors.Is(err, claudepool.ErrPoolBusy):
+		return http.StatusServiceUnavailable, "pool_busy", after
+	case errors.Is(err, context.Canceled):
+		return 499, "cancelled", 0
+	default:
+		return http.StatusBadGateway, "claude_error", 0
+	}
+}
+
+// claudeStream writes OpenAI-style chat completion chunks. Headers go out
+// with the first chunk, so errors before any output keep a real status;
+// a request still queued after headerDelay commits to 200 and keeps the
+// connection alive with SSE comments.
+type claudeStream struct {
+	mu      sync.Mutex
+	w       http.ResponseWriter
+	flusher http.Flusher
+	started bool
+	failed  error
+	last    time.Time
+	id      string
+	model   string
+	created int64
+}
+
+func (cs *claudeStream) startLocked() {
+	if cs.started {
+		return
+	}
+	h := cs.w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("X-Accel-Buffering", "no")
+	cs.w.WriteHeader(http.StatusOK)
+	cs.started = true
+}
+
+func (cs *claudeStream) writeLocked(data string) error {
+	if cs.failed != nil {
+		return cs.failed
+	}
+	if _, err := io.WriteString(cs.w, data); err != nil {
+		cs.failed = err
+		return err
+	}
+	if cs.flusher != nil {
+		cs.flusher.Flush()
+	}
+	cs.last = time.Now()
+	return nil
+}
+
+func (cs *claudeStream) chunk(delta map[string]any, finish string, usage map[string]any) error {
+	choice := map[string]any{"index": 0, "delta": delta, "finish_reason": nil}
+	if finish != "" {
+		choice["finish_reason"] = finish
+	}
+	payload := map[string]any{
+		"id": cs.id, "object": "chat.completion.chunk", "created": cs.created, "model": cs.model,
+		"choices": []any{choice},
+	}
+	if usage != nil {
+		payload["choices"] = []any{}
+		payload["usage"] = usage
+	}
+	raw, _ := json.Marshal(payload)
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	cs.startLocked()
+	return cs.writeLocked("data: " + string(raw) + "\n\n")
+}
+
+func (cs *claudeStream) keepAlive(stop <-chan struct{}, headerDelay time.Duration) {
+	began := time.Now()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+		}
+		cs.mu.Lock()
+		if !cs.started && time.Since(began) >= headerDelay {
+			cs.startLocked()
+			_ = cs.writeLocked(": waiting for a Claude process\n\n")
+		} else if cs.started && time.Since(cs.last) >= 15*time.Second {
+			_ = cs.writeLocked(": keep-alive\n\n")
+		}
+		cs.mu.Unlock()
+	}
+}
+
+func usagePayload(u claudepool.Usage) map[string]any {
+	prompt := u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
+	return map[string]any{
+		"prompt_tokens":     prompt,
+		"completion_tokens": u.OutputTokens,
+		"total_tokens":      prompt + u.OutputTokens,
+		"prompt_tokens_details": map[string]any{
+			"cached_tokens":      u.CacheReadTokens,
+			"cache_write_tokens": u.CacheWriteTokens,
+		},
+	}
+}
+
+// claudeSubscriptionAgent resolves the agent behind a core key. Core starts
+// thinking before its key reaches the database, which happens once its
+// health check passes, so the key of a live process counts too.
+func (s *Server) claudeSubscriptionAgent(token string) (*Agent, bool) {
+	if agent, err := s.store.GetAgentByCoreAPIKey(token); err == nil && agent.Status == "running" {
+		return agent, true
+	}
+	if s.agents == nil {
+		return nil, false
+	}
+	id := s.agents.agentIDByCoreAPIKey(token)
+	if id <= 0 {
+		return nil, false
+	}
+	var agent Agent
+	if err := s.store.dbQueryRow(`SELECT id,user_id,COALESCE(project_id,'') FROM agents WHERE id=?`, id).Scan(&agent.ID, &agent.UserID, &agent.ProjectID); err != nil {
+		return nil, false
+	}
+	agent.Status = "running"
+	return &agent, true
+}
+
+// agentIDByCoreAPIKey returns the agent whose live core process was started
+// with key, or 0.
+func (im *AgentManager) agentIDByCoreAPIKey(key string) int64 {
+	if !strings.HasPrefix(key, "core_") {
+		return 0
+	}
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	for id, ri := range im.processes {
+		if subtle.ConstantTimeCompare([]byte(ri.coreAPIKey), []byte(key)) == 1 && ri.isRunning() {
+			return id
+		}
+	}
+	return 0
+}
+
+// handleClaudeSubscriptionChat serves core's model calls. Like the managed
+// gateway it authenticates with the agent's own core_ key.
+func (s *Server) handleClaudeSubscriptionChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if !strings.HasPrefix(token, "core_") {
+		writeJSONStatus(w, http.StatusUnauthorized, claudeErrorBody("invalid_agent_credential", "invalid agent credential"))
+		return
+	}
+	agent, ok := s.claudeSubscriptionAgent(token)
+	if !ok {
+		writeJSONStatus(w, http.StatusUnauthorized, claudeErrorBody("invalid_agent_credential", "invalid agent credential"))
+		return
+	}
+	if !s.claudeSubscriptionAllowed() {
+		writeJSONStatus(w, http.StatusForbidden, claudeErrorBody("single_user_only", "The Claude subscription provider is only available on single-user installs."))
+		return
+	}
+	if !s.claudeSubscriptionConnectedFor(agent.UserID, agent.ProjectID) {
+		writeJSONStatus(w, http.StatusServiceUnavailable, claudeErrorBody("not_connected", "No Claude subscription provider is connected."))
+		return
+	}
+	var body claudeChatRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<20)).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, claudeErrorBody("invalid_request", "invalid JSON body"))
+		return
+	}
+	if body.Model != "" && !claudeModelPattern.MatchString(body.Model) {
+		writeJSONStatus(w, http.StatusBadRequest, claudeErrorBody("invalid_request", "invalid model name"))
+		return
+	}
+	var label string
+	_ = s.store.dbQueryRow(`SELECT COALESCE(name,'') FROM agents WHERE id=?`, agent.ID).Scan(&label)
+	req, err := body.toPool(claudeSubscriptionOwner(agent.ID), label)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, claudeErrorBody("invalid_request", err.Error()))
+		return
+	}
+	pool, err := s.claudePool()
+	if err != nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, claudeErrorBody("unavailable", err.Error()))
+		return
+	}
+	// Model calls can outlast any default server deadline.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
+	model := body.Model
+	if model == "" {
+		model = "default"
+	}
+	created := time.Now()
+	id := "chatcmpl-claude-" + strconv.FormatInt(created.UnixNano(), 36)
+
+	if !body.Stream {
+		s.claudeSubscriptionComplete(w, r, pool, req, id, model, created)
+		return
+	}
+
+	flusher, _ := w.(http.Flusher)
+	cs := &claudeStream{w: w, flusher: flusher, id: id, model: model, created: created.Unix()}
+	stop := make(chan struct{})
+	var keepAliveDone sync.WaitGroup
+	keepAliveDone.Add(1)
+	go func() {
+		defer keepAliveDone.Done()
+		cs.keepAlive(stop, 20*time.Second)
+	}()
+	defer func() {
+		close(stop)
+		keepAliveDone.Wait()
+	}()
+
+	sentRole := false
+	err = pool.Run(r.Context(), req, func(ev claudepool.Event) error {
+		delta := map[string]any{}
+		if !sentRole {
+			delta["role"] = "assistant"
+			sentRole = true
+		}
+		switch ev.Kind {
+		case claudepool.EventText:
+			delta["content"] = ev.Text
+		case claudepool.EventThinking:
+			delta["reasoning_content"] = ev.Text
+		case claudepool.EventToolStart:
+			delta["tool_calls"] = []any{map[string]any{
+				"index": ev.ToolIndex, "id": ev.ToolID, "type": "function",
+				"function": map[string]any{"name": ev.ToolName, "arguments": ""},
+			}}
+		case claudepool.EventToolArgs:
+			delta["tool_calls"] = []any{map[string]any{
+				"index": ev.ToolIndex, "function": map[string]any{"arguments": ev.Text},
+			}}
+		case claudepool.EventDone:
+			if err := cs.chunk(delta, ev.FinishReason, nil); err != nil {
+				return err
+			}
+			if err := cs.chunk(nil, "", usagePayload(ev.Usage)); err != nil {
+				return err
+			}
+			cs.mu.Lock()
+			defer cs.mu.Unlock()
+			return cs.writeLocked("data: [DONE]\n\n")
+		}
+		return cs.chunk(delta, "", nil)
+	})
+	if err == nil {
+		return
+	}
+	status, kind, after := claudeErrorStatus(err)
+	if status != 499 {
+		log.Printf("[CLAUDE-SUB] agent=%d turn failed: %v", agent.ID, err)
+	}
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.started {
+		raw, _ := json.Marshal(claudeErrorBody(kind, err.Error()))
+		_ = cs.writeLocked("data: " + string(raw) + "\n\n")
+		return
+	}
+	if status == 499 {
+		return
+	}
+	if after > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(after.Round(time.Second)/time.Second)+1))
+	}
+	writeJSONStatus(w, status, claudeErrorBody(kind, err.Error()))
+	cs.started = true
+}
+
+func (s *Server) claudeSubscriptionComplete(w http.ResponseWriter, r *http.Request, pool *claudepool.Pool, req claudepool.Request, id, model string, created time.Time) {
+	var text, reasoning strings.Builder
+	var calls []map[string]any
+	var args []strings.Builder
+	var finish string
+	var usage claudepool.Usage
+	err := pool.Run(r.Context(), req, func(ev claudepool.Event) error {
+		switch ev.Kind {
+		case claudepool.EventText:
+			text.WriteString(ev.Text)
+		case claudepool.EventThinking:
+			reasoning.WriteString(ev.Text)
+		case claudepool.EventToolStart:
+			calls = append(calls, map[string]any{"id": ev.ToolID, "type": "function", "function": map[string]any{"name": ev.ToolName}})
+			args = append(args, strings.Builder{})
+		case claudepool.EventToolArgs:
+			if ev.ToolIndex < len(args) {
+				args[ev.ToolIndex].WriteString(ev.Text)
+			}
+		case claudepool.EventDone:
+			finish, usage = ev.FinishReason, ev.Usage
+		}
+		return nil
+	})
+	if err != nil {
+		status, kind, after := claudeErrorStatus(err)
+		if status == 499 {
+			return
+		}
+		if after > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(after.Round(time.Second)/time.Second)+1))
+		}
+		writeJSONStatus(w, status, claudeErrorBody(kind, err.Error()))
+		return
+	}
+	message := map[string]any{"role": "assistant", "content": text.String()}
+	if reasoning.Len() > 0 {
+		message["reasoning_content"] = reasoning.String()
+	}
+	if len(calls) > 0 {
+		for i := range calls {
+			calls[i]["function"].(map[string]any)["arguments"] = args[i].String()
+		}
+		message["tool_calls"] = calls
+	}
+	writeJSON(w, map[string]any{
+		"id": id, "object": "chat.completion", "created": created.Unix(), "model": model,
+		"choices": []any{map[string]any{"index": 0, "message": message, "finish_reason": finish}},
+		"usage":   usagePayload(usage),
+	})
+}
+
+// claudeSubscriptionConnectedFor reports whether the user has an active
+// Claude subscription connection visible to the project.
+func (s *Server) claudeSubscriptionConnectedFor(userID int64, projectID string) bool {
+	var count int
+	err := s.store.dbQueryRow(`SELECT COUNT(*) FROM connections
+		WHERE app_slug=? AND user_id=? AND status='active' AND (COALESCE(project_id,'')='' OR project_id=?)`,
+		claudeSubscriptionSlug, userID, projectID).Scan(&count)
+	return err == nil && count > 0
+}
+
+// handleClaudeSubscriptionMCP serves the tool bridge to local claude
+// processes only; each session carries its own bearer token.
+func (s *Server) handleClaudeSubscriptionMCP(w http.ResponseWriter, r *http.Request) {
+	if !requestFromLoopback(r) || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	pool, err := s.claudePool()
+	if err != nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	pool.ServeHTTP(w, r)
+}
+
+// --- Status, sign-in and settings ----------------------------------------
+
+type claudeProcessView struct {
+	claudepool.ProcessStatus
+	RSSKB int64 `json:"rss_kb,omitempty"`
+}
+
+// processRSS returns the resident memory of each pid in KiB.
+func processRSS(pids []int) map[int]int64 {
+	out := map[int]int64{}
+	if len(pids) == 0 {
+		return out
+	}
+	list := make([]string, len(pids))
+	for i, pid := range pids {
+		list[i] = strconv.Itoa(pid)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	raw, err := exec.CommandContext(ctx, "ps", "-o", "pid=,rss=", "-p", strings.Join(list, ",")).Output()
+	if err != nil && len(raw) == 0 {
+		return out
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, err1 := strconv.Atoi(fields[0])
+		rss, err2 := strconv.ParseInt(fields[1], 10, 64)
+		if err1 == nil && err2 == nil {
+			out[pid] = rss
+		}
+	}
+	return out
+}
+
+func (s *Server) handleClaudeSubscription(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/claude-subscription"), "/")
+	switch {
+	case path == "" && r.Method == http.MethodGet:
+		s.handleClaudeSubscriptionStatus(w, r)
+	case path == "/login" && r.Method == http.MethodPost:
+		s.handleClaudeSubscriptionLogin(w, r)
+	case path == "/logout" && r.Method == http.MethodPost:
+		s.handleClaudeSubscriptionLogout(w, r)
+	case path == "/settings" && r.Method == http.MethodPut:
+		s.handleClaudeSubscriptionSettings(w, r)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
+}
+
+func (s *Server) handleClaudeSubscriptionStatus(w http.ResponseWriter, r *http.Request) {
+	cli := claudeSubscriptionCLI()
+	out := map[string]any{
+		"available":       s.claudeSubscriptionAllowed(),
+		"installed":       false,
+		"login":           s.claudeSub.login.State(),
+		"sign_in_command": "claude auth login",
+	}
+	if !s.claudeSubscriptionAllowed() {
+		out["unavailable_reason"] = "This install has more than one user. A Claude plan is personal, so this provider is only offered on single-user installs."
+	}
+	if current, err := user.Current(); err == nil {
+		out["server_user"] = current.Username
+	}
+	if cli.ConfigDir != "" {
+		out["config_dir"] = cli.ConfigDir
+		out["sign_in_command"] = "CLAUDE_CONFIG_DIR=" + shellQuote(cli.ConfigDir) + " claude auth login"
+	}
+	connID, settings, connected := s.claudeSubscriptionConnection()
+	out["connected"] = connected
+	if connected {
+		out["connection_id"] = connID
+	}
+	out["settings"] = settings
+	if bin, err := cli.Resolve(); err == nil {
+		out["installed"] = true
+		out["binary"] = bin
+		if version, err := cli.Version(r.Context()); err == nil {
+			out["version"] = version
+		}
+	}
+	if pool, err := s.claudePool(); err == nil {
+		if out["installed"] == true {
+			maxAge := 30 * time.Second
+			if r.URL.Query().Get("refresh") == "1" {
+				maxAge = 0
+			}
+			if auth, err := pool.Auth(r.Context(), maxAge); err == nil {
+				out["auth"] = map[string]any{
+					"logged_in":         auth.LoggedIn,
+					"auth_method":       auth.AuthMethod,
+					"subscription_type": auth.SubscriptionType,
+					"subscription":      auth.Subscription(),
+					"checked_at":        auth.CheckedAt,
+				}
+			} else {
+				out["auth_error"] = err.Error()
+			}
+		}
+		status := pool.Status()
+		pids := make([]int, 0, len(status.Processes))
+		for _, proc := range status.Processes {
+			pids = append(pids, proc.PID)
+		}
+		rss := processRSS(pids)
+		procs := make([]claudeProcessView, 0, len(status.Processes))
+		var total int64
+		for _, proc := range status.Processes {
+			procs = append(procs, claudeProcessView{ProcessStatus: proc, RSSKB: rss[proc.PID]})
+			total += rss[proc.PID]
+		}
+		out["pool"] = map[string]any{
+			"max_processes": status.MaxProcs,
+			"running":       status.Running,
+			"busy":          status.Busy,
+			"waiting":       status.Waiting,
+			"sessions":      status.Sessions,
+			"idle_seconds":  int(status.IdleTimeout / time.Second),
+			"queue_seconds": int(status.QueueTimeout / time.Second),
+			"rss_kb":        total,
+			"processes":     procs,
+		}
+		if status.Limit != nil {
+			out["limit"] = status.Limit
+		}
+	}
+	writeJSON(w, out)
+}
+
+func shellQuote(value string) string {
+	if regexp.MustCompile(`^[A-Za-z0-9_./~-]+$`).MatchString(value) {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+// handleClaudeSubscriptionLogin starts Claude Code's own sign-in, which
+// opens Anthropic's page in a browser on this machine. Apteva never sees
+// the sign-in: the command's output is discarded.
+func (s *Server) handleClaudeSubscriptionLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.requireCapability(w, r, "provider_management") {
+		return
+	}
+	if !s.claudeSubscriptionAllowed() {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "single_user_only"})
+		return
+	}
+	err := s.claudeSub.login.Start(claudeSubscriptionCLI(), 10*time.Minute)
+	switch {
+	case errors.Is(err, claudepool.ErrNotInstalled):
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "not_installed"})
+		return
+	case errors.Is(err, claudepool.ErrLoginRunning):
+	case err != nil:
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if pool, err := s.claudePool(); err == nil {
+		pool.ForgetAuth()
+	}
+	writeJSON(w, map[string]any{"started": true, "login": s.claudeSub.login.State()})
+}
+
+// handleClaudeSubscriptionLogout signs Claude Code out on this machine.
+func (s *Server) handleClaudeSubscriptionLogout(w http.ResponseWriter, r *http.Request) {
+	if !s.requireCapability(w, r, "provider_management") {
+		return
+	}
+	if err := claudeSubscriptionCLI().Logout(r.Context()); err != nil {
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	if pool, err := s.claudePool(); err == nil {
+		pool.ForgetAuth()
+	}
+	writeJSON(w, map[string]any{"signed_out": true})
+}
+
+func (s *Server) handleClaudeSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
+	if !s.requireCapability(w, r, "provider_management") {
+		return
+	}
+	connID, settings, ok := s.claudeSubscriptionConnection()
+	if !ok {
+		writeJSONStatus(w, http.StatusNotFound, map[string]any{"error": "not_connected"})
+		return
+	}
+	var body map[string]json.RawMessage
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON body"})
+		return
+	}
+	for key, target := range map[string]*int{"pool_size": &settings.PoolSize, "idle_seconds": &settings.IdleSeconds, "queue_seconds": &settings.QueueSeconds} {
+		if raw, present := body[key]; present {
+			if err := json.Unmarshal(raw, target); err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": key + " must be a whole number"})
+				return
+			}
+		}
+	}
+	if err := settings.validate(); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	state := map[string]any{}
+	_ = json.Unmarshal([]byte(s.store.GetConnectionRuntimeConfigAny(connID)), &state)
+	state["pool_size"], state["idle_seconds"], state["queue_seconds"] = settings.PoolSize, settings.IdleSeconds, settings.QueueSeconds
+	encoded, _ := json.Marshal(state)
+	if err := s.store.UpdateConnectionRuntimeConfig(connID, string(encoded)); err != nil {
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "could not save settings"})
+		return
+	}
+	if pool, err := s.claudePool(); err == nil {
+		pool.SetLimits(settings.limits())
+	}
+	writeJSON(w, map[string]any{"settings": settings})
+}
+
+// claudeSubscriptionUsage reports the plan limits Claude Code last
+// reported. There is no separate usage API: the numbers arrive with each
+// turn, so they are only as fresh as the latest turn.
+func (s *Server) claudeSubscriptionUsage(ctx context.Context, connID int64) ProviderUsageSnapshot {
+	snapshot := ProviderUsageSnapshot{Supported: true, ProviderID: connID, Kind: "subscription_quota"}
+	pool, err := s.claudePool()
+	if err != nil {
+		return snapshot
+	}
+	if auth, err := pool.Auth(ctx, 5*time.Minute); err == nil {
+		snapshot.Plan = auth.SubscriptionType
+	}
+	limit := pool.Limit()
+	if limit == nil {
+		return snapshot
+	}
+	snapshot.FetchedAt = limit.UpdatedAt
+	snapshot.Stale = time.Since(limit.UpdatedAt) > 30*time.Minute
+	reached := limit.Status == "rejected"
+	window := ProviderUsageWindow{ID: limit.Type, ResetsAt: limit.ResetsAt}
+	switch limit.Type {
+	case "five_hour":
+		window.DurationMinutes = 300
+	case "seven_day", "seven_day_opus", "seven_day_sonnet":
+		window.DurationMinutes = 7 * 24 * 60
+	}
+	switch {
+	case limit.Utilization != nil:
+		window.UsedPercent = int(*limit.Utilization*100 + 0.5)
+	case reached:
+		window.UsedPercent = 100
+	default:
+		// Claude Code reports the percentage only near the limit.
+		window.UsedPercent = -1
+	}
+	if reached {
+		snapshot.RateLimitReachedType = limit.Type
+	}
+	usageLimit := ProviderUsageLimit{ID: "claude", Label: "Claude plan", Reached: reached}
+	if window.UsedPercent >= 0 {
+		usageLimit.Windows = []ProviderUsageWindow{window}
+	}
+	snapshot.Limits = []ProviderUsageLimit{usageLimit}
+	return snapshot
+}

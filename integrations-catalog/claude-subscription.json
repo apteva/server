@@ -1,0 +1,27 @@
+{
+  "slug": "claude-subscription",
+  "name": "Claude subscription",
+  "description": "Runs agents on your own Claude Pro or Max plan through the Claude Code CLI signed in on the computer running Apteva. Usage counts against your plan's limits instead of per-token API billing. Single-user installs only; Apteva never sees or stores your Claude sign-in.",
+  "logo": "https://www.google.com/s2/favicons?domain=claude.ai&sz=128",
+  "categories": ["ai", "llm", "anthropic", "claude", "subscription"],
+  "base_url": "http://127.0.0.1",
+  "auth": {
+    "types": ["local_cli"]
+  },
+  "tools": [],
+  "runtime": {
+    "role": "llm",
+    "provider_key": "claude-subscription",
+    "env": {
+      "CLAUDE_SUBSCRIPTION_CONNECTION_ID": "{{connection.id}}"
+    },
+    "capabilities": [
+      "llm",
+      "subscription",
+      "subscription_usage",
+      "local_cli",
+      "streaming",
+      "native_tools"
+    ]
+  }
+}

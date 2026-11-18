@@ -596,4 +596,5 @@ func (s *Server) stopAgentWithConfigLock(id int64) {
 	unlock := s.lockAgentConfig(id)
 	defer unlock()
 	s.agents.Stop(id)
+	s.claudeSubscriptionAgentStopped(id)
 }

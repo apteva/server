@@ -269,6 +269,10 @@ func (s *Server) handleConnectionModels(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, models)
 		return
 	}
+	if app.Runtime.ProviderKey == claudeSubscriptionProviderKey {
+		writeJSON(w, claudeSubscriptionModels())
+		return
+	}
 	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
 		models, fetchErr := fetchGrokBuildModelCatalog(r.Context(), map[string]string{
 			"access_token":  stringValue(src.credentials["access_token"]),
@@ -330,6 +334,10 @@ func (s *Server) handleConnectionUsage(w http.ResponseWriter, r *http.Request) {
 	app := s.catalog.Get(conn.AppSlug)
 	if app == nil || app.Runtime == nil {
 		writeJSON(w, ProviderUsageSnapshot{Supported: false, ProviderID: connID})
+		return
+	}
+	if app.Runtime.ProviderKey == claudeSubscriptionProviderKey {
+		writeJSON(w, s.claudeSubscriptionUsage(r.Context(), connID))
 		return
 	}
 	fetcher := providerUsageFetcherFor(app.Runtime.ProviderKey)
