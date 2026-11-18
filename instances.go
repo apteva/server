@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1650,6 +1651,23 @@ func (im *AgentManager) GetCoreAPIKey(instanceID int64) string {
 		return ri.coreAPIKey
 	}
 	return ""
+}
+
+// AgentForCoreAPIKey returns the agent whose running core holds key. A core
+// this server started uses its key as soon as it boots, before
+// syncAgentRuntime records the key on the agent row.
+func (im *AgentManager) AgentForCoreAPIKey(key string) (int64, bool) {
+	if key == "" {
+		return 0, false
+	}
+	im.mu.RLock()
+	defer im.mu.RUnlock()
+	for id, ri := range im.processes {
+		if ri.coreAPIKey != "" && subtle.ConstantTimeCompare([]byte(ri.coreAPIKey), []byte(key)) == 1 && ri.isRunning() {
+			return id, true
+		}
+	}
+	return 0, false
 }
 
 // GetPort returns the port for a running instance, or 0 if not running.

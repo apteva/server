@@ -3044,27 +3044,25 @@ func (s *Store) GetAgentByIDContext(ctx context.Context, instanceID int64) (*Age
 	return &inst, nil
 }
 
-// GetRunningAgentUserByCoreAPIKey resolves the identity behind a per-core
-// credential. Callers must still restrict what that identity may do; today the
-// only permitted use is the loopback Codex runtime-token callback in
-// authMiddleware.
-func (s *Store) GetRunningAgentUserByCoreAPIKey(coreAPIKey string) (int64, error) {
-	return s.GetRunningAgentUserByCoreAPIKeyContext(context.Background(), coreAPIKey)
-}
-
-func (s *Store) GetRunningAgentUserByCoreAPIKeyContext(ctx context.Context, coreAPIKey string) (int64, error) {
+// GetRunningAgentByCoreAPIKeyContext resolves the agent recorded as running
+// with this per-core credential. Server.runningCoreAgent is the caller; it
+// checks live processes first.
+func (s *Store) GetRunningAgentByCoreAPIKeyContext(ctx context.Context, coreAPIKey string) (*Agent, error) {
 	if !strings.HasPrefix(coreAPIKey, "core_") {
-		return 0, sql.ErrNoRows
+		return nil, sql.ErrNoRows
 	}
-	var userID int64
+	var agent Agent
 	err := s.dbQueryRowContext(ctx, `
-		SELECT user_id
+		SELECT id, user_id, COALESCE(project_id,''), status
 		  FROM agents
 		 WHERE core_api_key = ?
 		   AND status = 'running'
 		   AND COALESCE(core_api_key,'') != ''
-		 LIMIT 1`, coreAPIKey).Scan(&userID)
-	return userID, err
+		 LIMIT 1`, coreAPIKey).Scan(&agent.ID, &agent.UserID, &agent.ProjectID, &agent.Status)
+	if err != nil {
+		return nil, err
+	}
+	return &agent, nil
 }
 
 func (s *Store) GetAgent(userID, instanceID int64) (*Agent, error) {
