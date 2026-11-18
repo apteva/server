@@ -30,6 +30,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -756,7 +757,56 @@ func (s *Server) handleClaudeSubscriptionMCP(w http.ResponseWriter, r *http.Requ
 
 type claudeProcessView struct {
 	claudepool.ProcessStatus
-	RSSKB int64 `json:"rss_kb,omitempty"`
+	MemoryKB int64 `json:"memory_kb,omitempty"`
+}
+
+// processMemory returns each pid's memory use in KiB. On macOS it is the
+// physical footprint, what Activity Monitor shows: the resident size
+// there leaves out the compressed pages of an idle process, so it reads
+// far too low for a Claude process waiting on a tool. Elsewhere it is the
+// resident size.
+func processMemory(pids []int) map[int]int64 {
+	if len(pids) == 0 {
+		return map[int]int64{}
+	}
+	if runtime.GOOS == "darwin" {
+		if out := processFootprint(pids); len(out) > 0 {
+			return out
+		}
+	}
+	return processRSS(pids)
+}
+
+var footprintLine = regexp.MustCompile(`(?m)\[([0-9]+)\]:.*\bFootprint:\s*([0-9]+) B\b`)
+
+func processFootprint(pids []int) map[int]int64 {
+	bin := "/usr/bin/footprint"
+	if _, err := os.Stat(bin); err != nil {
+		return nil
+	}
+	args := []string{"-f", "bytes"}
+	for _, pid := range pids {
+		args = append(args, "-p", strconv.Itoa(pid))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	// A pid that exited makes footprint fail; the others still print.
+	raw, _ := exec.CommandContext(ctx, bin, args...).Output()
+	return parseFootprint(raw)
+}
+
+// parseFootprint reads `footprint -f bytes` output, one
+// "name [pid]: 64-bit    Footprint: <n> B" line per process.
+func parseFootprint(raw []byte) map[int]int64 {
+	out := map[int]int64{}
+	for _, match := range footprintLine.FindAllSubmatch(raw, -1) {
+		pid, err1 := strconv.Atoi(string(match[1]))
+		bytes, err2 := strconv.ParseInt(string(match[2]), 10, 64)
+		if err1 == nil && err2 == nil {
+			out[pid] = bytes / 1024
+		}
+	}
+	return out
 }
 
 // processRSS returns the resident memory of each pid in KiB.
@@ -859,12 +909,12 @@ func (s *Server) handleClaudeSubscriptionStatus(w http.ResponseWriter, r *http.R
 		for _, proc := range status.Processes {
 			pids = append(pids, proc.PID)
 		}
-		rss := processRSS(pids)
+		memory := processMemory(pids)
 		procs := make([]claudeProcessView, 0, len(status.Processes))
 		var total int64
 		for _, proc := range status.Processes {
-			procs = append(procs, claudeProcessView{ProcessStatus: proc, RSSKB: rss[proc.PID]})
-			total += rss[proc.PID]
+			procs = append(procs, claudeProcessView{ProcessStatus: proc, MemoryKB: memory[proc.PID]})
+			total += memory[proc.PID]
 		}
 		out["pool"] = map[string]any{
 			"max_processes": status.MaxProcs,
@@ -874,7 +924,7 @@ func (s *Server) handleClaudeSubscriptionStatus(w http.ResponseWriter, r *http.R
 			"sessions":      status.Sessions,
 			"idle_seconds":  int(status.IdleTimeout / time.Second),
 			"queue_seconds": int(status.QueueTimeout / time.Second),
-			"rss_kb":        total,
+			"memory_kb":     total,
 			"processes":     procs,
 		}
 		if status.Limit != nil {

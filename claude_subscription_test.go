@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -540,6 +541,41 @@ func TestClaudeModelName(t *testing.T) {
 	} {
 		if got := claudeModelName(id); got != want {
 			t.Errorf("claudeModelName(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+func TestParseFootprint(t *testing.T) {
+	raw := []byte(`======================================================================
+claude [52919]: 64-bit    Footprint: 155239744 B (16384 bytes per page)
+======================================================================
+
+  Dirty      Clean  Reclaimable    Regions    Category
+    ---        ---          ---        ---    ---
+    phys_footprint: 155239744 B
+claude [51410]: 64-bit    Footprint: 153830744 B (16384 bytes per page)
+    phys_footprint: 153830744 B
+Summary Footprint: 309004952 B
+`)
+	got := parseFootprint(raw)
+	if len(got) != 2 || got[52919] != 155239744/1024 || got[51410] != 153830744/1024 {
+		t.Fatalf("parseFootprint = %v", got)
+	}
+	if got := parseFootprint([]byte("footprint: no process\n")); len(got) != 0 {
+		t.Fatalf("parseFootprint(error) = %v", got)
+	}
+}
+
+// The status reports memory for live processes, here this test process.
+func TestProcessMemoryReadsLiveProcesses(t *testing.T) {
+	pid := os.Getpid()
+	got := processMemory([]int{pid})
+	if got[pid] <= 0 {
+		t.Fatalf("processMemory = %v", got)
+	}
+	if runtime.GOOS == "darwin" {
+		if fp := processFootprint([]int{pid}); fp[pid] <= 0 {
+			t.Fatalf("processFootprint = %v", fp)
 		}
 	}
 }
