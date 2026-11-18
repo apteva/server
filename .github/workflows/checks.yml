@@ -1,15 +1,29 @@
 name: Checks
 on:
   workflow_call:
+  workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
 permissions:
   contents: read
+
+# A newer push to the same PR makes the older run pointless; cancel it so it
+# stops holding runners other PRs are queued behind. Pushes to main and the
+# release call keep every run.
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  # vet, govulncheck and the binary build, apart from the tests so they
+  # report in a couple of minutes.
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: server
@@ -17,40 +31,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: server
-      - name: Checkout integration catalog sources for parity tests
-        uses: actions/checkout@v4
-        with:
-          repository: apteva/integrations
-          path: integrations
-      - name: Checkout Core for managed MCP startup test
-        uses: actions/checkout@v4
-        with:
-          repository: apteva/core
-          path: core
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.11'
+          cache-dependency-path: server/go.sum
       - name: Resolve published SDK
         run: |
           go mod edit -dropreplace=github.com/apteva/app-sdk
           go mod download github.com/apteva/app-sdk
-      - run: go test ./... -count=1 -timeout=20m
       - run: go vet ./...
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: go build -o /tmp/apteva-server .
 
-  # The root package's tests run sequentially and the race detector slows
-  # them ~9x (~45 min on a fast laptop, over 60 min on CI), so they are
-  # split round-robin by test name across parallel shards; shard 0 also
-  # races every other package.
-  race:
+  # The root package's tests run sequentially (~12 min in one job), so they
+  # are split round-robin by test name across shards; shard 0 also runs every
+  # other package.
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2]
     defaults:
       run:
         working-directory: server
@@ -71,14 +74,64 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.11'
+          cache-dependency-path: server/go.sum
       - name: Resolve published SDK
         run: |
           go mod edit -dropreplace=github.com/apteva/app-sdk
           go mod download github.com/apteva/app-sdk
-      - name: Race tests (shard ${{ matrix.shard }} of 4)
+      - name: Tests (shard ${{ matrix.shard }} of 3)
         env:
           SHARD: ${{ matrix.shard }}
-          SHARDS: 4
+          SHARDS: 3
+        run: |
+          tests=$(go test -list '^Test' . | grep '^Test' | awk -v n="$SHARDS" -v s="$SHARD" '(NR-1)%n==s' | paste -sd'|' -)
+          test -n "$tests"
+          go test -count=1 -timeout=20m -run "^($tests)\$" .
+          if [ "$SHARD" = 0 ]; then
+            go test -count=1 -timeout=20m $(go list ./... | grep -vx github.com/apteva/server)
+          fi
+
+  # The race detector slows the root package ~9x, so it runs on main, on the
+  # release call, nightly, by hand, and on a PR labelled `race`, not on every
+  # PR push. Split round-robin across shards; shard 0 also races every other
+  # package.
+  race:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'race')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: server
+      - name: Checkout integration catalog sources for parity tests
+        uses: actions/checkout@v4
+        with:
+          repository: apteva/integrations
+          path: integrations
+      - name: Checkout Core for managed MCP startup test
+        uses: actions/checkout@v4
+        with:
+          repository: apteva/core
+          path: core
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: server/go.sum
+      - name: Resolve published SDK
+        run: |
+          go mod edit -dropreplace=github.com/apteva/app-sdk
+          go mod download github.com/apteva/app-sdk
+      - name: Race tests (shard ${{ matrix.shard }} of 6)
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: 6
         run: |
           tests=$(go test -race -list '^Test' . | grep '^Test' | awk -v n="$SHARDS" -v s="$SHARD" '(NR-1)%n==s' | paste -sd'|' -)
           test -n "$tests"
