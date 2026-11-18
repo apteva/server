@@ -123,8 +123,22 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "tools/call":
 		// Held calls can last minutes; lift any server write deadline.
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-		result, ok := p.callTool(r.Context(), sess, req.Params)
+		// While a call is held, Claude Code only sees silence, and it
+		// gives up on calls silent for too long (5 minutes by default
+		// since 2.1.3xx). Progress notifications keep the call alive:
+		// the reply turns into an event stream at the first one.
+		var stream *eventStream
+		var keepAlive func() error
+		if token := progressToken(req.Params); token != nil && acceptsEventStream(r) {
+			stream = &eventStream{w: w, token: token}
+			keepAlive = stream.progress
+		}
+		result, ok := p.callTool(r.Context(), sess, req.Params, keepAlive)
 		if !ok {
+			return
+		}
+		if stream != nil && stream.started {
+			_ = stream.send(rpcMessage(req.ID, result, nil))
 			return
 		}
 		writeRPC(w, req.ID, result, nil)
@@ -134,6 +148,11 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeRPC(w http.ResponseWriter, id json.RawMessage, result any, rpcErr *rpcError) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(rpcMessage(id, result, rpcErr))
+}
+
+func rpcMessage(id json.RawMessage, result any, rpcErr *rpcError) map[string]any {
 	msg := map[string]any{"jsonrpc": "2.0"}
 	if len(id) > 0 {
 		msg["id"] = id
@@ -145,8 +164,76 @@ func writeRPC(w http.ResponseWriter, id json.RawMessage, result any, rpcErr *rpc
 	} else {
 		msg["result"] = result
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(msg)
+	return msg
+}
+
+// progressInterval is how often a held call reports progress.
+var progressInterval = time.Minute
+
+// progressToken returns the token Claude Code asked progress to be
+// reported under, if any.
+func progressToken(raw json.RawMessage) json.RawMessage {
+	var params struct {
+		Meta struct {
+			ProgressToken json.RawMessage `json:"progressToken"`
+		} `json:"_meta"`
+	}
+	if json.Unmarshal(raw, &params) != nil || len(params.Meta.ProgressToken) == 0 || string(params.Meta.ProgressToken) == "null" {
+		return nil
+	}
+	return params.Meta.ProgressToken
+}
+
+func acceptsEventStream(r *http.Request) bool {
+	for _, value := range r.Header.Values("Accept") {
+		for _, part := range strings.Split(value, ",") {
+			media, _, _ := strings.Cut(strings.TrimSpace(part), ";")
+			if strings.EqualFold(strings.TrimSpace(media), "text/event-stream") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// eventStream answers one MCP request as a server-sent event stream:
+// progress notifications, then the response.
+type eventStream struct {
+	w       http.ResponseWriter
+	token   json.RawMessage
+	started bool
+	count   int
+}
+
+func (s *eventStream) progress() error {
+	s.count++
+	return s.send(map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/progress",
+		"params": map[string]any{
+			"progressToken": s.token,
+			"progress":      s.count,
+			"message":       "Waiting for the result",
+		},
+	})
+}
+
+func (s *eventStream) send(msg any) error {
+	if !s.started {
+		s.started = true
+		h := s.w.Header()
+		h.Set("Content-Type", "text/event-stream")
+		h.Set("Cache-Control", "no-cache")
+		s.w.WriteHeader(http.StatusOK)
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	if _, err := s.w.Write([]byte("event: message\ndata: " + string(data) + "\n\n")); err != nil {
+		return err
+	}
+	return http.NewResponseController(s.w).Flush()
 }
 
 func (p *Pool) listTools(sess *session) []map[string]any {
@@ -168,8 +255,10 @@ func (p *Pool) listTools(sess *session) []map[string]any {
 	return out
 }
 
-// callTool holds a tool call until the caller sends its result.
-func (p *Pool) callTool(ctx context.Context, sess *session, raw json.RawMessage) (map[string]any, bool) {
+// callTool holds a tool call until the caller sends its result. keepAlive,
+// when set, runs every progressInterval while the call is held; an error
+// means Claude Code is no longer listening.
+func (p *Pool) callTool(ctx context.Context, sess *session, raw json.RawMessage, keepAlive func() error) (map[string]any, bool) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -189,17 +278,39 @@ func (p *Pool) callTool(ctx context.Context, sess *session, raw json.RawMessage)
 		// is a backstop.
 		timer := time.NewTimer(p.cfg.ToolTimeout + 30*time.Second)
 		defer timer.Stop()
-		select {
-		case result = <-ch:
-		case <-timer.C:
-			sess.forget(id, ch)
-			result = toolResult{text: "The tool did not return a result in time.", isError: true}
-		case <-ctx.Done():
-			sess.forget(id, ch)
-			return nil, false
-		case <-p.stop:
-			sess.forget(id, ch)
-			result = toolResult{text: "Apteva is shutting down.", isError: true}
+		var tick <-chan time.Time
+		if keepAlive != nil {
+			ticker := time.NewTicker(progressInterval)
+			defer ticker.Stop()
+			tick = ticker.C
+		}
+	wait:
+		for {
+			select {
+			case result = <-ch:
+				break wait
+			case <-tick:
+				if keepAlive() == nil {
+					continue
+				}
+				// The connection is gone.
+				sess.forget(id, ch)
+				p.callDropped(sess, id)
+				return nil, false
+			case <-timer.C:
+				sess.forget(id, ch)
+				result = toolResult{text: "The tool did not return a result in time.", isError: true}
+				break wait
+			case <-ctx.Done():
+				// Claude Code closed the call (or the process is gone).
+				sess.forget(id, ch)
+				p.callDropped(sess, id)
+				return nil, false
+			case <-p.stop:
+				sess.forget(id, ch)
+				result = toolResult{text: "Apteva is shutting down.", isError: true}
+				break wait
+			}
 		}
 	}
 	return toolReply(result), true

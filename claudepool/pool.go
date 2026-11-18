@@ -470,6 +470,7 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	sess.history = append(append([]Message(nil), req.Messages...), reply)
 	if finish == "tool_calls" {
 		sess.awaiting = reply.ToolCalls
+		sess.waitMoves = proc.moves.Load()
 		names := make([]string, 0, len(reply.ToolCalls))
 		for _, call := range reply.ToolCalls {
 			names = append(names, call.Name)
@@ -575,6 +576,11 @@ var toolGrace = 30 * time.Second
 
 // reapInterval is how often idle processes and old sessions are checked.
 var reapInterval = 5 * time.Second
+
+// toolIdleTimeout, when set, replaces the idle limit Claude Code gets for
+// held tool calls (ToolTimeout plus a minute). Tests shorten it to make
+// Claude give up on a call.
+var toolIdleTimeout time.Duration
 
 type blockState struct {
 	kind     string
@@ -921,6 +927,30 @@ func (p *Pool) parkLocked(sess *session) {
 	p.retireLocked(sess)
 }
 
+// callDropped handles Claude Code giving up on a held tool call before the
+// caller sent its result. Claude then carries on without that result,
+// where nobody reads it, and its copy of the conversation no longer matches
+// the caller's. The process is stopped, so the caller's next request
+// continues in a new session seeded from its own history. This covers a
+// call whose connection closed; Claude Code 2.1.327 leaves the connection
+// open when it gives up, and the reaper sees that case in Claude's output.
+func (p *Pool) callDropped(sess *session, id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sessions[sess.id] != sess || sess.proc == nil || !sess.awaitsLocked(id) {
+		return
+	}
+	if sess.turnHeld {
+		// The results are being delivered right now; that turn's reply
+		// cannot be trusted, so the next one starts over.
+		p.cfg.Logf("[CLAUDE-POOL] session %s: Claude gave up on a tool call while its result was on the way", short(sess.id))
+		sess.dirty = true
+		return
+	}
+	p.cfg.Logf("[CLAUDE-POOL] session %s: Claude gave up waiting for a tool result after %s; closing its process", short(sess.id), time.Since(sess.stateSince).Round(time.Second))
+	p.parkLocked(sess)
+}
+
 func (p *Pool) notifyLocked() {
 	for ch := range p.waiters {
 		close(ch)
@@ -982,8 +1012,22 @@ func (p *Pool) spawn(sess *session) error {
 	} else {
 		args = append(args, "--session-id", sess.id)
 	}
+	// A held tool call lasts until the caller comes back, which for a
+	// sleeping agent is minutes. The pool decides when to stop waiting
+	// (ToolTimeout), so Claude Code's own limits, the total and the newer
+	// idle one (5 minutes by default, checked every 30s), are raised past
+	// it. The idle limit is also reset by the progress notifications the
+	// pool sends while it holds a call (see callTool), so a release that
+	// ignores this setting keeps the call too; if Claude still gives up,
+	// the reaper sees it and closes the process.
+	toolWait := msString(p.cfg.ToolTimeout + time.Minute)
+	idleWait := toolWait
+	if toolIdleTimeout > 0 {
+		idleWait = msString(toolIdleTimeout)
+	}
 	env := cli.Env(
-		"MCP_TOOL_TIMEOUT="+msString(p.cfg.ToolTimeout+time.Minute),
+		"MCP_TOOL_TIMEOUT="+toolWait,
+		"CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT="+idleWait,
 		"CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
 	)
 	proc, err := startProcess(bin, args, env, p.cfg.WorkDir)
@@ -1048,6 +1092,16 @@ func (p *Pool) reap() {
 				closing = append(closing, sess.proc)
 				sess.proc = nil
 				sess.setState("closed", "")
+				continue
+			}
+			if sess.busy && sess.state == "waiting_tool" && sess.proc != nil && sess.proc.moves.Load() != sess.waitMoves {
+				// Nothing reaches Claude while the pool holds its calls,
+				// so it went on alone: it gave up on a call (Claude Code
+				// aborts calls it thinks are stuck) and is answering
+				// without the result, where nobody reads it. The caller's
+				// next request starts again from its own history.
+				p.cfg.Logf("[CLAUDE-POOL] session %s: Claude carried on without the tool result after %s; closing its process", short(sess.id), now.Sub(sess.stateSince).Round(time.Second))
+				p.parkLocked(sess)
 				continue
 			}
 			if sess.busy && sess.state == "waiting_tool" && now.Sub(sess.stateSince) > p.cfg.ToolTimeout {

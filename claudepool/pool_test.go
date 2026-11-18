@@ -158,6 +158,9 @@ func TestConversationContinuesInSameSession(t *testing.T) {
 	if s.ToolTimeout != msString(5*time.Second+time.Minute) {
 		t.Fatalf("MCP_TOOL_TIMEOUT = %s", s.ToolTimeout)
 	}
+	if s.IdleTimeout != s.ToolTimeout {
+		t.Fatalf("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT = %q, want %s", s.IdleTimeout, s.ToolTimeout)
+	}
 	if st := tp.Status(); st.Running != 1 || st.Sessions != 1 || st.Processes[0].Turns != 2 || st.Processes[0].Owner != "agent-1" {
 		t.Fatalf("status = %+v", st)
 	}
@@ -377,6 +380,99 @@ func TestToolTimeoutClosesWaitingProcess(t *testing.T) {
 	}
 	if !strings.Contains(r.text, "[tool result for call "+ra.calls[0].ID+"]\nlate") {
 		t.Fatalf("late results were not carried over:\n%s", r.text)
+	}
+}
+
+// Claude Code may give up on a held call on its own (2.1.327 drops calls
+// silent for 5 minutes) and carry on with an error result. The caller's
+// next request, with the result and a new message, must reach a Claude
+// that has the caller's history, not the reply Claude wrote alone.
+func TestDroppedToolCallClosesProcess(t *testing.T) {
+	defer func(d time.Duration) { reapInterval = d }(reapInterval)
+	reapInterval = 20 * time.Millisecond
+	// Claude Code leaves the request open when it gives up on a call, so
+	// the pool sees Claude going on in its output; a closed request is
+	// seen directly.
+	for _, closes := range []bool{false, true} {
+		name := "request left open"
+		if closes {
+			name = "request closed"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDEPOOL_FAKE_DROP_AFTER", "300ms")
+			if closes {
+				t.Setenv("CLAUDEPOOL_FAKE_DROP_CLOSES", "1")
+			}
+			tp := newTestPoolWith(t, Limits{}, func(cfg *Config) { cfg.ToolTimeout = time.Minute })
+			a := Request{Owner: "a", Tools: []Tool{lookupTool}, Messages: []Message{user("CALL lookup {}")}}
+			ra, err := tp.run(t, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(ra.calls) != 1 {
+				t.Fatalf("calls = %+v", ra.calls)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for len(tp.Status().Processes) > 0 {
+				if time.Now().After(deadline) {
+					t.Fatalf("process still running after Claude dropped the call: %+v", tp.Status().Processes)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+
+			a.Messages = append(a.Messages,
+				Message{Role: "assistant", ToolCalls: ra.calls},
+				Message{Role: "tool", ToolCallID: ra.calls[0].ID, Text: "woke up"},
+				user("any new conversations?"))
+			r, err := tp.run(t, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(r.text, "CALLFAIL") || len(r.calls) != 0 {
+				t.Fatalf("got Claude's own continuation: %q %+v", r.text, r.calls)
+			}
+			for _, want := range []string{"[tool result for call " + ra.calls[0].ID + "]\nwoke up", "any new conversations?"} {
+				if !strings.Contains(r.text, want) {
+					t.Fatalf("reply misses %q:\n%s", want, r.text)
+				}
+			}
+			if spawns := tp.spawns(t); len(spawns) != 2 || spawns[1].Session == spawns[0].Session {
+				t.Fatalf("spawns = %+v", spawns)
+			}
+		})
+	}
+}
+
+// Progress notifications keep a held call alive past Claude Code's
+// silence limit, and the same process gets the result.
+func TestProgressKeepsHeldCallAlive(t *testing.T) {
+	defer func(d time.Duration) { progressInterval = d }(progressInterval)
+	progressInterval = 100 * time.Millisecond
+	t.Setenv("CLAUDEPOOL_FAKE_DROP_AFTER", "400ms")
+	tp := newTestPoolWith(t, Limits{}, func(cfg *Config) { cfg.ToolTimeout = time.Minute })
+	a := Request{Owner: "a", Tools: []Tool{lookupTool}, Messages: []Message{user("CALL lookup {}")}}
+	ra, err := tp.run(t, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1500 * time.Millisecond) // nearly four silence limits
+	if st := tp.Status(); len(st.Processes) != 1 || st.Processes[0].State != "waiting_tool" {
+		t.Fatalf("held call was not kept alive: %+v", st.Processes)
+	}
+
+	a.Messages = append(a.Messages,
+		Message{Role: "assistant", ToolCalls: ra.calls},
+		Message{Role: "tool", ToolCallID: ra.calls[0].ID, Text: "woke up"},
+		user("any new conversations?"))
+	r, err := tp.run(t, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(r.text, "got: woke up") || !strings.Contains(r.text, "any new conversations?") {
+		t.Fatalf("reply = %q", r.text)
+	}
+	if spawns := tp.spawns(t); len(spawns) != 1 {
+		t.Fatalf("spawns = %+v", spawns)
 	}
 }
 
