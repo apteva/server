@@ -38,6 +38,13 @@ type InterceptedCall struct {
 	Status      int       `json:"status"`
 	Timestamp   time.Time `json:"ts"`
 	LogicalTime time.Time `json:"logical_time"`
+	// Kind, Integration, Tool and Event describe calls answered by an
+	// integration simulation: "integration_simulation" for a simulated tool
+	// call and "integration_webhook" for a delivered provider event.
+	Kind        string `json:"kind,omitempty"`
+	Integration string `json:"integration,omitempty"`
+	Tool        string `json:"tool,omitempty"`
+	Event       string `json:"event,omitempty"`
 }
 
 // SandboxPolicy classifies outbound hosts and supplies deterministic mocks.
