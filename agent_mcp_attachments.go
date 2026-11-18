@@ -213,9 +213,8 @@ func (s *Server) resolveAgentMCPConfigs(userID int64, inst *Agent, ids []int64, 
 			selected = append(selected, cfg)
 			continue
 		}
-		if record.ProjectID != "" && record.ProjectID != inst.ProjectID {
-			return nil, fmt.Errorf("mcp server %d belongs to project %q, agent belongs to project %q",
-				id, record.ProjectID, inst.ProjectID)
+		if err := attachmentProjectError("mcp server", id, record.ProjectID, inst.ProjectID); err != nil {
+			return nil, err
 		}
 		cfg, err := gatewayMCPConfigFromRecord(*record, inst.ProjectID, port, "")
 		if err != nil {
@@ -230,6 +229,98 @@ func (s *Server) resolveAgentMCPConfigs(userID int64, inst *Agent, ids []int64, 
 		selected = append(selected, cfg)
 	}
 	return selected, nil
+}
+
+// attachmentProjectError is the one project rule for everything an agent can
+// attach: an item owned by a project attaches only to agents of that project;
+// an item with no project attaches anywhere.
+func attachmentProjectError(kind string, id int64, ownerProject, agentProject string) error {
+	if ownerProject == "" || ownerProject == agentProject {
+		return nil
+	}
+	return fmt.Errorf("%s %d belongs to project %q, agent belongs to project %q",
+		kind, id, ownerProject, agentProject)
+}
+
+// connectionMCPConfigsForCreate resolves the connections picked when creating
+// an agent to MCP entries, by the same rule as attaching MCP servers later.
+// Every connection is checked before an MCP server row is made for any of
+// them. Connections that cannot be loaded are skipped, as before.
+func (s *Server) connectionMCPConfigsForCreate(userID int64, inst *Agent, connectionIDs []int64) ([]map[string]any, error) {
+	conns := make([]*Connection, 0, len(connectionIDs))
+	seen := map[int64]bool{}
+	for _, id := range connectionIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		conn, _, err := s.store.GetConnection(userID, id)
+		if err != nil || conn == nil {
+			log.Printf("[CREATE] skip bound connection id=%d: %v", id, err)
+			continue
+		}
+		if err := attachmentProjectError("connection", conn.ID, conn.ProjectID, inst.ProjectID); err != nil {
+			return nil, err
+		}
+		conns = append(conns, conn)
+	}
+	serverIDs := make([]int64, 0, len(conns))
+	for _, conn := range conns {
+		record, err := s.store.FindCanonicalMCPServerByConnection(conn.ID)
+		if err != nil {
+			log.Printf("[CREATE] resolve MCP for bound connection id=%d: %v", conn.ID, err)
+			continue
+		}
+		if record != nil {
+			serverIDs = append(serverIDs, record.ID)
+			continue
+		}
+		toolCount := 0
+		if s.catalog != nil {
+			if app := s.catalog.Get(conn.AppSlug); app != nil {
+				toolCount = len(app.Tools)
+			}
+		}
+		mcpID, err := s.store.CreateMCPServerFromConnection(userID, conn, toolCount)
+		if err != nil {
+			log.Printf("[CREATE] create MCP for bound connection id=%d: %v", conn.ID, err)
+			continue
+		}
+		serverIDs = append(serverIDs, mcpID)
+	}
+	configs, err := s.resolveAgentMCPConfigs(userID, inst, serverIDs)
+	if err != nil {
+		return nil, err
+	}
+	// Core reaches connection MCPs through this server's loopback route,
+	// which needs the route capability.
+	for _, cfg := range configs {
+		if raw, ok := cfg["url"].(string); ok {
+			cfg["url"] = authorizeMCPURL(raw, s.instanceSecret)
+		}
+	}
+	return configs, nil
+}
+
+// seedSavedAgentMCPServers copies the MCP entries of a new agent's DB config
+// into its saved config.json, where a stopped agent's MCP set is read from.
+func (s *Server) seedSavedAgentMCPServers(inst *Agent) error {
+	var cfg map[string]any
+	if strings.TrimSpace(inst.Config) != "" {
+		if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
+			return fmt.Errorf("decode agent config: %w", err)
+		}
+	}
+	servers := mcpMaps(cfg["mcp_servers"])
+	if len(servers) == 0 {
+		return nil
+	}
+	unlock := s.lockAgentConfig(inst.ID)
+	defer unlock()
+	return s.writeStoppedConfigAtomic(inst.ID, func(saved map[string]any) error {
+		saved["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(mcpMaps(saved["mcp_servers"]), servers, "add"))
+		return nil
+	})
 }
 
 func mutateMCPServers(current, selected []map[string]any, action string) []map[string]any {
@@ -606,9 +697,8 @@ func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installID
 		if err != nil {
 			return nil, nil, fmt.Errorf("app install %d is not running or does not exist", installID)
 		}
-		if installProject != "" && installProject != inst.ProjectID {
-			return nil, nil, fmt.Errorf("app install %d belongs to project %q, agent belongs to project %q",
-				installID, installProject, inst.ProjectID)
+		if err := attachmentProjectError("app install", installID, installProject, inst.ProjectID); err != nil {
+			return nil, nil, err
 		}
 		if serverID == 0 && skillCount == 0 {
 			return nil, nil, fmt.Errorf("app install %d has no agent tools or skills", installID)

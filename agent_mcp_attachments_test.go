@@ -526,6 +526,166 @@ func TestCreateAgentWithAppSelectionAttachesItsMCPConfig(t *testing.T) {
 	if !hasMCPName(mcpMaps(cfg["mcp_servers"]), "crm") {
 		t.Fatalf("created agent config missing selected app MCP: %s", fresh.Config)
 	}
+
+	// A stopped agent's config is read from disk, by the detail page and by
+	// later attach/detach calls alike.
+	saved, err := s.currentAgentMCPServers(fresh, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMCPName(saved, "crm") {
+		t.Fatalf("stopped agent's saved config missing selected app MCP: %#v", saved)
+	}
+	getReq := authedRequest(t, http.MethodGet, "/instances/"+itoa64(created.ID)+"/config", "", nil)
+	getRec := httptest.NewRecorder()
+	s.handleUpdateConfig(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get config status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	var served map[string]any
+	if err := json.Unmarshal(getRec.Body.Bytes(), &served); err != nil {
+		t.Fatal(err)
+	}
+	if !hasMCPName(mcpMaps(served["mcp_servers"]), "crm") {
+		t.Fatalf("GET config for stopped agent missing selected app MCP: %s", getRec.Body.String())
+	}
+}
+
+// seedProjectConnection adds a project and a connection owned by it.
+func seedProjectConnection(t *testing.T, s *Server, projectID, appSlug string) *Connection {
+	t.Helper()
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO projects(id,user_id,name,description) VALUES(?,1,?,'')`, projectID, projectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.db.Exec(`INSERT OR IGNORE INTO project_members(project_id,user_id,role,added_by) VALUES(?,1,'owner',1)`, projectID); err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := Encrypt(s.secret, `{"token":"test"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := s.store.CreateConnection(1, appSlug, appSlug, appSlug+" "+projectID, "api_key", encrypted, projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn
+}
+
+func countAgentsNamed(t *testing.T, s *Server, name string) int {
+	t.Helper()
+	var n int
+	if err := s.store.db.QueryRow(`SELECT COUNT(*) FROM agents WHERE name=?`, name).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func createAgentWithConnections(t *testing.T, s *Server, name, projectID string, connIDs ...int64) *httptest.ResponseRecorder {
+	t.Helper()
+	req := authedRequest(t, http.MethodPost, "/instances", "", map[string]any{
+		"name":                  name,
+		"directive":             "Use the connection.",
+		"project_id":            projectID,
+		"start":                 false,
+		"bound_app_install_ids": []int64{},
+		"bound_connection_ids":  connIDs,
+	})
+	rec := httptest.NewRecorder()
+	s.handleCreateInstance(rec, req)
+	return rec
+}
+
+func TestCreateAgentRejectsConnectionFromAnotherProject(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = createTestCatalog(t)
+	ensureTestAdmin(t, s)
+	seedProjectConnection(t, s, "proj-1", "pushover")
+	other := seedProjectConnection(t, s, "proj-other", "pushover")
+	if _, err := s.store.CreateMCPServerFromConnection(1, other, 0); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.store.ListMCPServers(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := createAgentWithConnections(t, s, "Cross project", "proj-1", other.ID)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `belongs to project "proj-other", agent belongs to project "proj-1"`) {
+		t.Fatalf("unexpected error body: %s", rec.Body.String())
+	}
+	if n := countAgentsNamed(t, s, "Cross project"); n != 0 {
+		t.Fatalf("rejected create left %d agent rows", n)
+	}
+	after, err := s.store.ListMCPServers(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("rejected create changed MCP servers: before=%d after=%d", len(before), len(after))
+	}
+}
+
+func TestCreateAgentRejectsOtherProjectConnectionWithoutMCPServer(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = createTestCatalog(t)
+	ensureTestAdmin(t, s)
+	seedProjectConnection(t, s, "proj-1", "pushover")
+	other := seedProjectConnection(t, s, "proj-other", "pushover")
+
+	rec := createAgentWithConnections(t, s, "Cross project new", "proj-1", other.ID)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if n := countAgentsNamed(t, s, "Cross project new"); n != 0 {
+		t.Fatalf("rejected create left %d agent rows", n)
+	}
+	record, err := s.store.FindCanonicalMCPServerByConnection(other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record != nil {
+		t.Fatalf("rejected create made an MCP server for the other project's connection: %#v", record)
+	}
+}
+
+func TestCreateAgentAttachesSameProjectConnection(t *testing.T) {
+	s := newTestServer(t)
+	s.secret = testSecret()
+	s.catalog = createTestCatalog(t)
+	ensureTestAdmin(t, s)
+	conn := seedProjectConnection(t, s, "proj-1", "pushover")
+
+	rec := createAgentWithConnections(t, s, "Same project", "proj-1", conn.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var created Agent
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	record, err := s.store.FindCanonicalMCPServerByConnection(conn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record == nil {
+		t.Fatal("same-project connection has no MCP server after create")
+	}
+	fresh, err := s.store.GetAgentByID(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.currentAgentMCPServers(fresh, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMCPName(saved, record.Name) {
+		t.Fatalf("created agent missing same-project connection MCP %q: %#v", record.Name, saved)
+	}
 }
 
 func TestLegacyReplaceAllBindingEndpointRejectsMCPApps(t *testing.T) {

@@ -1930,6 +1930,13 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	selectedAppInstallIDs = validAppInstallIDs
+	// Picked connections become http MCP entries served by this server's
+	// /mcp/<id> route, which proxies to the connection's tools.
+	connectionMCPConfigs, err := s.connectionMCPConfigsForCreate(userID, attachmentProbe, body.BoundConnectionIDs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if len(body.Capabilities) > 0 {
 		body.Config, err = s.configWithAgentCapabilities(attachmentProbe, body.Capabilities)
@@ -2046,46 +2053,18 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if len(body.BoundConnectionIDs) > 0 {
-		// Each selected connection becomes an http-transport MCP
-		// server entry in the agent's config.json. core attaches
-		// it on boot via its mcp_servers list. The URL points at
-		// apteva-server's /mcp/<id> endpoint which proxies to the
-		// connection's tools using the stored credentials.
-		extraServers := []map[string]any{}
-		for _, cid := range body.BoundConnectionIDs {
-			mcpRecord, err := s.connectionMCPServer(userID, cid, "", true)
-			if err != nil || mcpRecord == nil {
-				log.Printf("[CREATE] skip bound connection id=%d: %v", cid, err)
-				continue
-			}
-			extraServers = append(extraServers, map[string]any{
-				"name":      mcpRecord.Name,
-				"transport": "http",
-				"url":       authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", s.port, mcpRecord.ID), s.instanceSecret),
-				// main_access stays implicit (default true); no_spawn
-				// not set so worker threads can also attach if they
-				// inherit this connection's role.
-			})
+	if len(connectionMCPConfigs) > 0 {
+		var instCfg map[string]any
+		if inst.Config != "" {
+			json.Unmarshal([]byte(inst.Config), &instCfg)
 		}
-		if len(extraServers) > 0 {
-			var instCfg map[string]any
-			if inst.Config != "" {
-				json.Unmarshal([]byte(inst.Config), &instCfg)
-			}
-			if instCfg == nil {
-				instCfg = map[string]any{}
-			}
-			// Append rather than replace so the gateway/channels
-			// system entries added later still land on top of these.
-			existing, _ := instCfg["mcp_servers"].([]any)
-			for _, e := range extraServers {
-				existing = append(existing, e)
-			}
-			instCfg["mcp_servers"] = existing
-			if out, err := json.Marshal(instCfg); err == nil {
-				inst.Config = string(out)
-			}
+		if instCfg == nil {
+			instCfg = map[string]any{}
+		}
+		instCfg["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(
+			mcpMaps(instCfg["mcp_servers"]), connectionMCPConfigs, "add"))
+		if out, err := json.Marshal(instCfg); err == nil {
+			inst.Config = string(out)
 		}
 	}
 
@@ -2129,6 +2108,14 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// Persist the fully assembled initial config before any early return from
 	// the provider/start gates below.
 	if err := s.store.UpdateAgent(inst); err != nil {
+		http.Error(w, "persist initial agent config", http.StatusInternalServerError)
+		return
+	}
+	// A stopped agent's MCP set is read from its saved config.json (detail
+	// page, later attach and detach), so the agent may stay stopped below:
+	// seed the attachments there too. Start merges the same entries by name.
+	if err := s.seedSavedAgentMCPServers(inst); err != nil {
+		log.Printf("[CREATE] seed saved MCP servers agent=%d: %v", inst.ID, err)
 		http.Error(w, "persist initial agent config", http.StatusInternalServerError)
 		return
 	}
