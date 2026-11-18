@@ -8,10 +8,6 @@ type deprecatedAppInfo struct {
 }
 
 var deprecatedApps = map[string]deprecatedAppInfo{
-	"hosting": {
-		Message:     "Hosting has been retired. Use the newer Fleet, Containers, SaaS, and server-native ingress pieces instead.",
-		Replacement: "fleet, containers, saas",
-	},
 	"certs": {
 		Message:     "Certs has been folded into apteva-server. Server-native ingress now owns managed TLS for exposed hostnames.",
 		Replacement: "server-native ingress TLS",
