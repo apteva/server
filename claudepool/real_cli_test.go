@@ -15,33 +15,8 @@ import (
 //
 //	CLAUDEPOOL_REAL_CLI=1 go test -run TestRealCLI -v ./claudepool
 func TestRealCLI(t *testing.T) {
-	if os.Getenv("CLAUDEPOOL_REAL_CLI") != "1" {
-		t.Skip("set CLAUDEPOOL_REAL_CLI=1 to run against the installed claude binary")
-	}
-	bin, err := exec.LookPath("claude")
-	if err != nil {
-		t.Skip("claude is not installed")
-	}
-	var pool *Pool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { pool.ServeHTTP(w, r) }))
-	t.Cleanup(srv.Close)
-	dir := t.TempDir()
-	pool, err = New(Config{
-		CLI:         CLI{Binary: bin},
-		WorkDir:     dir + "/work",
-		StateDir:    dir + "/state",
-		MCPURL:      srv.URL,
-		ToolTimeout: 2 * time.Minute,
-		Logf:        t.Logf,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_ = os.RemoveAll(pool.projectDir()) // this test's own session folder
-	})
-	tp := &testPool{Pool: pool}
+	tp := newRealPool(t, 2*time.Minute)
+	pool := tp.Pool
 
 	// A tool call is pending while the model changes.
 	req := Request{
@@ -79,4 +54,134 @@ func TestRealCLI(t *testing.T) {
 	if st := pool.Status(); st.Running != 1 || st.Processes[0].Turns != 3 {
 		t.Fatalf("status = %+v", st)
 	}
+}
+
+// The tests below hold a tool call for several minutes, past Claude Code's
+// silence limit (300s by default), so they only run when asked:
+//
+//	CLAUDEPOOL_REAL_CLI=1 CLAUDEPOOL_REAL_CLI_LONG=1 go test -run 'TestRealCLI(DroppedCall|ProgressKeepsCallAlive)' -v -timeout 20m ./claudepool
+
+// TestRealCLIDroppedCall lets the installed claude give up on a silent held
+// call and checks that the pool closes the process and the caller's next
+// request reaches a Claude that has its history.
+func TestRealCLIDroppedCall(t *testing.T) {
+	skipUnlessLong(t)
+	defer func(d time.Duration) { progressInterval = d }(progressInterval)
+	progressInterval = time.Hour // silence
+	// If Claude Code honours the idle setting, it gives up after about a
+	// minute (it checks every 30s); otherwise after its default 300s.
+	defer func(d time.Duration) { toolIdleTimeout = d }(toolIdleTimeout)
+	toolIdleTimeout = 45 * time.Second
+	tp := newRealPool(t, 10*time.Minute)
+	r, req := realHeldCall(t, tp, "real-drop")
+
+	start := time.Now()
+	for len(tp.Status().Processes) > 0 {
+		if time.Since(start) > 7*time.Minute {
+			t.Fatalf("process still running: %+v", tp.Status().Processes)
+		}
+		time.Sleep(time.Second)
+	}
+	t.Logf("Claude gave up and the process closed %s after the tool call", time.Since(start).Round(time.Second))
+
+	req.Messages = append(req.Messages,
+		Message{Role: "assistant", ToolCalls: r.calls},
+		Message{Role: "tool", ToolCallID: r.calls[0].ID, Text: "PURPLE-42"},
+		user("Then, on a new line, also write BLUE-7."))
+	r, err := tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.text, "PURPLE-42") || !strings.Contains(r.text, "BLUE-7") {
+		t.Fatalf("reply after the dropped call = %+v", r)
+	}
+}
+
+// TestRealCLIProgressKeepsCallAlive holds a call for six minutes with the
+// pool's progress notifications, and the same process gets the result.
+func TestRealCLIProgressKeepsCallAlive(t *testing.T) {
+	skipUnlessLong(t)
+	tp := newRealPool(t, 10*time.Minute)
+	r, req := realHeldCall(t, tp, "real-alive")
+
+	time.Sleep(6 * time.Minute)
+	st := tp.Status()
+	if len(st.Processes) != 1 || st.Processes[0].State != "waiting_tool" {
+		t.Fatalf("held call was not kept alive: %+v", st.Processes)
+	}
+	pid := st.Processes[0].PID
+
+	req.Messages = append(req.Messages,
+		Message{Role: "assistant", ToolCalls: r.calls},
+		Message{Role: "tool", ToolCallID: r.calls[0].ID, Text: "PURPLE-42"},
+		user("Then, on a new line, also write BLUE-7."))
+	r, err := tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.text, "PURPLE-42") || !strings.Contains(r.text, "BLUE-7") {
+		t.Fatalf("reply after the held call = %+v", r)
+	}
+	if st := tp.Status(); len(st.Processes) != 1 || st.Processes[0].PID != pid {
+		t.Fatalf("the process changed: %+v", st.Processes)
+	}
+}
+
+func skipUnlessLong(t *testing.T) {
+	t.Helper()
+	if os.Getenv("CLAUDEPOOL_REAL_CLI_LONG") != "1" {
+		t.Skip("set CLAUDEPOOL_REAL_CLI_LONG=1 (with CLAUDEPOOL_REAL_CLI=1) to run tests that hold a call for minutes")
+	}
+}
+
+// realHeldCall starts a conversation whose first reply is one tool call,
+// which the test then holds.
+func realHeldCall(t *testing.T, tp *testPool, owner string) (reply, Request) {
+	t.Helper()
+	req := Request{
+		Owner: owner, Model: "haiku", System: "You are a terse test assistant.", Tools: []Tool{lookupTool},
+		// Not "only the result text": the follow-up asks for more.
+		Messages: []Message{user(`Call the lookup tool with q set to "x". After you get its result, reply with the result text.`)},
+	}
+	r, err := tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.finish != "tool_calls" || len(r.calls) != 1 {
+		t.Fatalf("first reply = %+v", r)
+	}
+	return r, req
+}
+
+// newRealPool starts a pool on the installed, signed-in claude binary, or
+// skips the test unless CLAUDEPOOL_REAL_CLI=1.
+func newRealPool(t *testing.T, toolTimeout time.Duration) *testPool {
+	t.Helper()
+	if os.Getenv("CLAUDEPOOL_REAL_CLI") != "1" {
+		t.Skip("set CLAUDEPOOL_REAL_CLI=1 to run against the installed claude binary")
+	}
+	bin, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skip("claude is not installed")
+	}
+	var pool *Pool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { pool.ServeHTTP(w, r) }))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	pool, err = New(Config{
+		CLI:         CLI{Binary: bin},
+		WorkDir:     dir + "/work",
+		StateDir:    dir + "/state",
+		MCPURL:      srv.URL,
+		ToolTimeout: toolTimeout,
+		Logf:        t.Logf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		pool.Close()
+		_ = os.RemoveAll(pool.projectDir()) // this test's own session folder
+	})
+	return &testPool{Pool: pool}
 }

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -87,6 +88,10 @@ type process struct {
 	exitErr  error
 	stderr   limitedBuffer
 	controls int
+
+	// moves counts the messages that show Claude going on with a turn: a
+	// tool result reaching it, or a new model call starting.
+	moves atomic.Int64
 }
 
 func startProcess(bin string, args, env []string, dir string) (*process, error) {
@@ -127,6 +132,9 @@ func (p *process) read(stdout io.Reader) {
 		var msg streamMsg
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil || msg.Type == "" {
 			continue
+		}
+		if msg.Type == "user" || (msg.Type == "stream_event" && msg.Event != nil && msg.Event.Type == "message_start") {
+			p.moves.Add(1)
 		}
 		p.msgs <- msg
 	}

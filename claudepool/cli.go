@@ -71,7 +71,8 @@ func (c CLI) Env(extra ...string) []string {
 			upper == "CLAUDECODE",
 			upper == "CLAUDE_CODE_ENTRYPOINT",
 			upper == "CLAUDE_CONFIG_DIR",
-			upper == "MCP_TOOL_TIMEOUT":
+			upper == "MCP_TOOL_TIMEOUT",
+			upper == "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT":
 			continue
 		}
 		env = append(env, kv)

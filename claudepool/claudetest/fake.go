@@ -7,6 +7,7 @@ package claudetest
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,6 +34,7 @@ type FakeLog struct {
 	Model       string `json:"model"`
 	System      string `json:"system"`
 	ToolTimeout string `json:"tool_timeout"`
+	IdleTimeout string `json:"idle_timeout"`
 	NoMDs       string `json:"no_mds"`
 	Dir         string `json:"dir"`
 	HasAPIKey   bool   `json:"has_api_key"`
@@ -96,8 +98,9 @@ func FakeMain(args []string) int {
 	dir, _ := os.Getwd()
 	entry := FakeLog{
 		Mode: mode, Session: session, Model: model, System: string(system),
-		ToolTimeout: os.Getenv("MCP_TOOL_TIMEOUT"), NoMDs: os.Getenv("CLAUDE_CODE_DISABLE_CLAUDE_MDS"),
-		Dir: dir, HasAPIKey: os.Getenv("ANTHROPIC_API_KEY") != "",
+		ToolTimeout: os.Getenv("MCP_TOOL_TIMEOUT"), IdleTimeout: os.Getenv("CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"),
+		NoMDs: os.Getenv("CLAUDE_CODE_DISABLE_CLAUDE_MDS"),
+		Dir:   dir, HasAPIKey: os.Getenv("ANTHROPIC_API_KEY") != "",
 	}
 	if path := os.Getenv("CLAUDEPOOL_FAKE_LOG"); path != "" {
 		line, _ := json.Marshal(entry)
@@ -255,22 +258,50 @@ func FakeMain(args []string) int {
 func fakeMCPCall(url string, headers map[string]string, id, name, args string) string {
 	post := func(body any) (map[string]any, error) {
 		raw, _ := json.Marshal(body)
-		req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
-		req.Header.Set("Content-Type", "application/json")
-		for k, v := range headers {
-			req.Header.Set(k, v)
+		ctx, cancel := context.WithCancel(context.Background())
+		type answer struct {
+			out map[string]any
+			err error
 		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return nil, err
+		done := make(chan answer, 1)
+		progress := make(chan struct{}, 64)
+		go func() {
+			out, err := fakePost(ctx, url, headers, raw, progress)
+			done <- answer{out, err}
+		}()
+		// Like Claude Code: give up on a call after a silence (no
+		// response and no progress) and carry on with an error result.
+		// Claude Code leaves the request itself open;
+		// CLAUDEPOOL_FAKE_DROP_CLOSES=1 closes it instead.
+		silence := time.Duration(0)
+		if d, err := time.ParseDuration(os.Getenv("CLAUDEPOOL_FAKE_DROP_AFTER")); err == nil && d > 0 {
+			silence = d
 		}
-		defer resp.Body.Close()
-		data, _ := io.ReadAll(resp.Body)
-		var out map[string]any
-		if err := json.Unmarshal(data, &out); err != nil {
-			return nil, fmt.Errorf("status %d: %s", resp.StatusCode, data)
+		var idle <-chan time.Time
+		var timer *time.Timer
+		if silence > 0 {
+			timer = time.NewTimer(silence)
+			defer timer.Stop()
+			idle = timer.C
 		}
-		return out, nil
+		for {
+			select {
+			case a := <-done:
+				cancel()
+				return a.out, a.err
+			case <-progress:
+				if timer != nil {
+					timer.Reset(silence)
+				}
+			case <-idle:
+				if os.Getenv("CLAUDEPOOL_FAKE_DROP_CLOSES") == "1" {
+					cancel()
+				} else {
+					go func() { <-done; cancel() }() // open until it ends
+				}
+				return nil, fmt.Errorf("no response or progress for %s", silence)
+			}
+		}
 	}
 	list, err := post(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	if err != nil {
@@ -305,4 +336,53 @@ func fakeMCPCall(url string, headers map[string]string, id, name, args string) s
 		return "ERR " + text
 	}
 	return text
+}
+
+// fakePost sends one MCP request and returns the response, reading an event
+// stream when the server answers with one; each progress notification is
+// signalled on progress.
+func fakePost(ctx context.Context, url string, headers map[string]string, raw []byte, progress chan<- struct{}) (map[string]any, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		data, _ := io.ReadAll(resp.Body)
+		var out map[string]any
+		if err := json.Unmarshal(data, &out); err != nil {
+			return nil, fmt.Errorf("status %d: %s", resp.StatusCode, data)
+		}
+		return out, nil
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64<<10), 16<<20)
+	for scanner.Scan() {
+		data, ok := strings.CutPrefix(scanner.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		var out map[string]any
+		if err := json.Unmarshal([]byte(data), &out); err != nil {
+			return nil, err
+		}
+		if out["method"] == "notifications/progress" {
+			select {
+			case progress <- struct{}{}:
+			default:
+			}
+			continue
+		}
+		return out, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, io.ErrUnexpectedEOF
 }

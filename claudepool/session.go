@@ -37,6 +37,7 @@ type session struct {
 	stateSince time.Time
 	turns      int
 	awaiting   []ToolCall // tool calls of the last reply, waiting for results
+	waitMoves  int64      // proc.moves when the session started waiting for them
 	retire     bool       // drop the session once its current turn ends
 
 	// turn serializes requests on this session.
@@ -107,6 +108,17 @@ func (s *session) forget(id string, ch chan toolResult) {
 	if s.held[id] == ch {
 		delete(s.held, id)
 	}
+}
+
+// awaitsLocked reports whether the caller still owes the result of call
+// id. The pool lock must be held.
+func (s *session) awaitsLocked(id string) bool {
+	for _, call := range s.awaiting {
+		if call.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // failHeld answers every held call, used when a session is reset.
