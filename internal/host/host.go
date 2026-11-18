@@ -38,6 +38,9 @@ type Candidate struct {
 	AgentPolicy    string `json:"agent_policy,omitempty"`
 	Binary         string `json:"binary"`
 	Version        string `json:"version"`
+	// AllowRestart lets a release that changes stored schema deploy by
+	// stopping the current server and booting this one, which migrates.
+	AllowRestart bool `json:"allow_restart,omitempty"`
 }
 type slot struct {
 	candidate Candidate
@@ -66,7 +69,10 @@ type Host struct {
 	cancel       context.CancelFunc
 	deploying    bool
 	controlToken string
-	security     *sshwatch.Collector
+	// nextServer is the NextServerPath request this start follows; it is
+	// removed once that server serves.
+	nextServer *Candidate
+	security   *sshwatch.Collector
 }
 
 func New(cfg Config) (*Host, error) {
@@ -142,7 +148,40 @@ func New(cfg Config) (*Host, error) {
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return nil, e
 	}
-	return &Host{cfg: cfg, state: state, router: NewRouter(), ingress: newIngress(), processes: processes{entries: map[string]*hostedProcess{}}}, nil
+	h := &Host{cfg: cfg, state: state, router: NewRouter(), ingress: newIngress(), processes: processes{entries: map[string]*hostedProcess{}}}
+	h.applyNextServer()
+	return h, nil
+}
+
+// applyNextServer boots a requested release fresh, as a restart migration
+// started by the CLI through an older host. Only a cleanly stopped host with
+// no slot to adopt follows it; the request names a server in this
+// installation's version directory.
+func (h *Host) applyNextServer() {
+	path := NextServerPath(h.cfg.Home)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var next Candidate
+	if err = json.Unmarshal(raw, &next); err == nil {
+		err = h.validateCandidate(next)
+	}
+	if err == nil && (!h.state.CleanStop || h.state.ActiveSlot != nil || h.state.PendingSlot != nil || (h.state.Job != nil && !Terminal(h.state.Job.Phase))) {
+		err = errors.New("the previous host did not stop cleanly")
+	}
+	if err != nil {
+		// A stale request must not take effect at some later start.
+		log.Printf("[HOST] discarding %s: %v", path, err)
+		_ = os.Remove(path)
+		return
+	}
+	h.nextServer = &next
+	if next.Version == h.state.Version && next.Binary == h.state.Binary {
+		return
+	}
+	h.state.Job = &Deployment{ID: strconv.FormatInt(time.Now().UnixNano(), 36), Phase: "recovering", Message: "Starting the requested version; it migrates the database as it boots", Version: next.Version, Previous: h.state.Version, UpdatedAt: time.Now().UTC()}
+	h.state.Binary, h.state.Version = next.Binary, next.Version
 }
 func Terminal(phase string) bool {
 	return phase == "succeeded" || phase == "failed" || phase == "rolled_back" || phase == "recovery_required"
@@ -269,12 +308,17 @@ func (h *Host) Run(ctx context.Context) error {
 		return err
 	}
 	h.router.Publish(s.backend)
+	message := "Recovered the serving version without restoring or deleting live data"
+	if next := h.nextServer; next != nil && s.candidate.Binary == next.Binary {
+		_ = os.Remove(NextServerPath(h.cfg.Home))
+		message = "New server is serving after a restart migration; the database was migrated in place"
+	}
 	if job := h.Snapshot().Job; job != nil {
 		phase := "rolled_back"
 		if job.Version == s.candidate.Version {
 			phase = "succeeded"
 		}
-		_ = h.phase(phase, "Recovered the serving version without restoring or deleting live data")
+		_ = h.phase(phase, message)
 	}
 	select {
 	case <-h.ctx.Done():
@@ -322,11 +366,12 @@ func (h *Host) control() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), h.cfg.StartupTimeout)
 		defer cancel()
-		if err := h.preflight(ctx, &c); err != nil {
+		restart, err := h.preflight(ctx, &c)
+		if err != nil {
 			http.Error(w, err.Error(), 409)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]bool{"validated": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"validated": true, "restart_required": restart})
 	})
 	mux.HandleFunc("POST /listeners", h.listenersHandler)
 	mux.HandleFunc("POST /process/start", h.processStartHandler)
@@ -334,6 +379,7 @@ func (h *Host) control() http.Handler {
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		state := h.Snapshot()
+		state.Capabilities = HostCapabilities
 		if state.ActiveSlot != nil {
 			state.ActiveSlot.ProxyKey = ""
 		}
@@ -355,6 +401,7 @@ func (h *Host) control() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		state := h.Snapshot()
+		state.Capabilities = HostCapabilities
 		if state.ActiveSlot != nil {
 			state.ActiveSlot.ProxyKey = ""
 		}
@@ -419,28 +466,33 @@ func (h *Host) validateCandidate(c Candidate) error {
 	}
 	return nil
 }
-func (h *Host) preflight(ctx context.Context, c *Candidate) error {
+
+// preflight migrates a copy of the live database with the candidate. It
+// reports restart=true when the release changes stored schema or data and the
+// caller allowed a restart migration; without that permission such a release
+// is refused.
+func (h *Host) preflight(ctx context.Context, c *Candidate) (restart bool, err error) {
 	if err := h.probeProtocol(ctx, *c); err != nil {
-		return err
+		return false, err
 	}
 	dir := filepath.Join(h.cfg.Home, "host", "preflight", strconv.FormatInt(time.Now().UnixNano(), 36))
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+		return false, err
 	}
 	if err := preflightSpace(h.cfg.DBPath, filepath.Join(dir, "apteva.db")); err != nil {
-		return err
+		return false, err
 	}
 	cmd := exec.CommandContext(ctx, c.Binary, "--preflight")
 	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_UPDATE_PREFLIGHT": filepath.Join(dir, "apteva.db"), "APTEVA_HOST_SOCKET": "", "APTEVA_HOST_SLOT_SOCKET": "", ControlTokenEnv: ""})
 	logf, err := os.OpenFile(filepath.Join(dir, "preflight.log"), os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer logf.Close()
 	cmd.Stdout = logf
 	cmd.Stderr = logf
 	if err = cmd.Run(); err != nil {
-		return fmt.Errorf("candidate preflight failed; see %s: %w", filepath.Join(dir, "preflight.log"), err)
+		return false, fmt.Errorf("candidate preflight failed; see %s: %w", filepath.Join(dir, "preflight.log"), err)
 	}
 	var report struct {
 		Version      string `json:"version"`
@@ -449,23 +501,38 @@ func (h *Host) preflight(ctx context.Context, c *Candidate) error {
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "apteva.db.json"))
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err = json.Unmarshal(b, &report); err != nil {
-		return err
+		return false, err
 	}
-	if report.Version != c.Version || !report.RollbackSafe || report.SchemaHash == "" {
-		return errors.New("release changes stored schema or data; a restart migration is required, and the current server remains active")
+	if report.Version != c.Version || report.SchemaHash == "" {
+		return false, errors.New("candidate preflight did not report this release's database identity")
+	}
+	if !report.RollbackSafe {
+		if c.AllowRestart {
+			return true, nil
+		}
+		return false, errors.New(restartMigrationRequired)
 	}
 	c.SchemaHash = report.SchemaHash
 	c.ExistingSchema = true
-	return nil
+	return false, nil
 }
+
+// restartMigrationRequired is matched by older CLIs; keep the wording.
+const restartMigrationRequired = "release changes stored schema or data; a restart migration is required, and the current server remains active"
+
 func (h *Host) deploy(c Candidate) {
 	ctx, cancel := context.WithTimeout(h.ctx, 2*h.cfg.StartupTimeout+h.cfg.DrainTimeout)
 	defer cancel()
-	if err := h.preflight(ctx, &c); err != nil {
+	restart, err := h.preflight(ctx, &c)
+	if err != nil {
 		_ = h.phase("failed", err.Error())
+		return
+	}
+	if restart {
+		h.restartMigration(c)
 		return
 	}
 	h.mu.Lock()
@@ -473,7 +540,7 @@ func (h *Host) deploy(c Candidate) {
 	h.mu.Unlock()
 	var identity DatabaseIdentity
 	identityClient := UnixClient(source.socket)
-	err := Call(ctx, identityClient, "GET", "/identity", nil, &identity)
+	err = Call(ctx, identityClient, "GET", "/identity", nil, &identity)
 	identityClient.CloseIdleConnections()
 	if err != nil || identity.SchemaHash != c.SchemaHash || identity.SecretHash == "" {
 		_ = h.phase("failed", "Cannot confirm the active database and encryption key identity")
@@ -534,19 +601,7 @@ func (h *Host) deploy(c Candidate) {
 		h.router.Resume()
 		return
 	}
-	policy := c.AgentPolicy
-	if policy == "" {
-		var v struct {
-			Policy string `json:"agent_policy"`
-		}
-		client := UnixClient(old.socket)
-		_ = Call(ctx, client, "GET", "/policy", nil, &v)
-		client.CloseIdleConnections()
-		policy = v.Policy
-		if policy == "" {
-			policy = "preserve"
-		}
-	}
+	policy := h.agentPolicy(ctx, c, old)
 	expected := map[string]int{}
 	oldClient := UnixClient(old.socket)
 	err = Call(ctx, oldClient, "POST", "/freeze", nil, &expected)
@@ -636,19 +691,40 @@ func (h *Host) deploy(c Candidate) {
 	}
 	h.router.Publish(candidate.backend)
 	if err == nil {
-		message := "New server is serving; application and database data were retained"
-		if policy != "preserve" {
-			client := UnixClient(candidate.socket)
-			rolloutErr := Call(transferCtx, client, "POST", "/rollout", map[string]string{"agent_policy": policy}, nil)
-			client.CloseIdleConnections()
-			if rolloutErr != nil {
-				message += ". Core rollout needs attention: " + rolloutErr.Error()
-			} else {
-				message += ". Core rollout requested: " + policy
-			}
-		}
-		_ = h.phase("succeeded", message)
+		_ = h.phase("succeeded", h.rollout(transferCtx, candidate, policy, "New server is serving; application and database data were retained"))
 	}
+}
+
+// agentPolicy is the candidate's requested agent handling, else the running
+// server's configured policy, else preserve.
+func (h *Host) agentPolicy(ctx context.Context, c Candidate, current *slot) string {
+	if c.AgentPolicy != "" {
+		return c.AgentPolicy
+	}
+	var v struct {
+		Policy string `json:"agent_policy"`
+	}
+	client := UnixClient(current.socket)
+	_ = Call(ctx, client, "GET", "/policy", nil, &v)
+	client.CloseIdleConnections()
+	if v.Policy == "" {
+		return "preserve"
+	}
+	return v.Policy
+}
+
+// rollout asks the new server to update agent cores per policy and appends
+// the outcome to message.
+func (h *Host) rollout(ctx context.Context, s *slot, policy, message string) string {
+	if policy == "preserve" {
+		return message
+	}
+	client := UnixClient(s.socket)
+	defer client.CloseIdleConnections()
+	if err := Call(ctx, client, "POST", "/rollout", map[string]string{"agent_policy": policy}, nil); err != nil {
+		return message + ". Core rollout needs attention: " + err.Error()
+	}
+	return message + ". Core rollout requested: " + policy
 }
 func overrides(base []string, values map[string]string) []string {
 	out := make([]string, 0, len(base)+len(values))
@@ -849,12 +925,55 @@ func (h *Host) probeProtocol(ctx context.Context, c Candidate) error {
 		return fmt.Errorf("server lacks the hosted standby protocol; an explicit restart migration is required: %w", err)
 	}
 	var response struct {
-		ExistingSchema bool   `json:"existing_schema"`
-		Protocol       int    `json:"protocol"`
-		Version        string `json:"version"`
+		ExistingSchema bool     `json:"existing_schema"`
+		Protocol       int      `json:"protocol"`
+		Version        string   `json:"version"`
+		Capabilities   []string `json:"capabilities"`
 	}
 	if json.Unmarshal(output, &response) != nil || response.Protocol != Protocol || !response.ExistingSchema || (c.Version != "" && response.Version != c.Version) {
 		return errors.New("candidate does not support this host protocol or release identity")
 	}
+	if !sendsControlToken(response.Version, response.Capabilities) {
+		return fmt.Errorf("server %s predates the host control token, so every app it starts would be refused; deploy a server from 0.100.14 or later", response.Version)
+	}
 	return nil
+}
+
+// firstControlTokenRelease is the first release whose server sends the control
+// token. It predates the capability list, so it is recognised by version.
+var firstControlTokenRelease = [3]int{0, 100, 14}
+
+func sendsControlToken(version string, capabilities []string) bool {
+	for _, capability := range capabilities {
+		if capability == CapabilityControlToken {
+			return true
+		}
+	}
+	parsed, ok := releaseVersion(version)
+	if !ok {
+		return false
+	}
+	for i := range parsed {
+		if parsed[i] != firstControlTokenRelease[i] {
+			return parsed[i] > firstControlTokenRelease[i]
+		}
+	}
+	return true
+}
+
+func releaseVersion(version string) ([3]int, bool) {
+	var parsed [3]int
+	core, _, _ := strings.Cut(strings.TrimPrefix(version, "v"), "-")
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return parsed, false
+	}
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 {
+			return parsed, false
+		}
+		parsed[i] = n
+	}
+	return parsed, true
 }

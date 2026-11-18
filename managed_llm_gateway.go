@@ -252,8 +252,8 @@ func (s *Server) handleManagedLLMChat(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "invalid_agent_credential"})
 		return
 	}
-	agent, err := s.store.GetAgentByCoreAPIKey(token)
-	if err != nil || agent.Status != "running" {
+	agent, err := s.runningCoreAgent(r.Context(), token)
+	if err != nil {
 		writeJSONStatus(w, http.StatusUnauthorized, map[string]any{"error": "invalid_agent_credential"})
 		return
 	}
@@ -358,11 +358,4 @@ func (s *Store) GetConnectionRuntimeConfigAny(connID int64) string {
 	var raw string
 	_ = s.dbQueryRow(`SELECT COALESCE(runtime_config,'{}') FROM connections WHERE id=?`, connID).Scan(&raw)
 	return raw
-}
-
-func (s *Store) GetAgentByCoreAPIKey(key string) (*Agent, error) {
-	var agent Agent
-	err := s.dbQueryRow(`SELECT id,user_id,COALESCE(project_id,''),COALESCE(status,'stopped')
-		FROM agents WHERE core_api_key=?`, key).Scan(&agent.ID, &agent.UserID, &agent.ProjectID, &agent.Status)
-	return &agent, err
 }
