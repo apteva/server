@@ -495,7 +495,15 @@ func TestClaudeSubscriptionModelsAndDefaultTiers(t *testing.T) {
 	if strings.Join(ids, ",") != "opus,opus[1m],claude-fable-5-1[1m],sonnet,haiku" {
 		t.Fatalf("models = %v", ids)
 	}
-	if models[2].Name != "Fable" || models[2].ContextSize != 1000000 || models[3].ContextSize != 200000 {
+	// Options are named after the model they point at today.
+	var names []string
+	for _, m := range models {
+		names = append(names, m.Name)
+	}
+	if strings.Join(names, ",") != "Opus 5.5,Opus 5.5 (1M context),Fable 5.1 (1M context),Sonnet 5,Haiku 4.5" {
+		t.Fatalf("names = %v", names)
+	}
+	if models[2].ContextSize != 1000000 || models[3].ContextSize != 200000 {
 		t.Fatalf("fable/sonnet = %+v %+v", models[2], models[3])
 	}
 
@@ -517,5 +525,21 @@ func TestClaudeSubscriptionModelsAndDefaultTiers(t *testing.T) {
 	}
 	if saved, err := f.s.store.GetConnectionRuntimeConfig(f.userID, f.connID); err != nil || saved["model_large"] != "opus" {
 		t.Fatalf("saved config = %v %v", saved, err)
+	}
+}
+
+func TestClaudeModelName(t *testing.T) {
+	for id, want := range map[string]string{
+		"claude-sonnet-5":           "Sonnet 5",
+		"claude-opus-5-5[1m]":       "Opus 5.5",
+		"claude-haiku-4-5-20251001": "Haiku 4.5",
+		"claude-fable-5-1":          "Fable 5.1",
+		"sonnet":                    "",
+		"claude-3-5-sonnet":         "",
+		"":                          "",
+	} {
+		if got := claudeModelName(id); got != want {
+			t.Errorf("claudeModelName(%q) = %q, want %q", id, got, want)
+		}
 	}
 }

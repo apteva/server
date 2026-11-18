@@ -57,10 +57,11 @@ type Pool struct {
 
 	// probeMu serializes the short-lived processes that ask Claude Code
 	// for plan usage and models, and guards their cached answers.
-	probeMu  sync.Mutex
-	usage    *PlanUsage
-	models   []ModelOption
-	modelsAt time.Time
+	probeMu    sync.Mutex
+	usage      *PlanUsage
+	models     []ModelOption
+	modelsAt   time.Time
+	modelsFrom string // cliIdentity of the binary that listed them
 
 	stop chan struct{}
 }

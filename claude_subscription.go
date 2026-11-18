@@ -84,6 +84,7 @@ func (s *Server) claudeSubscriptionModelList(ctx context.Context, refresh bool) 
 	}
 	var listed []ModelInfo
 	seen := map[string]bool{}
+	resolved := map[string]string{} // value → model it points at
 	for _, option := range options {
 		// "default" follows whatever Claude Code picks; an empty tier
 		// already means that.
@@ -91,22 +92,58 @@ func (s *Server) claudeSubscriptionModelList(ctx context.Context, refresh bool) 
 			continue
 		}
 		seen[option.Value] = true
+		resolved[option.Value] = option.ResolvedModel
 		window := 200000
 		if strings.HasSuffix(option.Value, "[1m]") || strings.HasSuffix(option.ResolvedModel, "[1m]") {
 			window = 1000000
 		}
+		// Name the model the option points at today ("Sonnet 5"): the
+		// display name alone ("Sonnet") does not say which version.
+		name := option.DisplayName
+		if product := claudeModelName(option.ResolvedModel); product != "" {
+			name = product
+			if window == 1000000 {
+				name += " (1M context)"
+			}
+		}
 		listed = append(listed, ModelInfo{
-			ID: option.Value, Name: option.DisplayName, Description: option.Description, ContextSize: window,
+			ID: option.Value, Name: name, Description: option.Description, ContextSize: window,
 			Capabilities: ProviderModelCapabilities{ContextWindow: window, InputModalities: []string{"text", "image"}},
 		})
 	}
 	var models []ModelInfo
 	for _, alias := range aliases {
-		if !seen[alias.ID] {
-			models = append(models, alias)
+		if seen[alias.ID] {
+			continue
 		}
+		// An alias listed only as its 1M-context variant points at the
+		// same model with the standard context.
+		if product := claudeModelName(resolved[alias.ID+"[1m]"]); product != "" {
+			alias.Name = product
+		}
+		models = append(models, alias)
 	}
 	return append(models, listed...)
+}
+
+var claudeModelIDPattern = regexp.MustCompile(`^claude-([a-z]+)((?:-[0-9]+)+)$`)
+
+// claudeModelName turns a Claude model id into its product name:
+// claude-sonnet-5 is "Sonnet 5", claude-haiku-4-5-20251001 is "Haiku 4.5".
+// It returns "" for anything else.
+func claudeModelName(id string) string {
+	match := claudeModelIDPattern.FindStringSubmatch(strings.TrimSuffix(id, "[1m]"))
+	if match == nil {
+		return ""
+	}
+	version := strings.Split(strings.TrimPrefix(match[2], "-"), "-")
+	if n := len(version); n > 1 && len(version[n-1]) == 8 {
+		version = version[:n-1] // a snapshot date, not part of the version
+	}
+	if len(version) > 2 {
+		return ""
+	}
+	return strings.ToUpper(match[1][:1]) + match[1][1:] + " " + strings.Join(version, ".")
 }
 
 type claudeSubscriptionService struct {

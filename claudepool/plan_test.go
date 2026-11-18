@@ -2,7 +2,9 @@ package claudepool
 
 import (
 	"context"
+	"io"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -103,5 +105,64 @@ func TestAskAfterCloseFails(t *testing.T) {
 	tp.Close()
 	if _, err := tp.PlanUsage(context.Background(), time.Minute); err != ErrClosed {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Updating Claude Code (a new binary behind the same path) drops the
+// cached model list at once.
+func TestModelsRefreshWhenClaudeCodeChanges(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "claude")
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	tp := newTestPoolWith(t, Limits{}, func(cfg *Config) { cfg.CLI.Binary = link })
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if _, err := tp.Models(ctx, time.Hour); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(tp.spawns(t)); n != 1 {
+		t.Fatalf("spawns before the update = %d", n)
+	}
+
+	// "Update": the symlink now points at another copy of the binary.
+	updated := filepath.Join(dir, "claude-next")
+	copyFile(t, exe, updated)
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(updated, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tp.Models(ctx, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(tp.spawns(t)); n != 2 {
+		t.Fatalf("spawns after the update = %d", n)
+	}
+}
+
+func copyFile(t *testing.T, from, to string) {
+	t.Helper()
+	in, err := os.Open(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(to, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

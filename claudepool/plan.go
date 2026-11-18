@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -73,7 +75,10 @@ func (p *Pool) PlanUsage(ctx context.Context, maxAge time.Duration) (PlanUsage, 
 func (p *Pool) Models(ctx context.Context, maxAge time.Duration) ([]ModelOption, error) {
 	p.probeMu.Lock()
 	defer p.probeMu.Unlock()
-	if p.models != nil && time.Since(p.modelsAt) < maxAge {
+	// Each Claude Code release has its own list, so a cached list is only
+	// good for the binary that gave it.
+	binary := cliIdentity(p.CLI())
+	if p.models != nil && p.modelsFrom == binary && time.Since(p.modelsAt) < maxAge {
 		return append([]ModelOption(nil), p.models...), nil
 	}
 	raw, err := p.ask(ctx, map[string]any{"subtype": "list_models"})
@@ -99,8 +104,25 @@ func (p *Pool) Models(ctx context.Context, maxAge time.Duration) ([]ModelOption,
 		}
 		models = append(models, ModelOption{Value: m.Value, DisplayName: m.DisplayName, Description: m.Description, ResolvedModel: m.ResolvedModel})
 	}
-	p.models, p.modelsAt = models, time.Now()
+	p.models, p.modelsAt, p.modelsFrom = models, time.Now(), binary
 	return append([]ModelOption(nil), models...), nil
+}
+
+// cliIdentity names the claude binary that would run now: its real path
+// (installers switch versions by moving a symlink), size and time.
+func cliIdentity(cli CLI) string {
+	bin, err := cli.Resolve()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = real
+	}
+	info, err := os.Stat(bin)
+	if err != nil {
+		return bin
+	}
+	return fmt.Sprintf("%s|%d|%d", bin, info.Size(), info.ModTime().UnixNano())
 }
 
 // ask starts a short-lived claude process, sends it one control request

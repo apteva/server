@@ -52,7 +52,7 @@ var fakeAnswers = map[string]string{
 		{"value":"opus[1m]","resolvedModel":"claude-opus-5-5[1m]","displayName":"Opus (1M context)","description":"Opus with 1M context"},
 		{"value":"claude-fable-5-1[1m]","resolvedModel":"claude-fable-5-1","displayName":"Fable","description":"Most capable"},
 		{"value":"sonnet","resolvedModel":"claude-sonnet-5","displayName":"Sonnet","description":"Efficient"},
-		{"value":"haiku","resolvedModel":"claude-haiku-4-5","displayName":"Haiku","description":"Fastest"},
+		{"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku","description":"Fastest"},
 		{"value":"locked","displayName":"Locked","description":"Not on this plan","disabled":true}]}`,
 }
 
