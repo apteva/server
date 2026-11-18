@@ -17,7 +17,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -506,41 +505,14 @@ func usagePayload(u claudepool.Usage) map[string]any {
 }
 
 // claudeSubscriptionAgent resolves the agent behind a core key. Core starts
-// thinking before its key reaches the database, which happens once its
-// health check passes, so the key of a live process counts too.
-func (s *Server) claudeSubscriptionAgent(token string) (*Agent, bool) {
-	if agent, err := s.store.GetAgentByCoreAPIKey(token); err == nil && agent.Status == "running" {
-		return agent, true
-	}
-	if s.agents == nil {
+// thinking before its key reaches the database, so runningCoreAgent checks
+// live processes before the stored row.
+func (s *Server) claudeSubscriptionAgent(ctx context.Context, token string) (*Agent, bool) {
+	agent, err := s.runningCoreAgent(ctx, token)
+	if err != nil || agent == nil {
 		return nil, false
 	}
-	id := s.agents.agentIDByCoreAPIKey(token)
-	if id <= 0 {
-		return nil, false
-	}
-	var agent Agent
-	if err := s.store.dbQueryRow(`SELECT id,user_id,COALESCE(project_id,'') FROM agents WHERE id=?`, id).Scan(&agent.ID, &agent.UserID, &agent.ProjectID); err != nil {
-		return nil, false
-	}
-	agent.Status = "running"
-	return &agent, true
-}
-
-// agentIDByCoreAPIKey returns the agent whose live core process was started
-// with key, or 0.
-func (im *AgentManager) agentIDByCoreAPIKey(key string) int64 {
-	if !strings.HasPrefix(key, "core_") {
-		return 0
-	}
-	im.mu.RLock()
-	defer im.mu.RUnlock()
-	for id, ri := range im.processes {
-		if subtle.ConstantTimeCompare([]byte(ri.coreAPIKey), []byte(key)) == 1 && ri.isRunning() {
-			return id
-		}
-	}
-	return 0
+	return agent, true
 }
 
 // handleClaudeSubscriptionChat serves core's model calls. Like the managed
@@ -555,7 +527,7 @@ func (s *Server) handleClaudeSubscriptionChat(w http.ResponseWriter, r *http.Req
 		writeJSONStatus(w, http.StatusUnauthorized, claudeErrorBody("invalid_agent_credential", "invalid agent credential"))
 		return
 	}
-	agent, ok := s.claudeSubscriptionAgent(token)
+	agent, ok := s.claudeSubscriptionAgent(r.Context(), token)
 	if !ok {
 		writeJSONStatus(w, http.StatusUnauthorized, claudeErrorBody("invalid_agent_credential", "invalid agent credential"))
 		return
