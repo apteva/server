@@ -627,6 +627,16 @@ func (s *Server) hydrateRuntimeModels(conn runtimeConnection, app *AppTemplate, 
 		s.persistRuntimeModels(conn, state)
 		return nil
 	}
+	if app.Runtime.ProviderKey == claudeSubscriptionProviderKey {
+		// Claude Code's model aliases are fixed; no catalog to fetch.
+		for tier, model := range claudeSubscriptionDefaultModels {
+			if strings.TrimSpace(stringValue(state["model_"+tier])) == "" {
+				state["model_"+tier] = model
+			}
+		}
+		s.persistRuntimeModels(conn, state)
+		return nil
+	}
 	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
 		credentials := map[string]string{
 			"access_token":  stringValue(src.credentials["access_token"]),
@@ -751,6 +761,10 @@ func (s *Server) runtimeCatalogForRole(role string) []RuntimeCatalogEntry {
 			continue
 		}
 		if role != "" && !strings.EqualFold(app.Runtime.Role, role) {
+			continue
+		}
+		if connectionUsesLocalCLI(app) && !s.claudeSubscriptionAllowed() {
+			// Personal plans are offered only on single-user installs.
 			continue
 		}
 		out = append(out, RuntimeCatalogEntry{

@@ -3079,6 +3079,17 @@ func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) 
 	if app.Runtime != nil && strings.EqualFold(app.Runtime.Role, "llm") && !s.requireCapability(w, r, "provider_management") {
 		return
 	}
+	if connectionUsesLocalCLI(app) {
+		// The CLI on this machine holds its own sign-in; the connection
+		// stores nothing. Personal plans need a single-user install.
+		if !s.claudeSubscriptionAllowed() {
+			writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "single_user_only",
+				"detail": "This provider uses a personal Claude plan and is only available on single-user installs."})
+			return
+		}
+		body.AuthType = connectionAuthTypeLocalCLI
+		body.Credentials = map[string]string{}
+	}
 	if body.Name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return

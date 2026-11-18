@@ -269,6 +269,10 @@ func (s *Server) handleConnectionModels(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, models)
 		return
 	}
+	if app.Runtime.ProviderKey == claudeSubscriptionProviderKey {
+		writeJSON(w, s.claudeSubscriptionModelList(r.Context(), r.URL.Query().Get("refresh") == "1"))
+		return
+	}
 	if app.Runtime.ProviderKey == integrationGrokBuildSlug {
 		models, fetchErr := fetchGrokBuildModelCatalog(r.Context(), map[string]string{
 			"access_token":  stringValue(src.credentials["access_token"]),
@@ -330,6 +334,10 @@ func (s *Server) handleConnectionUsage(w http.ResponseWriter, r *http.Request) {
 	app := s.catalog.Get(conn.AppSlug)
 	if app == nil || app.Runtime == nil {
 		writeJSON(w, ProviderUsageSnapshot{Supported: false, ProviderID: connID})
+		return
+	}
+	if app.Runtime.ProviderKey == claudeSubscriptionProviderKey {
+		writeJSON(w, s.claudeSubscriptionUsage(r.Context(), connID, r.URL.Query().Get("refresh") == "1"))
 		return
 	}
 	fetcher := providerUsageFetcherFor(app.Runtime.ProviderKey)
@@ -538,7 +546,9 @@ func (s *Server) handleListRuntimeConnections(w http.ResponseWriter, r *http.Req
 		if raw := strings.TrimSpace(conn.RuntimeConfig); raw != "" {
 			_ = json.Unmarshal([]byte(raw), &config)
 		}
-		if app.Runtime.ModelPolicy != nil && conn.Status == "active" {
+		// Claude subscription tiers default to fixed aliases; fill them
+		// here too so a new connection shows them before any agent runs.
+		if (app.Runtime.ModelPolicy != nil || app.Runtime.ProviderKey == claudeSubscriptionProviderKey) && conn.Status == "active" {
 			if src, err := buildRuntimeSources(conn, s.secret); err == nil {
 				s.hydrateRuntimeModels(conn, app, src, config)
 			}
