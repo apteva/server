@@ -69,7 +69,7 @@ func saveAppComponentDeclarations(tx *sql.Tx, id int64, version string, componen
 		if err != sql.ErrNoRows {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO app_component_declarations VALUES(?,?,?,?)`, id, version, name, raw); err != nil {
+		if _, err := tx.Exec(`INSERT INTO app_component_declarations(install_id, parent_version, name, declaration_json) VALUES(?,?,?,?)`, id, version, name, raw); err != nil {
 			return err
 		}
 	}

@@ -32,7 +32,7 @@ type appInstallMetadata struct {
 
 func (s *Store) migrateAppMetadataGeneration() error {
 	if _, err := s.dbExec(`CREATE TABLE IF NOT EXISTS app_metadata_generation (id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL);
-		INSERT OR IGNORE INTO app_metadata_generation VALUES(1,1)`); err != nil {
+		INSERT OR IGNORE INTO app_metadata_generation(id, generation) VALUES(1,1)`); err != nil {
 		return err
 	}
 	for _, table := range []string{"apps", "app_installs", "users", "projects", "project_members"} {

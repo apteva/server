@@ -499,7 +499,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid preferences", 400)
 			return
 		}
-		if _, err := s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_preferences VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels`, uid, notificationJSON(p)); err != nil {
+		if _, err := s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_preferences(user_id, channels) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET channels=excluded.channels`, uid, notificationJSON(p)); err != nil {
 			fail(err)
 			return
 		}
@@ -548,7 +548,7 @@ func (s *Server) handleUserNotifications(w http.ResponseWriter, r *http.Request)
 		if sub.Filters == nil {
 			sub.Filters = map[string]string{}
 		}
-		_, err = s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_subscriptions VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,install_id,type,project_id,subscription_key) DO UPDATE SET filters=excluded.filters,channels=excluded.channels`, uid, sub.InstallID, sub.Type, sub.ProjectID, sub.Key, notificationJSON(sub.Filters), notificationJSON(sub.Channels))
+		_, err = s.store.dbExecContext(r.Context(), `INSERT INTO user_notification_subscriptions(user_id, install_id, type, project_id, subscription_key, filters, channels) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id,install_id,type,project_id,subscription_key) DO UPDATE SET filters=excluded.filters,channels=excluded.channels`, uid, sub.InstallID, sub.Type, sub.ProjectID, sub.Key, notificationJSON(sub.Filters), notificationJSON(sub.Channels))
 		if err != nil {
 			fail(err)
 			return

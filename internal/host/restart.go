@@ -13,9 +13,11 @@ import (
 // migrations. If the host itself stops part-way, its next start boots the new
 // binary again and the migration continues.
 //
-// The previous binary is booted again only when the new server failed before
-// it was activated, because migrations run after activation. An older binary
-// is never booted against a database the new one may have migrated.
+// The previous binary is booted again when the new server failed before it
+// was activated, because migrations run after activation, or when the
+// candidate's database check found its changes compatible with the previous
+// server. Otherwise an older binary is never booted against a database the new
+// one may have migrated.
 func (h *Host) restartMigration(c Candidate) {
 	h.mu.Lock()
 	old := h.active
@@ -46,18 +48,26 @@ func (h *Host) restartMigration(c Candidate) {
 	// From here on, any start of this host boots the new binary fresh, exactly
 	// like a stopped service whose next start is the new version.
 	if err = h.commitBinary(c); err != nil {
-		h.restartPrevious(previous, fmt.Errorf("cannot record the new version: %w", err))
+		h.restartPrevious(previous, fmt.Errorf("cannot record the new version: %w", err), false)
 		return
 	}
 
 	_ = h.phase("migrating", "Starting the new server; it applies database migrations as it boots")
 	candidate, activated, err := h.bootSlot(c)
 	if err != nil && !activated {
-		h.restartPrevious(previous, err)
+		h.restartPrevious(previous, err, false)
+		return
+	}
+	if err != nil && c.compatible {
+		h.restartPrevious(previous, err, true)
 		return
 	}
 	if err != nil {
-		_ = h.phase("recovery_required", fmt.Sprintf("The new server failed after it began migrating the database: %v. The previous version was not started because it may not run on a migrated database; the next host start boots the new version again", err))
+		backup := ""
+		if c.backup != "" {
+			backup = " A backup taken before the update is at " + c.backup + "."
+		}
+		_ = h.phase("recovery_required", fmt.Sprintf("The new server failed after it began migrating the database: %v. The previous version was not started because it may not run on a migrated database; the next host start boots the new version again.%s", err, backup))
 		return
 	}
 	if err = h.commitServing(candidate); err != nil {
@@ -69,9 +79,10 @@ func (h *Host) restartMigration(c Candidate) {
 	_ = h.phase("succeeded", h.rollout(ctx, candidate, policy, "New server is serving after a restart migration; the database was migrated in place"))
 }
 
-// restartPrevious boots the previous binary after the new one failed before
-// activation, so the database is as the previous server left it.
-func (h *Host) restartPrevious(previous Candidate, cause error) {
+// restartPrevious boots the previous binary after the new one failed: before
+// activation, so the database is as the previous server left it, or (migrated)
+// after migrations the database check found compatible with it.
+func (h *Host) restartPrevious(previous Candidate, cause error, migrated bool) {
 	_ = h.phase("rolling_back", "The new server did not start; starting the previous version")
 	h.stopProcesses()
 	err := h.commitBinary(previous)
@@ -84,6 +95,10 @@ func (h *Host) restartPrevious(previous Candidate, cause error) {
 	}
 	if err != nil {
 		_ = h.phase("recovery_required", fmt.Sprintf("new server failed: %v; previous version failed to start: %v", cause, err))
+		return
+	}
+	if migrated {
+		_ = h.phase("rolled_back", fmt.Sprintf("Previous version restarted; the new server failed after it began migrating, and its database changes are compatible with the previous version: %v", cause))
 		return
 	}
 	_ = h.phase("rolled_back", fmt.Sprintf("Previous version restarted; the new server failed before it migrated the database: %v", cause))

@@ -25,7 +25,24 @@ type platformUpdateJob struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 	Backup     string    `json:"backup,omitempty"`
 	Reconciled string    `json:"reconciled_version,omitempty"`
-	Request    *struct {
+	// Source is "cli" for an update started from the Apteva CLI.
+	Source string `json:"source,omitempty"`
+	// Check is the release's database check; Progress is its progress
+	// while it runs.
+	Check *struct {
+		Classification string   `json:"classification"`
+		Compatible     bool     `json:"compatible"`
+		Reasons        []string `json:"reasons,omitempty"`
+		Backup         string   `json:"backup,omitempty"`
+		BackupBytes    int64    `json:"backup_bytes,omitempty"`
+		DurationMS     int64    `json:"duration_ms,omitempty"`
+	} `json:"check,omitempty"`
+	Progress *struct {
+		Phase string `json:"phase"`
+		Done  int64  `json:"done"`
+		Total int64  `json:"total"`
+	} `json:"progress,omitempty"`
+	Request *struct {
 		ID          string `json:"request_id,omitempty"`
 		AgentPolicy string `json:"agent_policy,omitempty"`
 	} `json:"request,omitempty"`

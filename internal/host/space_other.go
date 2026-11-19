@@ -4,6 +4,6 @@ package host
 
 import "errors"
 
-func preflightSpace(string, string) error {
+func preflightSpace(string, string, int, uint64) error {
 	return errors.New("safe disk capacity checks are unavailable on this platform")
 }
