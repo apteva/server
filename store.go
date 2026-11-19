@@ -181,7 +181,7 @@ func openStore(path string, migrate bool) (*Store, error) {
 		dsn += "mode=rw&"
 	}
 	dsn += fmt.Sprintf("_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate", sqliteBusyTimeoutMS)
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open(updateCheckDriver(path), dsn)
 	if err != nil {
 		return nil, err
 	}

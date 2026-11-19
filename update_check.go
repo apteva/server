@@ -262,15 +262,20 @@ func updateCheckSummary(r updateCheckReport) string {
 }
 
 type updateProbeResult struct {
-	build updateProbeBuild
-	after updateSchemaSnapshot
-	rows  map[string]*updateCapturedTable
+	build  updateProbeBuild
+	after  updateSchemaSnapshot
+	rows   map[string]*updateCapturedTable
+	writes map[string]bool // tables migrations ran UPDATE or DELETE on
 }
 
 // touches reports whether the migrations changed rows or schema objects of
-// table.
+// table, or ran an UPDATE or DELETE on it: on a partly copied table such a
+// statement may match only rows the copy left out.
 func (r updateProbeResult) touches(table string) bool {
 	if t := r.rows[table]; t != nil && t.changes() > 0 {
+		return true
+	}
+	if r.writes[strings.ToLower(table)] {
 		return true
 	}
 	for key, after := range r.after.objects {
@@ -311,6 +316,7 @@ func runUpdateProbe(ctx context.Context, source, probe string, budget int64, ful
 		}
 	}
 	result.rows = capture.stop()
+	result.writes = capture.written()
 	if err != nil {
 		return result, fmt.Errorf("this release's migrations failed on a copy of the database: %w", err)
 	}
@@ -716,6 +722,9 @@ type updateCapture struct {
 	mu      sync.Mutex
 	stopped bool
 	tables  map[string]*updateCapturedTable
+	// writes: tables (lowercase) an UPDATE or DELETE statement named,
+	// whether or not it changed a row of the copy (update_check_sql.go).
+	writes map[string]bool
 }
 
 var (
@@ -779,6 +788,17 @@ func startUpdateCapture(probe string, before updateSchemaSnapshot) *updateCaptur
 	}
 	updateCaptureActive.Store(c.path, c)
 	return c
+}
+
+// written returns the tables statements wrote to; call after stop.
+func (c *updateCapture) written() map[string]bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]bool, len(c.writes))
+	for table := range c.writes {
+		out[table] = true
+	}
+	return out
 }
 
 func (c *updateCapture) stop() map[string]*updateCapturedTable {
