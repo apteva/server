@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"golang.org/x/sys/unix"
 	"os"
-	"path/filepath"
 )
 
-// Preflight keeps one consistent backup and one migration clone. Reserve
-// headroom for their WALs and ongoing application writes before starting.
-func preflightSpace(db, destination string) error {
+// preflightSpace requires room for copies full copies of the database (with
+// its WAL) plus headroom for the check's own files and ongoing writes.
+func preflightSpace(db, destination string, copies int, headroom uint64) error {
 	info, err := os.Stat(db)
 	if err != nil {
 		return err
@@ -21,11 +20,11 @@ func preflightSpace(db, destination string) error {
 		size += wal.Size()
 	}
 	var stat unix.Statfs_t
-	if err := unix.Statfs(filepath.Dir(destination), &stat); err != nil {
+	if err := unix.Statfs(destination, &stat); err != nil {
 		return err
 	}
 	available := uint64(stat.Bavail) * uint64(stat.Bsize)
-	required := uint64(size)*3 + 256<<20
+	required := uint64(size)*uint64(copies) + headroom
 	if available < required {
 		return fmt.Errorf("insufficient free disk space for preflight: need %d bytes, have %d; current server retained", required, available)
 	}

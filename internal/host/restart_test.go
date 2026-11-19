@@ -33,12 +33,16 @@ func TestRestartMigrationDeploysSchemaChangingRelease(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	var validated map[string]bool
+	var validated struct {
+		Validated       bool          `json:"validated"`
+		RestartRequired bool          `json:"restart_required"`
+		Check           *CheckSummary `json:"check"`
+	}
 	candidate.AllowRestart = true
 	if err := Call(context.Background(), c, "POST", "/validate", candidate, &validated); err != nil {
 		t.Fatal(err)
 	}
-	if !validated["validated"] || !validated["restart_required"] {
+	if !validated.Validated || !validated.RestartRequired || validated.Check == nil || validated.Check.Classification != "incompatible" {
 		t.Fatalf("validate with allow_restart: %v", validated)
 	}
 	if data, _ := os.ReadFile(h.cfg.DBPath); string(data) != "initial\nbefore-update\n" {
@@ -402,5 +406,133 @@ func TestHostStartIgnoresUnsafeServerRequests(t *testing.T) {
 				t.Fatal("unsafe request was kept for a later start")
 			}
 		})
+	}
+}
+
+// A release whose database changes the check found compatible may fall back
+// to the previous server even after it began migrating. No backup is kept.
+func TestRestartMigrationRestartsPreviousWhenChangesAreCompatible(t *testing.T) {
+	h, c, url, candidate := fixture(t)
+	_ = os.WriteFile(candidate.Binary+".incompatible", nil, 0600)
+	_ = os.WriteFile(candidate.Binary+".compatible", nil, 0600)
+	_ = os.WriteFile(candidate.Binary+".fail-activation-once", nil, 0600)
+	candidate.AllowRestart = true
+	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := waitJob(t, c)
+	if state.Job.Phase != "rolled_back" || state.Version != "1.0.0" || !strings.Contains(state.Job.Message, "compatible with the previous version") {
+		t.Fatalf("failed compatible migration: %+v", state.Job)
+	}
+	if state.Job.Check == nil || state.Job.Check.Classification != "compatible" || state.Job.Check.Backup != "" {
+		t.Fatalf("check summary: %+v", state.Job.Check)
+	}
+	if got := servedVersion(t, url); got != "1.0.0" {
+		t.Fatalf("serving %q after rollback", got)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(h.cfg.Home, "update-backups")); len(entries) != 0 {
+		t.Fatalf("a compatible release left %d backup(s)", len(entries))
+	}
+	assertNoPreflightLeftovers(t, h.cfg.Home)
+}
+
+// An incompatible release is backed up once and the backup is named when the
+// migration needs recovery. A failed update prunes nothing.
+func TestRestartMigrationBacksUpIncompatibleRelease(t *testing.T) {
+	h, c, _, candidate := fixture(t)
+	stale := filepath.Join(h.cfg.Home, "update-backups", "host-old")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(candidate.Binary+".incompatible", nil, 0600)
+	_ = os.WriteFile(candidate.Binary+".fail-activation-once", nil, 0600)
+	candidate.AllowRestart = true
+	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := waitJob(t, c)
+	if state.Job.Phase != "recovery_required" || !strings.Contains(state.Job.Message, "A backup taken before the update is at ") {
+		t.Fatalf("failed incompatible migration: %+v", state.Job)
+	}
+	if state.Job.Check == nil || state.Job.Check.Backup == "" {
+		t.Fatalf("check summary: %+v", state.Job.Check)
+	}
+	if data, err := os.ReadFile(state.Job.Check.Backup); err != nil || string(data) != "backup" {
+		t.Fatalf("backup: %q %v", data, err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("a failed update removed an earlier backup: %v", err)
+	}
+	assertNoPreflightLeftovers(t, h.cfg.Home)
+}
+
+// Older backups are pruned only once an update with its own backup succeeds.
+func TestSucceededIncompatibleUpdatePrunesOlderBackups(t *testing.T) {
+	h, c, url, candidate := fixture(t)
+	stale := filepath.Join(h.cfg.Home, "update-backups", "host-old")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(candidate.Binary+".incompatible", nil, 0600)
+	candidate.AllowRestart = true
+	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := waitJob(t, c)
+	if state.Job.Phase != "succeeded" || state.Job.Check == nil || state.Job.Check.Backup == "" {
+		t.Fatalf("incompatible update: %+v %+v", state.Job, state.Job.Check)
+	}
+	if got := servedVersion(t, url); got != "2.0.0" {
+		t.Fatalf("serving %q", got)
+	}
+	if data, err := os.ReadFile(state.Job.Check.Backup); err != nil || string(data) != "backup" {
+		t.Fatalf("backup: %q %v", data, err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("older backup kept after a successful update with its own backup")
+	}
+	assertNoPreflightLeftovers(t, h.cfg.Home)
+}
+
+// A deployment refused because it needs a restart migration it was not
+// allowed keeps the earlier backup and leaves no new one behind.
+func TestRefusedRestartMigrationKeepsEarlierBackup(t *testing.T) {
+	h, c, url, candidate := fixture(t)
+	stale := filepath.Join(h.cfg.Home, "update-backups", "host-old")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(stale, "apteva.db"), []byte("earlier"), 0600)
+	_ = os.WriteFile(candidate.Binary+".incompatible", nil, 0600)
+	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := waitJob(t, c)
+	if state.Job.Phase != "failed" || !strings.Contains(state.Job.Message, "restart migration is required") {
+		t.Fatalf("refused update: %+v", state.Job)
+	}
+	if got := servedVersion(t, url); got != "1.0.0" {
+		t.Fatalf("serving %q", got)
+	}
+	entries, _ := os.ReadDir(filepath.Join(h.cfg.Home, "update-backups"))
+	if len(entries) != 1 || entries[0].Name() != "host-old" {
+		t.Fatalf("backups after a refused update: %v", entries)
+	}
+	if data, err := os.ReadFile(filepath.Join(stale, "apteva.db")); err != nil || string(data) != "earlier" {
+		t.Fatalf("earlier backup: %q %v", data, err)
+	}
+	assertNoPreflightLeftovers(t, h.cfg.Home)
+}
+
+func assertNoPreflightLeftovers(t *testing.T, home string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(home, "host", "preflight"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			t.Fatalf("check work directory left behind: %s", entry.Name())
+		}
 	}
 }

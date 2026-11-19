@@ -52,7 +52,11 @@ func backupPause(ctx context.Context, delay time.Duration) error {
 // between steps in rollback mode. WAL readers pin a consistent view so active
 // writers cannot continuously restart the copy. Never use a pooled write
 // connection for that read transaction (_txlock=immediate would reserve writes).
-func onlineBackupDB(ctx context.Context, db *sql.DB, dst string) (err error) {
+func onlineBackupDB(ctx context.Context, db *sql.DB, dst string) error {
+	return onlineBackupDBProgress(ctx, db, dst, nil)
+}
+
+func onlineBackupDBProgress(ctx context.Context, db *sql.DB, dst string, progress func(done, total int64)) (err error) {
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -121,6 +125,8 @@ func onlineBackupDB(ctx context.Context, db *sql.DB, dst string) (err error) {
 				result = e
 			}
 		}()
+		step := int32(max(1, (1<<20)/pageSize))
+		var copied int64
 		for {
 			if e = ctx.Err(); e != nil {
 				return e
@@ -133,7 +139,7 @@ func onlineBackupDB(ctx context.Context, db *sql.DB, dst string) (err error) {
 			if e = backupSpace(filepath.Dir(dst), 2<<20); e != nil {
 				return e
 			}
-			more, e := b.Step(int32(max(1, (1<<20)/pageSize)))
+			more, e := b.Step(step)
 			if e != nil {
 				var se *sqlite.Error
 				if !errors.As(e, &se) || (se.Code()&255 != 5 && se.Code()&255 != 6) {
@@ -143,6 +149,13 @@ func onlineBackupDB(ctx context.Context, db *sql.DB, dst string) (err error) {
 					return e
 				}
 				continue
+			}
+			if progress != nil {
+				copied = min(pages, copied+int64(step))
+				if !more {
+					copied = pages
+				}
+				progress(copied*pageSize, pages*pageSize)
 			}
 			if !more {
 				return nil
@@ -185,13 +198,18 @@ func backupStageFile(ctx context.Context, src, dst string) error {
 }
 
 func onlineBackupPath(ctx context.Context, src, dst string) error {
+	return onlineBackupPathProgress(ctx, src, dst, nil)
+}
+
+// onlineBackupPathProgress reports copied and total bytes as it goes.
+func onlineBackupPathProgress(ctx context.Context, src, dst string, progress func(done, total int64)) error {
 	u := &url.URL{Scheme: "file", Path: src, RawQuery: "mode=ro&_pragma=busy_timeout(100)"}
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	return onlineBackupDB(ctx, db, dst)
+	return onlineBackupDBProgress(ctx, db, dst, progress)
 }
 
 // A bounded copy buffer also prevents io.Copy fast paths from bypassing

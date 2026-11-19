@@ -61,7 +61,7 @@ func (s *Server) queueAppSubscriptionsTx(tx *sql.Tx, ev AppEvent, publisherID st
 		if err != sql.ErrNoRows {
 			return false, err
 		}
-		if _, err = tx.Exec(`INSERT INTO app_event_receipts VALUES(?,?,?)`, ev.InstallID, publisherID, hash); err != nil {
+		if _, err = tx.Exec(`INSERT INTO app_event_receipts(source_install_id, event_id, payload_hash) VALUES(?,?,?)`, ev.InstallID, publisherID, hash); err != nil {
 			return false, err
 		}
 		key = fmt.Sprintf("%d:%s", ev.InstallID, publisherID)

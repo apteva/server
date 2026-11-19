@@ -201,7 +201,7 @@ func (m *appRuntimeManager) listTargets(ctx context.Context, ref runtimeBackendR
 		if t.Name == "" {
 			t.Name = t.Ref.ID
 		}
-		_, e = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_target_catalog VALUES(?,?,?,?,?) ON CONFLICT(backend_install_id,backend_id,resource_type,resource_id) DO UPDATE SET record_json=excluded.record_json`, ref.InstallID, ref.ID, t.Ref.Type, t.Ref.ID, runtimeJSON(t))
+		_, e = m.s.store.dbExecContext(m.ctx, `INSERT INTO app_runtime_target_catalog(backend_install_id, backend_id, resource_type, resource_id, record_json) VALUES(?,?,?,?,?) ON CONFLICT(backend_install_id,backend_id,resource_type,resource_id) DO UPDATE SET record_json=excluded.record_json`, ref.InstallID, ref.ID, t.Ref.Type, t.Ref.ID, runtimeJSON(t))
 		if e != nil {
 			return page, e
 		}

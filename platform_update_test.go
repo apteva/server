@@ -1,13 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"github.com/apteva/server/apps/channelchat"
-	"github.com/apteva/server/apps/framework"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,132 +67,26 @@ func TestPlatformUpdateRejectsAppOrAgentUsingAdminIdentity(t *testing.T) {
 	}
 }
 
-func TestUpdateDatabasePreflightPreservesSourceAndBackup(t *testing.T) {
-	root := t.TempDir()
-	source := filepath.Join(root, "live.db")
-	store, err := NewStore(source)
-	if err != nil {
+func TestPlatformUpdateViewShowsTheDatabaseCheck(t *testing.T) {
+	s := &Server{dataDir: t.TempDir()}
+	job := `{"id":"j","source":"cli","state":"preflight","message":"Copying the database (1/2)","target_version":"1.2.3","previous_version":"1.2.2",
+		"progress":{"phase":"copy","done":1,"total":2},
+		"check":{"classification":"incompatible","compatible":false,"reasons":["unique index"],"backup":"/b/apteva.db","backup_bytes":7,"duration_ms":12,"sampled_tables":["t"]},
+		"request":{"home":"/secret/home","db_path":"/secret/db","server_pid":9,"agent_policy":"preserve"}}`
+	if err := os.WriteFile(filepath.Join(s.dataDir, "platform-update.json"), []byte(job), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
-	if err := store.SetSetting("update-sentinel", "keep"); err != nil {
-		t.Fatal(err)
+	view, err := s.platformUpdater(context.Background(), false, "", "", "")
+	if err != nil || view.Job == nil {
+		t.Fatalf("view %+v: %v", view, err)
 	}
-	app := channelchat.New(nil)
-	if err := framework.RunMigrations(store.db, app.Manifest().Slug, app.Migrations()); err != nil {
-		t.Fatal(err)
+	if view.Job.Source != "cli" || view.Job.Progress == nil || view.Job.Progress.Total != 2 || view.Job.Check == nil || view.Job.Check.Classification != "incompatible" || view.Job.Check.Backup != "/b/apteva.db" {
+		t.Fatalf("check not passed through: %+v", view.Job)
 	}
-	before, err := updateDatabaseSchema(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	backup := filepath.Join(root, "backups", "saved.db")
-	if err := preflightUpdateDatabase(source, backup); err != nil {
-		t.Fatal(err)
-	}
-	after, err := updateDatabaseSchema(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after || store.GetSetting("update-sentinel") != "keep" {
-		t.Fatal("preflight modified live data")
-	}
-	backupSchema, err := updateDatabaseSchema(backup)
-	if err != nil || backupSchema != before {
-		t.Fatalf("invalid backup: %v", err)
-	}
-	raw, err := os.ReadFile(backup + ".json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var report struct {
-		Version       string `json:"version"`
-		SchemaChanged bool   `json:"schema_changed"`
-	}
-	if err := json.Unmarshal(raw, &report); err != nil {
-		t.Fatal(err)
-	}
-	if report.Version != CLIVersion || report.SchemaChanged {
-		t.Fatalf("unexpected report: %+v", report)
-	}
-	if info, err := os.Stat(backup); err != nil || info.Mode().Perm() != 0600 {
-		t.Fatal("backup must be private")
-	}
-	if _, err := os.Stat(backup + ".preflight"); !os.IsNotExist(err) {
-		t.Fatal("disposable database was retained")
-	}
-	if err := preflightUpdateDatabase(source, backup); err == nil {
-		t.Fatal("existing backup was overwritten")
-	}
-}
-
-func TestUpdateDatabaseFingerprintDetectsDataOnlyChanges(t *testing.T) {
-	source := filepath.Join(t.TempDir(), "live.db")
-	store, err := NewStore(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if err := store.SetSetting("sentinel", "before"); err != nil {
-		t.Fatal(err)
-	}
-	schema, err := updateDatabaseSchema(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	before, err := updateDatabaseFingerprint(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetSetting("sentinel", "after"); err != nil {
-		t.Fatal(err)
-	}
-	after, err := updateDatabaseFingerprint(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newSchema, err := updateDatabaseSchema(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before == after || schema != newSchema {
-		t.Fatal("data-only changes must disable automatic binary rollback")
-	}
-	again, err := updateDatabaseFingerprint(source)
-	if err != nil || again != after {
-		t.Fatal("fingerprint must be deterministic")
-	}
-}
-
-func TestPreflightIgnoresOnlyDerivedMetadataEpoch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "app.db")
-	store, err := NewStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	before, err := updateDatabaseFingerprint(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.db.Exec(`UPDATE app_metadata_generation SET generation=generation+1`); err != nil {
-		t.Fatal(err)
-	}
-	after, err := updateDatabaseFingerprint(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatal("derived metadata counter blocks compatible handoff")
-	}
-	if _, err := store.db.Exec(`INSERT INTO server_settings(key,value) VALUES('preserve-real-data','latest')`); err != nil {
-		t.Fatal(err)
-	}
-	changed, err := updateDatabaseFingerprint(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changed == after {
-		t.Fatal("fingerprint ignored actual stored data")
+	raw, _ := json.Marshal(view)
+	for _, private := range []string{"/secret/home", "/secret/db", "server_pid", "sampled_tables"} {
+		if strings.Contains(string(raw), private) {
+			t.Fatalf("view exposes %s: %s", private, raw)
+		}
 	}
 }

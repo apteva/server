@@ -39,7 +39,7 @@ func (s *Server) insertManifestInstall(user int64, key, fingerprint, version str
 		return nil, err
 	}
 	if key != "" {
-		if _, err = tx.Exec(`INSERT INTO app_runtime_install_receipts VALUES(?,?,?,?)`, user, key, fingerprint, id); err != nil {
+		if _, err = tx.Exec(`INSERT INTO app_runtime_install_receipts(user_id, request_key, fingerprint, install_id) VALUES(?,?,?,?)`, user, key, fingerprint, id); err != nil {
 			return nil, err
 		}
 	}

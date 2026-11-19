@@ -22,10 +22,14 @@ const (
 	// CapabilityRestartMigration: the host can deploy a release that changes
 	// stored schema by stopping the current server and booting the new one.
 	CapabilityRestartMigration = "restart_migration"
+	// CapabilityUpdateCheck: the server's --preflight accepts
+	// APTEVA_UPDATE_CHECK_DIR and checks migrations on a reduced copy of the
+	// database, writing a backup only when asked.
+	CapabilityUpdateCheck = "update_check"
 )
 
 // ServerCapabilities is what a server reports from --host-protocol.
-var ServerCapabilities = []string{CapabilityControlToken}
+var ServerCapabilities = []string{CapabilityControlToken, CapabilityUpdateCheck}
 
 // HostCapabilities is what the host reports from GET /status.
 var HostCapabilities = []string{CapabilityRestartMigration}
@@ -37,6 +41,8 @@ type Deployment struct {
 	Version   string    `json:"version"`
 	Previous  string    `json:"previous,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// Check is the candidate's database check, once it has run.
+	Check *CheckSummary `json:"check,omitempty"`
 }
 
 type State struct {

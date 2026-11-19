@@ -24,6 +24,9 @@ import (
 type Config struct {
 	Home, DBPath, DataDir, ListenAddr, ServerBinary string
 	StartupTimeout, DrainTimeout                    time.Duration
+	// CheckTimeout bounds a candidate's database update check; the check is
+	// also stopped when it stops reporting progress.
+	CheckTimeout time.Duration
 	// Security configures the in-process SSH collector; nil derives it from
 	// the APTEVA_SECURITY_* environment.
 	Security *sshwatch.Config
@@ -41,6 +44,10 @@ type Candidate struct {
 	// AllowRestart lets a release that changes stored schema deploy by
 	// stopping the current server and booting this one, which migrates.
 	AllowRestart bool `json:"allow_restart,omitempty"`
+	// From the candidate's database check: the previous server can run on
+	// the migrated database, and the backup written for this deployment.
+	compatible bool
+	backup     string
 }
 type slot struct {
 	candidate Candidate
@@ -108,6 +115,9 @@ func New(cfg Config) (*Host, error) {
 	}
 	if cfg.DrainTimeout == 0 {
 		cfg.DrainTimeout = 5 * time.Minute
+	}
+	if cfg.CheckTimeout == 0 {
+		cfg.CheckTimeout = 30 * time.Minute
 	}
 	if cfg.Home == "/" || cfg.ListenAddr == "" {
 		return nil, errors.New("explicit installation home and listener required")
@@ -364,14 +374,14 @@ func (h *Host) control() http.Handler {
 			http.Error(w, err.Error(), 409)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), h.cfg.StartupTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), h.cfg.CheckTimeout)
 		defer cancel()
-		restart, err := h.preflight(ctx, &c)
+		check, err := h.preflight(ctx, &c, false, nil)
 		if err != nil {
 			http.Error(w, err.Error(), 409)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]bool{"validated": true, "restart_required": restart})
+		_ = json.NewEncoder(w).Encode(map[string]any{"validated": true, "restart_required": check.restart, "check": check.summary})
 	})
 	mux.HandleFunc("POST /listeners", h.listenersHandler)
 	mux.HandleFunc("POST /process/start", h.processStartHandler)
@@ -467,74 +477,24 @@ func (h *Host) validateCandidate(c Candidate) error {
 	return nil
 }
 
-// preflight migrates a copy of the live database with the candidate. It
-// reports restart=true when the release changes stored schema or data and the
-// caller allowed a restart migration; without that permission such a release
-// is refused.
-func (h *Host) preflight(ctx context.Context, c *Candidate) (restart bool, err error) {
-	if err := h.probeProtocol(ctx, *c); err != nil {
-		return false, err
-	}
-	dir := filepath.Join(h.cfg.Home, "host", "preflight", strconv.FormatInt(time.Now().UnixNano(), 36))
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return false, err
-	}
-	if err := preflightSpace(h.cfg.DBPath, filepath.Join(dir, "apteva.db")); err != nil {
-		return false, err
-	}
-	cmd := exec.CommandContext(ctx, c.Binary, "--preflight")
-	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_UPDATE_PREFLIGHT": filepath.Join(dir, "apteva.db"), "APTEVA_HOST_SOCKET": "", "APTEVA_HOST_SLOT_SOCKET": "", ControlTokenEnv: ""})
-	logf, err := os.OpenFile(filepath.Join(dir, "preflight.log"), os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return false, err
-	}
-	defer logf.Close()
-	cmd.Stdout = logf
-	cmd.Stderr = logf
-	if err = cmd.Run(); err != nil {
-		return false, fmt.Errorf("candidate preflight failed; see %s: %w", filepath.Join(dir, "preflight.log"), err)
-	}
-	var report struct {
-		Version      string `json:"version"`
-		SchemaHash   string `json:"schema_hash"`
-		RollbackSafe bool   `json:"rollback_safe"`
-	}
-	b, err := os.ReadFile(filepath.Join(dir, "apteva.db.json"))
-	if err != nil {
-		return false, err
-	}
-	if err = json.Unmarshal(b, &report); err != nil {
-		return false, err
-	}
-	if report.Version != c.Version || report.SchemaHash == "" {
-		return false, errors.New("candidate preflight did not report this release's database identity")
-	}
-	if !report.RollbackSafe {
-		if c.AllowRestart {
-			return true, nil
-		}
-		return false, errors.New(restartMigrationRequired)
-	}
-	c.SchemaHash = report.SchemaHash
-	c.ExistingSchema = true
-	return false, nil
-}
-
 // restartMigrationRequired is matched by older CLIs; keep the wording.
 const restartMigrationRequired = "release changes stored schema or data; a restart migration is required, and the current server remains active"
 
 func (h *Host) deploy(c Candidate) {
-	ctx, cancel := context.WithTimeout(h.ctx, 2*h.cfg.StartupTimeout+h.cfg.DrainTimeout)
-	defer cancel()
-	restart, err := h.preflight(ctx, &c)
+	checkCtx, cancelCheck := context.WithTimeout(h.ctx, h.cfg.CheckTimeout)
+	check, err := h.preflight(checkCtx, &c, true, func(message string) { _ = h.phase("preflight", message) })
+	cancelCheck()
 	if err != nil {
 		_ = h.phase("failed", err.Error())
 		return
 	}
-	if restart {
+	h.recordCheck(check.summary)
+	if check.restart {
 		h.restartMigration(c)
 		return
 	}
+	ctx, cancel := context.WithTimeout(h.ctx, 2*h.cfg.StartupTimeout+h.cfg.DrainTimeout)
+	defer cancel()
 	h.mu.Lock()
 	source := h.active
 	h.mu.Unlock()
@@ -691,6 +651,7 @@ func (h *Host) deploy(c Candidate) {
 	}
 	h.router.Publish(candidate.backend)
 	if err == nil {
+		pruneSucceededBackups(c)
 		_ = h.phase("succeeded", h.rollout(transferCtx, candidate, policy, "New server is serving; application and database data were retained"))
 	}
 }
@@ -911,9 +872,16 @@ func (h *Host) stopSlot(s *slot, preserve bool) {
 // Never launch an older, unaware server against live data in "standby" mode.
 // Capability probing itself gets disposable paths and no public listeners.
 func (h *Host) probeProtocol(ctx context.Context, c Candidate) error {
+	_, err := h.probeCandidate(ctx, c)
+	return err
+}
+
+// probeCandidate checks the candidate's host protocol and returns the
+// capabilities it reports.
+func (h *Host) probeCandidate(ctx context.Context, c Candidate) ([]string, error) {
 	dir, err := os.MkdirTemp(filepath.Join(h.cfg.Home, "host"), "probe-")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer os.RemoveAll(dir)
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -922,7 +890,7 @@ func (h *Host) probeProtocol(ctx context.Context, c Candidate) error {
 	cmd.Env = overrides(os.Environ(), map[string]string{"APTEVA_HOME": dir, "DATA_DIR": dir, "DB_PATH": filepath.Join(dir, "probe.db"), "PORT": "0", "APTEVA_BIND": "127.0.0.1", "APTEVA_CLONE_QUARANTINE": "1", "APTEVA_HOST_SLOT_SOCKET": "", "APTEVA_HOST_SOCKET": "", ControlTokenEnv: "", "APTEVA_INGRESS_ENABLED": "", "APTEVA_HTTP_LISTEN_ADDR": "", "APTEVA_HTTPS_LISTEN_ADDR": "", "APTEVA_TLS_LISTEN_ADDR": ""})
 	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("server lacks the hosted standby protocol; an explicit restart migration is required: %w", err)
+		return nil, fmt.Errorf("server lacks the hosted standby protocol; an explicit restart migration is required: %w", err)
 	}
 	var response struct {
 		ExistingSchema bool     `json:"existing_schema"`
@@ -931,12 +899,12 @@ func (h *Host) probeProtocol(ctx context.Context, c Candidate) error {
 		Capabilities   []string `json:"capabilities"`
 	}
 	if json.Unmarshal(output, &response) != nil || response.Protocol != Protocol || !response.ExistingSchema || (c.Version != "" && response.Version != c.Version) {
-		return errors.New("candidate does not support this host protocol or release identity")
+		return nil, errors.New("candidate does not support this host protocol or release identity")
 	}
 	if !sendsControlToken(response.Version, response.Capabilities) {
-		return fmt.Errorf("server %s predates the host control token, so every app it starts would be refused; deploy a server from 0.100.14 or later", response.Version)
+		return nil, fmt.Errorf("server %s predates the host control token, so every app it starts would be refused; deploy a server from 0.100.14 or later", response.Version)
 	}
-	return nil
+	return response.Capabilities, nil
 }
 
 // firstControlTokenRelease is the first release whose server sends the control

@@ -47,7 +47,31 @@ func TestHostProcess(t *testing.T) {
 			if _, err := os.Stat(binary + ".incompatible"); err == nil {
 				safe = false
 			}
+			if dir := os.Getenv("APTEVA_UPDATE_CHECK_DIR"); dir != "" {
+				compatible := safe
+				if _, err := os.Stat(binary + ".compatible"); err == nil {
+					compatible = true
+				}
+				classification := "incompatible"
+				if safe {
+					classification = "unchanged"
+				} else if compatible {
+					classification = "compatible"
+				}
+				report := map[string]any{"version": version, "schema_hash": "fake-schema", "rollback_safe": safe, "compatible": compatible, "classification": classification}
+				if backup := os.Getenv("APTEVA_UPDATE_BACKUP"); backup != "" && !compatible && os.Getenv("APTEVA_UPDATE_BACKUP_WHEN") == "incompatible" {
+					_ = os.WriteFile(backup, []byte("backup"), 0600)
+					report["backup"] = map[string]any{"path": backup, "bytes": 6}
+				}
+				_ = os.WriteFile(filepath.Join(dir, "probe.db"), []byte("reduced copy"), 0600)
+				b, _ := json.Marshal(report)
+				_ = os.WriteFile(filepath.Join(dir, "report.json"), b, 0600)
+				os.Exit(0)
+			}
 			p := os.Getenv("APTEVA_UPDATE_PREFLIGHT")
+			if p == "" {
+				os.Exit(0)
+			}
 			_ = os.WriteFile(p, []byte("disposable snapshot"), 0600)
 			b, _ := json.Marshal(map[string]any{"version": version, "schema_hash": "fake-schema", "rollback_safe": safe})
 			_ = os.WriteFile(p+".json", b, 0600)
