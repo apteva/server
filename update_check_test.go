@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -498,4 +499,41 @@ func updateDatabaseFingerprint(path string) (string, error) {
 		rows.Close()
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func TestUpdateCheckSpaceFloor(t *testing.T) {
+	if got := updateCheckSpaceFloor(1 << 30); got != backupDiskReserve {
+		t.Fatalf("small database floor %d, want the backup reserve %d", got, backupDiskReserve)
+	}
+	if got, want := updateCheckSpaceFloor(14<<30), int64(14<<30)/20; got != want {
+		t.Fatalf("large database floor %d, want %d", got, want)
+	}
+	dir := t.TempDir()
+	if err := updateCheckSpaceGuard(0, dir)(); err != nil {
+		t.Fatalf("guard with no floor: %v", err)
+	}
+	if err := updateCheckSpaceGuard(1<<62, dir)(); err == nil || !strings.Contains(err.Error(), "the update was not applied") {
+		t.Fatalf("guard above free space: %v", err)
+	}
+}
+
+// A full-table copy checks free space as it goes and stops the check once
+// the guard trips, rather than copying the rest of the table.
+func TestUpdateCheckStopsCopyWhenDiskRunsLow(t *testing.T) {
+	source, store := migratedTestDatabase(t)
+	insertUpdateCheckUsers(t, store, 3*updateCheckChunkRows)
+	probe := filepath.Join(t.TempDir(), "probe.db")
+	defer removeSQLiteFiles(probe)
+	calls := 0
+	space := func() error {
+		calls++
+		if calls > 2 {
+			return errors.New("stopped the database check: disk low")
+		}
+		return nil
+	}
+	_, err := runUpdateProbe(context.Background(), source, probe, 0, map[string]bool{"users": true}, newUpdateProgress(""), space)
+	if err == nil || !strings.Contains(err.Error(), "disk low") {
+		t.Fatalf("copy with a tripped space guard: %v", err)
+	}
 }

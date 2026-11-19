@@ -76,6 +76,7 @@ func (h *Host) restartMigration(c Candidate) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), h.cfg.StartupTimeout)
 	defer cancel()
+	pruneSucceededBackups(c)
 	_ = h.phase("succeeded", h.rollout(ctx, candidate, policy, "New server is serving after a restart migration; the database was migrated in place"))
 }
 

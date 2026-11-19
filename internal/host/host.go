@@ -651,6 +651,7 @@ func (h *Host) deploy(c Candidate) {
 	}
 	h.router.Publish(candidate.backend)
 	if err == nil {
+		pruneSucceededBackups(c)
 		_ = h.phase("succeeded", h.rollout(transferCtx, candidate, policy, "New server is serving; application and database data were retained"))
 	}
 }

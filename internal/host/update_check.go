@@ -66,6 +66,16 @@ func (h *Host) preflight(ctx context.Context, c *Candidate, deploy bool, progres
 	logPath := filepath.Join(root, id+".log")
 	env := map[string]string{"APTEVA_HOME": h.cfg.Home, "DATA_DIR": h.cfg.DataDir, "DB_PATH": h.cfg.DBPath, "APTEVA_HOST_SOCKET": "", "APTEVA_HOST_SLOT_SOCKET": "", ControlTokenEnv: ""}
 	backup := filepath.Join(h.cfg.Home, "update-backups", "host-"+id, "apteva.db")
+	// The backup belongs to this deployment only once the check passes and
+	// the deployment goes ahead; a failed or refused check leaves nothing
+	// behind. Older backups are pruned only after the deployment succeeds
+	// (pruneUpdateBackups), so a refusal never costs the previous backup.
+	keepBackup := false
+	defer func() {
+		if !keepBackup {
+			os.RemoveAll(filepath.Dir(backup))
+		}
+	}()
 	report := filepath.Join(dir, "report.json")
 	if bounded {
 		// A reduced copy of the database; a backup only when one is needed.
@@ -165,22 +175,23 @@ func (h *Host) preflight(ctx context.Context, c *Candidate, deploy bool, progres
 	}
 	if parsed.Backup != nil && parsed.Backup.Path != "" {
 		summary.Backup, summary.BackupBytes = parsed.Backup.Path, parsed.Backup.Bytes
-		c.backup = parsed.Backup.Path
-		pruneUpdateBackups(filepath.Dir(filepath.Dir(parsed.Backup.Path)), filepath.Dir(parsed.Backup.Path))
-	} else {
-		os.RemoveAll(filepath.Dir(backup))
 	}
 	result.summary = summary
 	c.compatible = summary.Compatible
 	if !parsed.RollbackSafe {
-		if c.AllowRestart {
-			result.restart = true
-			return result, nil
+		if !c.AllowRestart {
+			summary.Backup, summary.BackupBytes = "", 0
+			return result, errors.New(restartMigrationRequired)
 		}
-		return result, errors.New(restartMigrationRequired)
+		result.restart = true
+	} else {
+		c.SchemaHash = parsed.SchemaHash
+		c.ExistingSchema = true
 	}
-	c.SchemaHash = parsed.SchemaHash
-	c.ExistingSchema = true
+	if summary.Backup != "" {
+		c.backup = summary.Backup
+		keepBackup = true
+	}
 	return result, nil
 }
 
@@ -244,7 +255,17 @@ func sweepPreflight(root string) {
 	}
 }
 
-// pruneUpdateBackups keeps only the newest backup directory under root.
+// pruneSucceededBackups removes the backups of earlier updates once a
+// deployment that took its own backup has succeeded.
+func pruneSucceededBackups(c Candidate) {
+	if c.backup == "" {
+		return
+	}
+	keep := filepath.Dir(c.backup)
+	pruneUpdateBackups(filepath.Dir(keep), keep)
+}
+
+// pruneUpdateBackups removes every backup directory under root except keep.
 func pruneUpdateBackups(root, keep string) {
 	entries, err := os.ReadDir(root)
 	if err != nil {

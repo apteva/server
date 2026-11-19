@@ -436,8 +436,8 @@ func TestRestartMigrationRestartsPreviousWhenChangesAreCompatible(t *testing.T) 
 	assertNoPreflightLeftovers(t, h.cfg.Home)
 }
 
-// An incompatible release is backed up once, the backup is named when the
-// migration needs recovery, and only the newest backup is kept.
+// An incompatible release is backed up once and the backup is named when the
+// migration needs recovery. A failed update prunes nothing.
 func TestRestartMigrationBacksUpIncompatibleRelease(t *testing.T) {
 	h, c, _, candidate := fixture(t)
 	stale := filepath.Join(h.cfg.Home, "update-backups", "host-old")
@@ -460,8 +460,66 @@ func TestRestartMigrationBacksUpIncompatibleRelease(t *testing.T) {
 	if data, err := os.ReadFile(state.Job.Check.Backup); err != nil || string(data) != "backup" {
 		t.Fatalf("backup: %q %v", data, err)
 	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("a failed update removed an earlier backup: %v", err)
+	}
+	assertNoPreflightLeftovers(t, h.cfg.Home)
+}
+
+// Older backups are pruned only once an update with its own backup succeeds.
+func TestSucceededIncompatibleUpdatePrunesOlderBackups(t *testing.T) {
+	h, c, url, candidate := fixture(t)
+	stale := filepath.Join(h.cfg.Home, "update-backups", "host-old")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(candidate.Binary+".incompatible", nil, 0600)
+	candidate.AllowRestart = true
+	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := waitJob(t, c)
+	if state.Job.Phase != "succeeded" || state.Job.Check == nil || state.Job.Check.Backup == "" {
+		t.Fatalf("incompatible update: %+v %+v", state.Job, state.Job.Check)
+	}
+	if got := servedVersion(t, url); got != "2.0.0" {
+		t.Fatalf("serving %q", got)
+	}
+	if data, err := os.ReadFile(state.Job.Check.Backup); err != nil || string(data) != "backup" {
+		t.Fatalf("backup: %q %v", data, err)
+	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatal("older backups were kept")
+		t.Fatal("older backup kept after a successful update with its own backup")
+	}
+	assertNoPreflightLeftovers(t, h.cfg.Home)
+}
+
+// A deployment refused because it needs a restart migration it was not
+// allowed keeps the earlier backup and leaves no new one behind.
+func TestRefusedRestartMigrationKeepsEarlierBackup(t *testing.T) {
+	h, c, url, candidate := fixture(t)
+	stale := filepath.Join(h.cfg.Home, "update-backups", "host-old")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(stale, "apteva.db"), []byte("earlier"), 0600)
+	_ = os.WriteFile(candidate.Binary+".incompatible", nil, 0600)
+	if err := Call(context.Background(), c, "POST", "/deploy", candidate, nil); err != nil {
+		t.Fatal(err)
+	}
+	state := waitJob(t, c)
+	if state.Job.Phase != "failed" || !strings.Contains(state.Job.Message, "restart migration is required") {
+		t.Fatalf("refused update: %+v", state.Job)
+	}
+	if got := servedVersion(t, url); got != "1.0.0" {
+		t.Fatalf("serving %q", got)
+	}
+	entries, _ := os.ReadDir(filepath.Join(h.cfg.Home, "update-backups"))
+	if len(entries) != 1 || entries[0].Name() != "host-old" {
+		t.Fatalf("backups after a refused update: %v", entries)
+	}
+	if data, err := os.ReadFile(filepath.Join(stale, "apteva.db")); err != nil || string(data) != "earlier" {
+		t.Fatalf("earlier backup: %q %v", data, err)
 	}
 	assertNoPreflightLeftovers(t, h.cfg.Home)
 }

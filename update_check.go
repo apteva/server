@@ -55,6 +55,37 @@ const (
 	updateCheckFreeSpace = int64(256 << 20)
 )
 
+// updateCheckSpaceFloor is the free disk the check leaves on the copy's and
+// the live database's filesystems: the backup reserve, or a twentieth of the
+// database when that is larger. A migration that
+// rewrites a big table makes the check copy that table in full, and the live
+// database's write-ahead log keeps growing while the copy holds its read
+// transaction; the check stops before either can fill the disk.
+func updateCheckSpaceFloor(dbBytes int64) int64 {
+	floor := backupDiskReserve
+	if share := dbBytes / 20; share > floor {
+		floor = share
+	}
+	return floor
+}
+
+// updateCheckSpaceGuard reports an error once free space on any of dirs falls
+// below floor.
+func updateCheckSpaceGuard(floor int64, dirs ...string) func() error {
+	return func() error {
+		for _, dir := range dirs {
+			free, err := runtimeStateDiskFree(dir)
+			if err != nil {
+				return fmt.Errorf("cannot read free disk space for %s: %w", dir, err)
+			}
+			if free < floor {
+				return fmt.Errorf("stopped the database check: %s has %d bytes free, below the %d bytes it must keep for the running server; the update was not applied", dir, free, floor)
+			}
+		}
+		return nil
+	}
+}
+
 type updateCheckOptions struct {
 	Source     string // live database
 	Dir        string // private work directory for the reduced copy
@@ -152,9 +183,10 @@ func runUpdateCheck(ctx context.Context, opts updateCheckOptions) (err error) {
 		dbBytes += wal.Size()
 	}
 	full := map[string]bool{}
+	space := updateCheckSpaceGuard(updateCheckSpaceFloor(dbBytes), opts.Dir, filepath.Dir(opts.Source))
 	var result updateProbeResult
 	for {
-		result, err = runUpdateProbe(ctx, opts.Source, probe, opts.Budget, full, progress)
+		result, err = runUpdateProbe(ctx, opts.Source, probe, opts.Budget, full, progress, space)
 		if err != nil {
 			return err
 		}
@@ -255,10 +287,10 @@ func (r updateProbeResult) touches(table string) bool {
 	return false
 }
 
-func runUpdateProbe(ctx context.Context, source, probe string, budget int64, full map[string]bool, progress *updateProgress) (updateProbeResult, error) {
+func runUpdateProbe(ctx context.Context, source, probe string, budget int64, full map[string]bool, progress *updateProgress, space func() error) (updateProbeResult, error) {
 	var result updateProbeResult
 	removeSQLiteFiles(probe)
-	build, err := buildUpdateProbe(ctx, source, probe, budget, full, progress)
+	build, err := buildUpdateProbe(ctx, source, probe, budget, full, progress, space)
 	if err != nil {
 		return result, err
 	}
@@ -312,7 +344,7 @@ type updateProbeBuild struct {
 	bytes   int64
 }
 
-func buildUpdateProbe(ctx context.Context, source, probe string, budget int64, full map[string]bool, progress *updateProgress) (build updateProbeBuild, err error) {
+func buildUpdateProbe(ctx context.Context, source, probe string, budget int64, full map[string]bool, progress *updateProgress, space func() error) (build updateProbeBuild, err error) {
 	db, err := sql.Open("sqlite", sqliteFileURI(probe)+"?_pragma=journal_mode(OFF)&_pragma=synchronous(OFF)")
 	if err != nil {
 		return build, err
@@ -400,7 +432,7 @@ func buildUpdateProbe(ctx context.Context, source, probe string, budget int64, f
 		if full[table.Name] {
 			limit = 0
 		}
-		sampled, err := copyUpdateProbeTable(ctx, conn, table, before.columns[table.Name], limit, pageSize, pages)
+		sampled, err := copyUpdateProbeTable(ctx, conn, table, before.columns[table.Name], limit, pageSize, pages, space)
 		if err != nil {
 			return build, fmt.Errorf("copy %s: %w", table.Name, err)
 		}
@@ -464,7 +496,10 @@ func updateObjectRank(kind string) int {
 // copyUpdateProbeTable copies a table newest-first, in rowid order, until the
 // copy of the table has used limit bytes (0: no limit). It reports whether
 // older rows were left out.
-func copyUpdateProbeTable(ctx context.Context, conn *sql.Conn, table updateSchemaObject, columns []updateColumn, limit, pageSize int64, pages func() (int64, error)) (bool, error) {
+func copyUpdateProbeTable(ctx context.Context, conn *sql.Conn, table updateSchemaObject, columns []updateColumn, limit, pageSize int64, pages func() (int64, error), space func() error) (bool, error) {
+	if space == nil {
+		space = func() error { return nil }
+	}
 	quoted := quoteUpdateIdent(table.Name)
 	var names []string
 	rowidAlias := false
@@ -483,6 +518,9 @@ func copyUpdateProbeTable(ctx context.Context, conn *sql.Conn, table updateSchem
 	withoutRowid := strings.Contains(strings.ToUpper(table.SQL), "WITHOUT ROWID")
 	if withoutRowid {
 		// No rowid to page by: copy whole. No such table exists today.
+		if err := space(); err != nil {
+			return false, err
+		}
 		_, err := conn.ExecContext(ctx, `INSERT INTO main.`+quoted+`(`+strings.Join(names, ",")+`) SELECT `+strings.Join(names, ",")+` FROM src.`+quoted)
 		return false, err
 	}
@@ -499,6 +537,9 @@ func copyUpdateProbeTable(ctx context.Context, conn *sql.Conn, table updateSchem
 	first := true
 	for {
 		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if err := space(); err != nil {
 			return false, err
 		}
 		var low sql.NullInt64
