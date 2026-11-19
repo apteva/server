@@ -53,12 +53,26 @@ func runPreflight() int {
 		return 1
 	} else if ok {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
-		defer stop()
+		// finished closes before stop() cancels ctx, so a check that ends on
+		// its own never reaches the forced exit below.
+		finished := make(chan struct{})
+		defer func() {
+			close(finished)
+			stop()
+		}()
 		go func() {
 			// Migrations on the copy cannot be interrupted midway. After a
 			// grace period, remove the copy and any partial backup and exit.
-			<-ctx.Done()
-			time.Sleep(10 * time.Second)
+			select {
+			case <-finished:
+				return
+			case <-ctx.Done():
+			}
+			select {
+			case <-finished:
+				return
+			case <-time.After(10 * time.Second):
+			}
 			removeSQLiteFiles(filepath.Join(opts.Dir, "probe.db"))
 			if opts.Backup != "" {
 				if _, err := os.Stat(opts.Report); os.IsNotExist(err) {

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apteva/server/apps/channelchat"
 	"github.com/apteva/server/apps/framework"
@@ -536,4 +537,23 @@ func TestUpdateCheckStopsCopyWhenDiskRunsLow(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "disk low") {
 		t.Fatalf("copy with a tripped space guard: %v", err)
 	}
+}
+
+// A preflight that finishes on its own must not leave behind the signal
+// handler's forced exit; in-process callers (tests) outlive it.
+func TestPreflightDoesNotExitAfterReturning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits past the forced-exit grace period")
+	}
+	source, _ := migratedTestDatabase(t)
+	home := t.TempDir()
+	t.Setenv("APTEVA_HOME", home)
+	t.Setenv("DB_PATH", source)
+	t.Setenv("APTEVA_UPDATE_CHECK_DIR", filepath.Join(home, "check"))
+	t.Setenv("APTEVA_UPDATE_PREFLIGHT", "")
+	if code := runPreflight(); code != 0 {
+		t.Fatalf("preflight exit %d", code)
+	}
+	// The forced exit fired 10 s after the check; outlive that window.
+	time.Sleep(11 * time.Second)
 }
