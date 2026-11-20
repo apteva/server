@@ -65,6 +65,9 @@ func FakeMain(args []string) int {
 		fmt.Println("9.9.9 (Claude Code)")
 		return 0
 	}
+	if len(args) >= 2 && args[0] == "auth" && args[1] == "login" {
+		return fakeLogin()
+	}
 	if len(args) >= 2 && args[0] == "auth" && args[1] == "status" {
 		if os.Getenv("CLAUDEPOOL_FAKE_LOGGEDOUT") == "1" {
 			fmt.Println(`{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}`)
@@ -385,4 +388,35 @@ func fakePost(ctx context.Context, url string, headers map[string]string, raw []
 		return nil, err
 	}
 	return nil, io.ErrUnexpectedEOF
+}
+
+// FakeLoginCode is the code the fake sign-in accepts.
+const FakeLoginCode = "good-code#fake-state"
+
+// fakeLogin plays Claude Code's sign-in on a machine without a browser: it
+// prints the link and a prompt without a newline, reads one line, and
+// accepts only FakeLoginCode. CLAUDEPOOL_FAKE_LOGIN_URL overrides the link;
+// CLAUDEPOOL_FAKE_LOGIN_RECEIVED records what it read.
+func fakeLogin() int {
+	link := os.Getenv("CLAUDEPOOL_FAKE_LOGIN_URL")
+	if link == "" {
+		link = "https://claude.com/cai/oauth/authorize?code=true&client_id=fake&state=fake-state"
+	}
+	fmt.Println("Opening browser to sign in…")
+	fmt.Fprintf(os.Stderr, "If the browser didn't open, visit: %s\n", link)
+	fmt.Print("Paste code here if prompted > ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if path := os.Getenv("CLAUDEPOOL_FAKE_LOGIN_RECEIVED"); path != "" {
+		_ = os.WriteFile(path, []byte(line), 0o600)
+	}
+	if err != nil {
+		return 1
+	}
+	time.Sleep(100 * time.Millisecond) // the real CLI checks the code with Anthropic
+	if strings.TrimSpace(line) != FakeLoginCode {
+		fmt.Println("Couldn't log in: That code wasn't accepted. Sign in again to get a new code.")
+		return 1
+	}
+	fmt.Println("Login successful.")
+	return 0
 }

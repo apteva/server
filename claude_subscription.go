@@ -5,9 +5,11 @@ package main
 // Claude plan instead of per-token API billing.
 //
 // Policy boundaries this file keeps:
-//   - Apteva never reads, stores, refreshes or forwards Claude credentials.
-//     Sign-in happens in Claude Code's own command and on Anthropic's page;
-//     the server only asks `claude auth status` whether it succeeded.
+//   - Apteva never reads, stores or refreshes Claude credentials. Sign-in
+//     runs in Claude Code's own command and on Anthropic's page: the server
+//     reads only the sign-in link from the command, passes on the one-time
+//     code the user pastes, and asks `claude auth status` whether it worked.
+//     Claude Code exchanges the code and stores the login itself.
 //   - The provider is offered only on installs with a single active user,
 //     so one person's plan never serves other people's agents.
 //
@@ -818,6 +820,10 @@ func (s *Server) handleClaudeSubscription(w http.ResponseWriter, r *http.Request
 		s.handleClaudeSubscriptionStatus(w, r)
 	case path == "/login" && r.Method == http.MethodPost:
 		s.handleClaudeSubscriptionLogin(w, r)
+	case path == "/login/code" && r.Method == http.MethodPost:
+		s.handleClaudeSubscriptionLoginCode(w, r)
+	case path == "/login/cancel" && r.Method == http.MethodPost:
+		s.handleClaudeSubscriptionLoginCancel(w, r)
 	case path == "/logout" && r.Method == http.MethodPost:
 		s.handleClaudeSubscriptionLogout(w, r)
 	case path == "/settings" && r.Method == http.MethodPut:
@@ -913,31 +919,83 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-// handleClaudeSubscriptionLogin starts Claude Code's own sign-in, which
-// opens Anthropic's page in a browser on this machine. Apteva never sees
-// the sign-in: the command's output is discarded.
+// handleClaudeSubscriptionLogin starts Claude Code's own sign-in, replacing
+// one in progress. Claude Code prints Anthropic's sign-in link, which the
+// status reports as login.url; the user opens it, approves, and pastes the
+// code Anthropic shows into /login/code. Where Apteva runs on the user's own
+// computer, Claude Code may also open the page in a browser itself.
 func (s *Server) handleClaudeSubscriptionLogin(w http.ResponseWriter, r *http.Request) {
-	if !s.requireCapability(w, r, "provider_management") {
+	if !s.claudeSubscriptionLoginAllowed(w, r) {
 		return
 	}
-	if !s.claudeSubscriptionAllowed() {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "single_user_only"})
-		return
-	}
-	err := s.claudeSub.login.Start(claudeSubscriptionCLI(), 10*time.Minute)
+	err := s.claudeSub.login.Start(claudeSubscriptionCLI(), 10*time.Minute, s.claudeSubscriptionLoginEnded)
 	switch {
 	case errors.Is(err, claudepool.ErrNotInstalled):
 		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "not_installed"})
 		return
-	case errors.Is(err, claudepool.ErrLoginRunning):
 	case err != nil:
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
+	s.claudeSubscriptionLoginEnded()
+	writeJSON(w, map[string]any{"started": true, "login": s.claudeSub.login.State()})
+}
+
+// handleClaudeSubscriptionLoginCode passes the one-time code from
+// Anthropic's page to the running sign-in. The code is neither logged nor
+// kept.
+func (s *Server) handleClaudeSubscriptionLoginCode(w http.ResponseWriter, r *http.Request) {
+	if !s.claudeSubscriptionLoginAllowed(w, r) {
+		return
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_code"})
+		return
+	}
+	err := s.claudeSub.login.SubmitCode(body.Code)
+	switch {
+	case errors.Is(err, claudepool.ErrInvalidCode):
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid_code", "login": s.claudeSub.login.State()})
+	case errors.Is(err, claudepool.ErrLoginNotRunning):
+		writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "not_running", "login": s.claudeSub.login.State()})
+	case errors.Is(err, claudepool.ErrCodeSubmitted):
+		writeJSONStatus(w, http.StatusConflict, map[string]any{"error": "code_submitted", "login": s.claudeSub.login.State()})
+	case err != nil:
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "submit_failed"})
+	default:
+		writeJSON(w, map[string]any{"login": s.claudeSub.login.State()})
+	}
+}
+
+// handleClaudeSubscriptionLoginCancel stops the sign-in in progress.
+func (s *Server) handleClaudeSubscriptionLoginCancel(w http.ResponseWriter, r *http.Request) {
+	if !s.claudeSubscriptionLoginAllowed(w, r) {
+		return
+	}
+	canceled := s.claudeSub.login.Cancel()
+	writeJSON(w, map[string]any{"canceled": canceled, "login": s.claudeSub.login.State()})
+}
+
+func (s *Server) claudeSubscriptionLoginAllowed(w http.ResponseWriter, r *http.Request) bool {
+	if !s.requireCapability(w, r, "provider_management") {
+		return false
+	}
+	if !s.claudeSubscriptionAllowed() {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "single_user_only"})
+		return false
+	}
+	return true
+}
+
+// claudeSubscriptionLoginEnded makes the next status read ask Claude Code
+// for its login again.
+func (s *Server) claudeSubscriptionLoginEnded() {
 	if pool, err := s.claudePool(); err == nil {
 		pool.ForgetAuth()
 	}
-	writeJSON(w, map[string]any{"started": true, "login": s.claudeSub.login.State()})
 }
 
 // handleClaudeSubscriptionLogout signs Claude Code out on this machine.

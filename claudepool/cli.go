@@ -3,12 +3,10 @@ package claudepool
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -165,82 +163,4 @@ func (c CLI) Logout(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, bin, "auth", "logout")
 	cmd.Env = c.Env()
 	return cmd.Run()
-}
-
-// LoginRunner starts Claude Code's own sign-in command. Sign-in completes
-// in the browser on Anthropic's page and Claude Code stores the result
-// itself; the runner only tracks whether the command is still running.
-type LoginRunner struct {
-	mu        sync.Mutex
-	running   bool
-	startedAt time.Time
-	lastErr   string
-}
-
-// LoginState reports the sign-in command's progress.
-type LoginState struct {
-	Running   bool       `json:"running"`
-	StartedAt *time.Time `json:"started_at,omitempty"`
-	LastError string     `json:"last_error,omitempty"`
-}
-
-// State returns the current sign-in progress.
-func (l *LoginRunner) State() LoginState {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	state := LoginState{Running: l.running, LastError: l.lastErr}
-	if !l.startedAt.IsZero() {
-		started := l.startedAt
-		state.StartedAt = &started
-	}
-	return state
-}
-
-// ErrLoginRunning means a sign-in is already in progress.
-var ErrLoginRunning = errors.New("a sign-in is already in progress")
-
-// Start runs `claude auth login --claudeai`, which opens Anthropic's
-// sign-in page in the browser. The command's output is discarded: Apteva
-// must not sit in the middle of the sign-in.
-func (l *LoginRunner) Start(c CLI, timeout time.Duration) error {
-	bin, err := c.Resolve()
-	if err != nil {
-		return err
-	}
-	l.mu.Lock()
-	if l.running {
-		l.mu.Unlock()
-		return ErrLoginRunning
-	}
-	l.running = true
-	l.startedAt = time.Now()
-	l.lastErr = ""
-	l.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	cmd := exec.CommandContext(ctx, bin, "auth", "login", "--claudeai")
-	cmd.Env = c.Env()
-	if err := cmd.Start(); err != nil {
-		cancel()
-		l.finish(err)
-		return err
-	}
-	go func() {
-		defer cancel()
-		err := cmd.Wait()
-		if ctx.Err() == context.DeadlineExceeded {
-			err = errors.New("sign-in was not completed in time")
-		}
-		l.finish(err)
-	}()
-	return nil
-}
-
-func (l *LoginRunner) finish(err error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.running = false
-	if err != nil {
-		l.lastErr = err.Error()
-	}
 }
