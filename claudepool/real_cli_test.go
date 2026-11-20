@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -184,4 +185,44 @@ func newRealPool(t *testing.T, toolTimeout time.Duration) *testPool {
 		_ = os.RemoveAll(pool.projectDir()) // this test's own session folder
 	})
 	return &testPool{Pool: pool}
+}
+
+// TestRealCLILoginTakesTheCode starts the installed claude binary's sign-in
+// with a throwaway home and config dir and no way to open a browser, then
+// passes a made-up code. It checks that Claude Code prints Anthropic's link,
+// reads the code from the runner and rejects it. Nothing is signed in.
+//
+//	CLAUDEPOOL_REAL_CLI=1 go test -run TestRealCLILoginTakesTheCode -v ./claudepool
+func TestRealCLILoginTakesTheCode(t *testing.T) {
+	if os.Getenv("CLAUDEPOOL_REAL_CLI") != "1" {
+		t.Skip("set CLAUDEPOOL_REAL_CLI=1 to run against the installed claude binary")
+	}
+	bin, err := exec.LookPath("claude")
+	if err != nil {
+		t.Skip("claude is not installed")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Join(home, "no-browser"))
+	t.Setenv("BROWSER", "/usr/bin/false")
+	var l LoginRunner
+	done := make(chan struct{})
+	if err := l.Start(CLI{Binary: bin, ConfigDir: filepath.Join(home, "claude")}, time.Minute, func() { close(done) }); err != nil {
+		t.Fatal(err)
+	}
+	state := waitLogin(t, &l, "the link and prompt", func(s LoginState) bool { return s.URL != "" && s.AwaitingCode })
+	t.Logf("link host: %s", strings.SplitN(state.URL, "?", 2)[0])
+	if err := l.SubmitCode("not-a-real-code#not-a-real-state"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		l.Cancel()
+		t.Fatal("claude did not finish after the code")
+	}
+	if state = l.State(); state.Running || state.LastError == "" {
+		t.Fatalf("a made-up code must fail: %+v", state)
+	}
+	t.Logf("claude said: %s", state.LastError)
 }

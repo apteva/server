@@ -579,3 +579,93 @@ func TestProcessMemoryReadsLiveProcesses(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeSubscriptionSignInWithACode(t *testing.T) {
+	f := newClaudeSubFixture(t)
+	call := func(method, path, body string) (int, map[string]any, string) {
+		t.Helper()
+		req := httptest.NewRequest(method, "/claude-subscription"+path, strings.NewReader(body))
+		req.Header.Set("X-User-ID", jsonID(f.userID))
+		rec := httptest.NewRecorder()
+		f.s.handleClaudeSubscription(rec, req)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec.Code, out, rec.Body.String()
+	}
+	login := func() map[string]any {
+		_, out, _ := call(http.MethodGet, "?refresh=1", "")
+		state, _ := out["login"].(map[string]any)
+		return state
+	}
+	waitFor := func(what string, ok func(map[string]any) bool) map[string]any {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			state := login()
+			if ok(state) {
+				return state
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s: %+v", what, state)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	if code, out, _ := call(http.MethodPost, "/login/code", `{"code":"x"}`); code != http.StatusConflict || out["error"] != "not_running" {
+		t.Fatalf("code without a sign-in: %d %+v", code, out)
+	}
+	if code, out, _ := call(http.MethodPost, "/login", ""); code != http.StatusOK || out["started"] != true {
+		t.Fatalf("start: %d %+v", code, out)
+	}
+	state := waitFor("the sign-in link", func(s map[string]any) bool { return s["url"] != nil && s["awaiting_code"] == true })
+	if !strings.HasPrefix(state["url"].(string), "https://claude.com/") {
+		t.Fatalf("link = %v", state["url"])
+	}
+	if code, out, _ := call(http.MethodPost, "/login/code", `{"code":"two\nlines"}`); code != http.StatusBadRequest || out["error"] != "invalid_code" {
+		t.Fatalf("malformed code: %d %+v", code, out)
+	}
+	if code, out, _ := call(http.MethodPost, "/login/code", `not json`); code != http.StatusBadRequest || out["error"] != "invalid_code" {
+		t.Fatalf("malformed body: %d %+v", code, out)
+	}
+	code, out, raw := call(http.MethodPost, "/login/code", `{"code":"`+claudetest.FakeLoginCode+`"}`)
+	if code != http.StatusOK || strings.Contains(raw, "good-code") {
+		t.Fatalf("submit: %d %s", code, raw)
+	}
+	if state, _ := out["login"].(map[string]any); state["code_submitted"] != true {
+		t.Fatalf("after submit: %+v", out)
+	}
+	state = waitFor("the sign-in to finish", func(s map[string]any) bool { return s["running"] == false })
+	if state["last_error"] != nil || state["url"] != nil {
+		t.Fatalf("finished: %+v", state)
+	}
+	if _, out, _ := call(http.MethodGet, "?refresh=1", ""); out["auth"].(map[string]any)["logged_in"] != true {
+		t.Fatalf("auth after sign-in: %+v", out["auth"])
+	}
+
+	// A wrong code reports Claude Code's message; cancel stops a sign-in.
+	call(http.MethodPost, "/login", "")
+	waitFor("the prompt", func(s map[string]any) bool { return s["awaiting_code"] == true })
+	call(http.MethodPost, "/login/code", `{"code":"wrong#code"}`)
+	state = waitFor("the sign-in to fail", func(s map[string]any) bool { return s["running"] == false })
+	if msg, _ := state["last_error"].(string); !strings.Contains(msg, "wasn't accepted") {
+		t.Fatalf("wrong code: %+v", state)
+	}
+	call(http.MethodPost, "/login", "")
+	waitFor("the prompt", func(s map[string]any) bool { return s["awaiting_code"] == true })
+	if code, out, _ := call(http.MethodPost, "/login/cancel", ""); code != http.StatusOK || out["canceled"] != true {
+		t.Fatalf("cancel: %d %+v", code, out)
+	}
+	if state := login(); state["running"] != false || state["last_error"] != nil {
+		t.Fatalf("after cancel: %+v", state)
+	}
+
+	if _, err := f.s.store.CreateUser("second@test", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/login", "/login/code", "/login/cancel"} {
+		if code, out, _ := call(http.MethodPost, path, `{"code":"x"}`); code != http.StatusForbidden || out["error"] != "single_user_only" {
+			t.Fatalf("%s on a multi-user install: %d %+v", path, code, out)
+		}
+	}
+}
