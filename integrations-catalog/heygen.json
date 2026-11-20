@@ -522,7 +522,7 @@
     },
     {
       "name": "create_video",
-      "description": "Creates an avatar video: a HeyGen avatar or an image speaks your script or audio with lip-sync. Choose Avatar III, IV or V with `engine` (Avatar IV by default). To generate a whole scene from a prompt instead, use POST /v3/models/videos.",
+      "description": "Creates an avatar video: a HeyGen avatar or an image speaks your script or audio with lip-sync. Choose Avatar III, IV, V or 6 with `engine` (Avatar IV by default). Avatar 6 (`heygen-avatar-6`, or `heygen-avatar-6-turbo` for faster, cheaper renders) works on `type: \"avatar\"` only, renders `1080p` or `2k`, and takes `motion_prompt` plus `engine.motion_expressiveness`. To animate a photo or video reference with your own audio and no avatar setup, use create_avatar_6_video. To generate a whole scene from a prompt instead, use POST /v3/models/videos.",
       "method": "POST",
       "path": "/v3/videos",
       "input_schema": {
@@ -555,8 +555,9 @@
           "resolution": {
             "anyOf": [
               {
-                "description": "Output video resolution.\n\nAvatar IV and Avatar V render the avatar at up to 1080p: with `4k`, the avatar is\ncomposited onto a 4K canvas rather than rendered natively. Native 4K output is available for Avatar III\ndigital twins and studio avatars.",
+                "description": "Output video resolution.\n\n`2k` is rendered only by Avatar 6, which supports `1080p` (its default) or `2k` only. Avatar IV and Avatar V render the avatar at up to 1080p: with `4k`, the avatar is\ncomposited onto a 4K canvas rather than rendered natively. Native 4K output is available for Avatar III\ndigital twins and studio avatars.",
                 "enum": [
+                  "2k",
                   "4k",
                   "1080p",
                   "720p"
@@ -1318,7 +1319,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Natural-language prompt controlling avatar body motion. Photo avatars only."
+                "description": "Natural-language direction for avatar gestures, expression and posture. With Avatar 6 (engine heygen-avatar-6 / heygen-avatar-6-turbo) it applies to any eligible look, takes up to 1,200 characters, and overrides engine.motion_expressiveness where specified. With Avatar IV it applies to photo avatars only."
               }
             ]
           },
@@ -1352,7 +1353,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Avatar expressiveness level. Photo avatars only. Defaults to 'low' when omitted."
+                "description": "Avatar expressiveness level. Photo avatars only. Defaults to 'low' when omitted. Not accepted with Avatar 6: set engine.motion_expressiveness instead."
               }
             ]
           },
@@ -1360,6 +1361,46 @@
             "anyOf": [
               {
                 "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "description": "Avatar 6 engine. Renders at 1080p by default; set resolution to `2k` for 2K, which only Avatar 6 renders. Supports resolution `1080p` or `2k` only (not `720p` or `4k`). Single-avatar requests only. Check supported_api_engines on the avatar look to confirm eligibility.",
+                    "properties": {
+                      "type": {
+                        "enum": [
+                          "heygen-avatar-6",
+                          "heygen-avatar-6-turbo"
+                        ],
+                        "type": "string",
+                        "description": "Engine type discriminator. 'heygen-avatar-6', or 'heygen-avatar-6-turbo' for faster, lower-cost renders."
+                      },
+                      "motion_expressiveness": {
+                        "enum": [
+                          "default",
+                          "less"
+                        ],
+                        "type": "string",
+                        "default": "default",
+                        "description": "Use default for the model's usual motion, or less for fewer and smaller gestures and calmer facial expressions. Does not disable motion. motion_prompt overrides this where specified. Use this instead of the top-level expressiveness field, which Avatar 6 rejects."
+                      },
+                      "reference_look_id": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "Optional digital_twin look to use as the motion reference. Must be accessible to your workspace, belong to the same avatar group as avatar_id, and satisfy consent requirements. When omitted, video looks use their own footage and photo looks render without a video reference."
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "type": "object"
+                  },
                   {
                     "additionalProperties": false,
                     "description": "Avatar V engine configuration with cross-reference-driven animation.",
@@ -1424,7 +1465,7 @@
               }
             ],
             "default": null,
-            "description": "Engine configuration for video generation. Pass {\"type\": \"avatar_v\"} to enable cross-reference-driven animation for higher quality. Check supported_api_engines on the avatar look to confirm eligibility. Defaults to Avatar IV when omitted."
+            "description": "Engine configuration for video generation. Defaults to Avatar IV when omitted. Pass {\"type\": \"avatar_v\"} for cross-reference-driven animation, or {\"type\": \"heygen-avatar-6\"} / {\"type\": \"heygen-avatar-6-turbo\"} for Avatar 6 (2K output, motion_prompt direction, engine.motion_expressiveness). Check supported_api_engines on the avatar look to confirm eligibility."
           },
           "image": {
             "description": "Image to animate. Accepts URL, asset ID, or base64-encoded data.",
@@ -2842,7 +2883,7 @@
         ],
         "oneOf": [
           {
-            "description": "Create a video from a HeyGen avatar (video or photo avatar).\n\nProvide an avatar_id to use a previously created avatar. Supports all\navatar types: studio_avatar, digital_twin, and photo_avatar. Optionally\nset ``engine`` to select Avatar V for eligible avatars; when omitted, the\nserver defaults to Avatar IV.",
+            "description": "Create a video from a HeyGen avatar (video or photo avatar).\n\nProvide an avatar_id to use a previously created avatar. Supports all\navatar types: studio_avatar, digital_twin, and photo_avatar. Optionally\nset ``engine`` to select Avatar V or Avatar 6 for eligible avatars; when omitted, the\nserver defaults to Avatar IV.",
             "properties": {
               "title": {
                 "anyOf": [
@@ -2871,8 +2912,9 @@
               "resolution": {
                 "anyOf": [
                   {
-                    "description": "Output video resolution.\n\nAvatar IV and Avatar V render the avatar at up to 1080p: with `4k`, the avatar is\ncomposited onto a 4K canvas rather than rendered natively. Native 4K output is available for Avatar III\ndigital twins and studio avatars.",
+                    "description": "Output video resolution.\n\n`2k` is rendered only by Avatar 6, which supports `1080p` (its default) or `2k` only. Avatar IV and Avatar V render the avatar at up to 1080p: with `4k`, the avatar is\ncomposited onto a 4K canvas rather than rendered natively. Native 4K output is available for Avatar III\ndigital twins and studio avatars.",
                     "enum": [
+                      "2k",
                       "4k",
                       "1080p",
                       "720p"
@@ -2884,7 +2926,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Output video resolution. Avatar IV and Avatar V render the avatar at up to 1080p: with `4k`, the avatar is composited onto a 4K canvas rather than rendered natively. Native 4K output is available for Avatar III digital twins and studio avatars."
+                "description": "Output video resolution.\n\n`2k` is rendered only by Avatar 6, which supports `1080p` (its default) or `2k` only. Avatar IV and Avatar V render the avatar at up to 1080p: with `4k`, the avatar is\ncomposited onto a 4K canvas rather than rendered natively. Native 4K output is available for Avatar III\ndigital twins and studio avatars."
               },
               "aspect_ratio": {
                 "anyOf": [
@@ -3524,14 +3566,15 @@
               "motion_prompt": {
                 "anyOf": [
                   {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 1200
                   },
                   {
                     "type": "null"
                   }
                 ],
                 "default": null,
-                "description": "Natural-language prompt controlling avatar body motion and hand gestures. Supported for photo avatars on either engine, and for video avatars when engine.type is 'avatar_v'. Rejected for video avatars on the default Avatar IV engine, and for photo avatars on 'avatar_v' when the avatar's group has no animation reference (no digital twin or curated reference look)."
+                "description": "Natural-language direction for avatar gestures, expression and posture. With Avatar 6 (engine heygen-avatar-6 / heygen-avatar-6-turbo) it applies to any eligible look, takes up to 1,200 characters, and overrides engine.motion_expressiveness where specified. With Avatar IV it applies to photo avatars only."
               },
               "expressiveness": {
                 "anyOf": [
@@ -3549,12 +3592,52 @@
                   }
                 ],
                 "default": null,
-                "description": "Avatar expressiveness level. Photo avatars only. Defaults to 'low' when omitted. Avatar IV only; rejected when engine.type is 'avatar_v'."
+                "description": "Avatar expressiveness level. Photo avatars only. Defaults to 'low' when omitted. Avatar IV only; rejected when engine.type is 'avatar_v'. Not accepted with Avatar 6: set engine.motion_expressiveness instead."
               },
               "engine": {
                 "anyOf": [
                   {
                     "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Avatar 6 engine. Renders at 1080p by default; set resolution to `2k` for 2K, which only Avatar 6 renders. Supports resolution `1080p` or `2k` only (not `720p` or `4k`). Single-avatar requests only. Check supported_api_engines on the avatar look to confirm eligibility.",
+                        "properties": {
+                          "type": {
+                            "enum": [
+                              "heygen-avatar-6",
+                              "heygen-avatar-6-turbo"
+                            ],
+                            "type": "string",
+                            "description": "Engine type discriminator. 'heygen-avatar-6', or 'heygen-avatar-6-turbo' for faster, lower-cost renders."
+                          },
+                          "motion_expressiveness": {
+                            "enum": [
+                              "default",
+                              "less"
+                            ],
+                            "type": "string",
+                            "default": "default",
+                            "description": "Use default for the model's usual motion, or less for fewer and smaller gestures and calmer facial expressions. Does not disable motion. motion_prompt overrides this where specified. Use this instead of the top-level expressiveness field, which Avatar 6 rejects."
+                          },
+                          "reference_look_id": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "default": null,
+                            "description": "Optional digital_twin look to use as the motion reference. Must be accessible to your workspace, belong to the same avatar group as avatar_id, and satisfy consent requirements. When omitted, video looks use their own footage and photo looks render without a video reference."
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ],
+                        "type": "object"
+                      },
                       {
                         "additionalProperties": false,
                         "description": "Avatar V engine configuration with cross-reference-driven animation.",
@@ -3619,7 +3702,7 @@
                   }
                 ],
                 "default": null,
-                "description": "Engine configuration for video generation. Pass {\"type\": \"avatar_v\"} to enable cross-reference-driven animation for higher quality. Check supported_api_engines on the avatar look to confirm eligibility. Defaults to Avatar IV when omitted."
+                "description": "Engine configuration for video generation. Defaults to Avatar IV when omitted. Pass {\"type\": \"avatar_v\"} for cross-reference-driven animation, or {\"type\": \"heygen-avatar-6\"} / {\"type\": \"heygen-avatar-6-turbo\"} for Avatar 6 (2K output, motion_prompt direction, engine.motion_expressiveness). Check supported_api_engines on the avatar look to confirm eligibility."
               }
             },
             "required": [
@@ -6126,6 +6209,352 @@
       },
       "header_params": {
         "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "create_avatar_6_video",
+      "description": "Animates a reference image or video with driving speech audio using Avatar 6 (`heygen-avatar-6`, or `heygen-avatar-6-turbo` for faster, cheaper renders), with no avatar or voice setup. Provide one reference image and/or one reference video, plus `audio`; the video runs the length of the audio. Optionally direct the performance with `motion_prompt` or `motion_expressiveness`. Returns 202 with a `video_id`; poll get_model_video. Realistic-human reference videos need enterprise consent access (422 realistic_human_reference_not_allowed otherwise); photo references work in every workspace. To have a saved avatar look speak a script, use create_video.",
+      "method": "POST",
+      "path": "/v3/models/avatars",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "heygen-avatar-6",
+              "heygen-avatar-6-turbo"
+            ],
+            "description": "Avatar generation model. Both take the same inputs; turbo is faster and lower-cost."
+          },
+          "reference_images": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Asset input via publicly accessible HTTPS URL.",
+                  "properties": {
+                    "type": {
+                      "const": "url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "Public http(s) URL HeyGen can download without auth or redirects. Not a local or sandbox path; upload such files and pass asset_id."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Asset input via HeyGen asset ID from upload_asset.",
+                  "properties": {
+                    "type": {
+                      "const": "asset_id",
+                      "type": "string"
+                    },
+                    "asset_id": {
+                      "type": "string",
+                      "description": "HeyGen asset ID from an asset upload or import."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "asset_id"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Asset input via base64-encoded content.",
+                  "properties": {
+                    "type": {
+                      "const": "base64",
+                      "type": "string"
+                    },
+                    "media_type": {
+                      "type": "string",
+                      "description": "MIME type of the encoded content (e.g. \"image/png\")"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "Base64-encoded file content"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "media_type",
+                    "data"
+                  ]
+                }
+              ],
+              "description": "Reference image."
+            },
+            "description": "Up to one reference image (URL/base64 up to 32 MB). Send reference_images, reference_videos, or both: at least one is required."
+          },
+          "reference_videos": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Asset input via publicly accessible HTTPS URL.",
+                  "properties": {
+                    "type": {
+                      "const": "url",
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "Public http(s) URL HeyGen can download without auth or redirects. Not a local or sandbox path; upload such files and pass asset_id."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Asset input via HeyGen asset ID from upload_asset.",
+                  "properties": {
+                    "type": {
+                      "const": "asset_id",
+                      "type": "string"
+                    },
+                    "asset_id": {
+                      "type": "string",
+                      "description": "HeyGen asset ID from an asset upload or import."
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "asset_id"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "type": "object",
+                  "description": "Asset input via base64-encoded content.",
+                  "properties": {
+                    "type": {
+                      "const": "base64",
+                      "type": "string"
+                    },
+                    "media_type": {
+                      "type": "string",
+                      "description": "MIME type of the encoded content (e.g. \"image/png\")"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "Base64-encoded file content"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "media_type",
+                    "data"
+                  ]
+                }
+              ],
+              "description": "Reference video."
+            },
+            "description": "Up to one reference video, at least 2 seconds long (URL/base64 up to 50 MB; upload larger files up to 200 MB and pass asset_id). Add a matching reference image for best likeness."
+          },
+          "audio": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "type": "object",
+                "description": "Asset input via publicly accessible HTTPS URL.",
+                "properties": {
+                  "type": {
+                    "const": "url",
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Public http(s) URL HeyGen can download without auth or redirects. Not a local or sandbox path; upload such files and pass asset_id."
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ]
+              },
+              {
+                "additionalProperties": false,
+                "type": "object",
+                "description": "Asset input via HeyGen asset ID from upload_asset.",
+                "properties": {
+                  "type": {
+                    "const": "asset_id",
+                    "type": "string"
+                  },
+                  "asset_id": {
+                    "type": "string",
+                    "description": "HeyGen asset ID from an asset upload or import."
+                  }
+                },
+                "required": [
+                  "type",
+                  "asset_id"
+                ]
+              },
+              {
+                "additionalProperties": false,
+                "type": "object",
+                "description": "Asset input via base64-encoded content.",
+                "properties": {
+                  "type": {
+                    "const": "base64",
+                    "type": "string"
+                  },
+                  "media_type": {
+                    "type": "string",
+                    "description": "MIME type of the encoded content (e.g. \"image/png\")"
+                  },
+                  "data": {
+                    "type": "string",
+                    "description": "Base64-encoded file content"
+                  }
+                },
+                "required": [
+                  "type",
+                  "media_type",
+                  "data"
+                ]
+              }
+            ],
+            "description": "Driving speech audio the avatar performs."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "1080p",
+              "2k"
+            ],
+            "default": "1080p",
+            "description": "1080p (short edge 1080 px) or 2k (short edge 1620 px). The output keeps the reference's aspect ratio unless output_width/output_height are set."
+          },
+          "motion_prompt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional instructions (up to 1,200 characters) for gestures, expression, posture and camera behavior. Overrides motion_expressiveness where specified."
+          },
+          "motion_expressiveness": {
+            "type": "string",
+            "enum": [
+              "default",
+              "less"
+            ],
+            "default": "default",
+            "description": "Use default for the model's usual motion, or less for fewer and smaller gestures and calmer facial expressions. Does not disable motion."
+          },
+          "output_width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "multipleOf": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Output width in pixels (even); supply with output_height, or omit both to use the native size."
+          },
+          "output_height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "multipleOf": 2
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Output height in pixels (even); supply with output_width, or omit both to use the native size."
+          },
+          "callback_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "HTTPS URL notified when the job finishes."
+          },
+          "callback_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Client identifier (up to 256 characters) echoed in the callback."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_\\-:.]{1,255}$",
+            "description": "Optional Idempotency-Key header for safe retries; repeats within 24 hours replay the original response."
+          }
+        },
+        "required": [
+          "model",
+          "audio"
+        ]
+      },
+      "header_params": {
+        "idempotency_key": "Idempotency-Key"
+      }
+    },
+    {
+      "name": "get_model_video",
+      "description": "Returns the status of a Model API video such as one from create_avatar_6_video: pending or processing while running, then completed, failed or cancelled. Completed videos carry video_url (a signed link: poll again to refresh it), duration, width, height and aspect_ratio; failed or cancelled ones carry failure_code (generation_failed, generation_cancelled, moderation_rejected) and failure_message.",
+      "method": "GET",
+      "path": "/v3/models/videos/{video_id}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "video_id": {
+            "type": "string",
+            "description": "Video ID returned by create_avatar_6_video."
+          }
+        },
+        "required": [
+          "video_id"
+        ]
       }
     },
     {
