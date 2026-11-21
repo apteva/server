@@ -1386,6 +1386,9 @@ func main() {
 	// Public fixture files of integration simulations (recording downloads,
 	// caller audio); deterministic, embedded, and free of runtime data.
 	apiMux.HandleFunc("/integration-simulation/fixtures/", s.handleIntegrationSimulationFixture)
+	// An app reports provider-side work (such as a handed-off SIP call)
+	// into the simulation it owns. App principals only.
+	apiMux.HandleFunc("/integration-simulation/report", s.authMiddleware(s.handleIntegrationSimulationReport))
 
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

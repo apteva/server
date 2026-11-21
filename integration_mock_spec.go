@@ -75,6 +75,11 @@ type AppMockCollection struct {
 	ID       any            `json:"id,omitempty"` // "numeric", "uuid" or {"token": "<prefix>"}
 	Defaults map[string]any `json:"defaults,omitempty"`
 	Seedable bool           `json:"seedable,omitempty"`
+	// Reportable lets the app that owns the simulated connection merge
+	// fields into a record's "report" object (POST
+	// /api/integration-simulation/report), typically about work a
+	// `handoff` step gave it.
+	Reportable bool `json:"reportable,omitempty"`
 }
 
 type AppMockOperation struct {
@@ -120,11 +125,12 @@ type compiledMockError struct {
 }
 
 type compiledMockCollection struct {
-	key      string
-	idKind   string
-	idPrefix string
-	defaults map[string]any
-	seedable bool
+	key        string
+	idKind     string
+	idPrefix   string
+	defaults   map[string]any
+	seedable   bool
+	reportable bool
 }
 
 type compiledMockOperation struct {
@@ -161,14 +167,19 @@ type mockStep struct {
 	errName   string
 	detail    mockTemplate
 	audio     mockTemplate // stream play
+	// handoff: the kind, and the record (collection and id) the app
+	// reports against.
+	handoffKind       mockTemplate
+	handoffCollection mockTemplate
+	handoffID         mockTemplate
 }
 
-var mockStepOperations = []string{"let", "require", "lookup", "find", "list", "create", "update", "delete", "emit", "dedupe", "stream", "respond"}
+var mockStepOperations = []string{"let", "require", "lookup", "find", "list", "create", "update", "delete", "emit", "handoff", "dedupe", "stream", "respond"}
 
 var mockStepFields = map[string]bool{
 	"when": true, "key": true, "where": true, "record": true, "set": true, "merge": true, "omit": true,
 	"unset": true, "as": true, "to": true, "payload": true, "lane": true, "status": true, "error": true, "detail": true,
-	"audio": true,
+	"audio": true, "collection": true, "id": true,
 }
 
 // Stream step actions. They act on a record of media.collection once the
@@ -259,7 +270,7 @@ func compileAppMock(app *AppTemplate) (*compiledMock, error) {
 		out.templates[name] = compiled.(*mockMapTemplate)
 	}
 	for name, def := range cfg.Collections {
-		collection := &compiledMockCollection{key: def.Key, defaults: def.Defaults, seedable: def.Seedable}
+		collection := &compiledMockCollection{key: def.Key, defaults: def.Defaults, seedable: def.Seedable, reportable: def.Reportable}
 		if collection.key == "" {
 			collection.key = "id"
 		}
@@ -387,18 +398,25 @@ func (m *compiledMock) compileMedia(cfg *AppMockMedia, events map[string]bool) (
 	return out, nil
 }
 
-var mockFixtureCall = regexp.MustCompile(`fixture_url\(\s*'([^']*)'\s*\)`)
+var mockFixtureCall = regexp.MustCompile(`(fixture_url|fixture_base64)\(\s*'([^']*)'\s*\)`)
 
-// checkMockFixtureReferences rejects fixture_url('name') calls whose
-// literal name is not a served fixture, so a typo fails at compile time.
+// checkMockFixtureReferences rejects fixture_url('name') and
+// fixture_base64('name') calls whose literal name is not a served fixture
+// (or is too large to inline), so a typo fails at compile time.
 func checkMockFixtureReferences(cfg *AppMockConfig) error {
 	raw, err := json.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 	for _, match := range mockFixtureCall.FindAllStringSubmatch(string(raw), -1) {
-		if _, ok := mockFixtureByName(match[1]); !ok {
-			return fmt.Errorf("fixture_url(%q): unknown fixture", match[1])
+		var err error
+		if match[1] == "fixture_base64" {
+			_, err = mockFixtureBase64(match[2])
+		} else if _, ok := mockFixtureByName(match[2]); !ok {
+			err = fmt.Errorf("fixture_url: unknown fixture %q", match[2])
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -673,6 +691,10 @@ func (m *compiledMock) compileStep(raw map[string]any, events map[string]bool) (
 		if step.payload, err = mapTmpl("payload"); err != nil {
 			return nil, err
 		}
+	case "handoff":
+		if err := m.compileHandoff(step, tmpl, mapTmpl); err != nil {
+			return nil, err
+		}
 	case "dedupe":
 		if step.dedupe, err = tmpl("dedupe"); err != nil {
 			return nil, err
@@ -710,6 +732,11 @@ func (m *compiledMock) compileStep(raw map[string]any, events map[string]bool) (
 	if _, ok := raw["audio"]; ok && step.op != "stream" {
 		return nil, fmt.Errorf("audio is only valid with stream")
 	}
+	for _, field := range []string{"collection", "id"} {
+		if _, ok := raw[field]; ok && step.op != "handoff" {
+			return nil, fmt.Errorf("%s is only valid with handoff", field)
+		}
+	}
 	if step.record, err = mapTmpl("record"); err != nil {
 		return nil, err
 	}
@@ -733,4 +760,47 @@ func (m *compiledMock) compileStep(raw map[string]any, events map[string]bool) (
 		return nil, err
 	}
 	return step, nil
+}
+
+// compileHandoff compiles a step that hands provider work to the app that
+// owns the simulated connection, for provider traffic the platform does not
+// speak itself (SIP, for example):
+//
+//	{"handoff": "<kind>", "collection": "<name>", "id": "<record key>",
+//	 "lane": "<lane>", "payload": {...}}
+//
+// Every field is a template. collection and id name the record the app
+// reports against and go together; when they are set the record must exist
+// when the step runs. The lane defaults to id, else the kind.
+func (m *compiledMock) compileHandoff(step *mockStep, tmpl, mapTmpl func(string) (mockTemplate, error)) error {
+	var err error
+	if step.handoffKind, err = tmpl("handoff"); err != nil {
+		return err
+	}
+	if literal, ok := step.handoffKind.(mockLiteralTemplate); ok {
+		if kind, _ := literal.value.(string); strings.TrimSpace(kind) == "" {
+			return fmt.Errorf("handoff must name a kind")
+		}
+	}
+	if step.handoffCollection, err = tmpl("collection"); err != nil {
+		return err
+	}
+	if step.handoffID, err = tmpl("id"); err != nil {
+		return err
+	}
+	if (step.handoffCollection == nil) != (step.handoffID == nil) {
+		return fmt.Errorf("handoff collection and id go together")
+	}
+	if literal, ok := step.handoffCollection.(mockLiteralTemplate); ok {
+		if name, _ := literal.value.(string); m.collections[name] == nil {
+			return fmt.Errorf("handoff: unknown collection %q", name)
+		}
+	}
+	if step.lane, err = tmpl("lane"); err != nil {
+		return err
+	}
+	if step.payload, err = mapTmpl("payload"); err != nil {
+		return err
+	}
+	return nil
 }

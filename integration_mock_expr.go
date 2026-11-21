@@ -147,11 +147,13 @@ func (e mockCall) eval(sc *mockScope) (any, error) {
 			return nil, fmt.Errorf("fixture_url: unknown fixture %q", name)
 		}
 		return sc.fn.fixtureURL(name), nil
+	case "fixture_base64":
+		return mockFixtureBase64(mockString(args[0]))
 	}
 	return nil, fmt.Errorf("unknown function %s", e.name)
 }
 
-var mockFunctionArity = map[string]int{"len": 1, "lower": 1, "now": 0, "uuid": 0, "numeric_id": 0, "token": 1, "fixture_url": 1}
+var mockFunctionArity = map[string]int{"len": 1, "lower": 1, "now": 0, "uuid": 0, "numeric_id": 0, "token": 1, "fixture_url": 1, "fixture_base64": 1}
 
 func mockTruthy(value any) bool {
 	switch v := value.(type) {

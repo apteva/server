@@ -40,8 +40,10 @@ type InterceptedCall struct {
 	LogicalTime time.Time `json:"logical_time"`
 	// Kind, Integration, Tool and Event describe calls answered by an
 	// integration simulation: "integration_simulation" for a simulated tool
-	// call, "integration_webhook" for a delivered provider event and
-	// "integration_media" for a simulated media stream.
+	// call, "integration_webhook" for a delivered provider event,
+	// "integration_media" for a simulated media stream,
+	// "integration_handoff" for work handed to the owning app and
+	// "integration_report" for what that app reported back.
 	Kind        string `json:"kind,omitempty"`
 	Integration string `json:"integration,omitempty"`
 	Tool        string `json:"tool,omitempty"`

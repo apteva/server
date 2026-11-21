@@ -171,6 +171,10 @@ func appTokenRouteAllowed(path string) bool {
 		return len(parts) == 3 && parts[1] == "agents" && parts[2] != ""
 	case path == "/app-events/internal/emit":
 		return true
+	case path == "/integration-simulation/report":
+		// handleIntegrationSimulationReport admits app principals only and
+		// derives the environment from the install.
+		return true
 	case strings.HasPrefix(path, "/app-events/"):
 		// App-event stream handlers perform the project/global scope check
 		// using X-Apteva-App-Install-ID. Authentication must let the install
