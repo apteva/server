@@ -373,6 +373,33 @@ func TestClaudeSubscriptionStatusAndSettings(t *testing.T) {
 	if _, settings, _ := f.s.claudeSubscriptionConnection(); settings.PoolSize != 2 || settings.IdleSeconds != 45 {
 		t.Fatalf("settings not saved on the connection: %+v", settings)
 	}
+
+	// Sleeping agents give up their process unless told to keep it;
+	// settings saved before the option existed do the same.
+	if settings, _ := get()["settings"].(map[string]any); settings["hold_sleeping"] != false {
+		t.Fatalf("hold_sleeping default = %v", settings["hold_sleeping"])
+	}
+	if f.s.claudeSubscriptionLimits().HoldSleeping {
+		t.Fatal("pool holds sleeping agents by default")
+	}
+	if rec := put(`{"hold_sleeping":"yes"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("hold_sleeping \"yes\" accepted: %d", rec.Code)
+	}
+	if rec := put(`{"hold_sleeping":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("hold_sleeping update: %d %s", rec.Code, rec.Body.String())
+	}
+	if settings, _ := get()["settings"].(map[string]any); settings["hold_sleeping"] != true || settings["pool_size"] != float64(2) {
+		t.Fatalf("settings after hold_sleeping = %+v", settings)
+	}
+	if !f.s.claudeSubscriptionLimits().HoldSleeping {
+		t.Fatal("hold_sleeping did not reach the pool limits")
+	}
+	if rec := put(`{"idle_seconds":60}`); rec.Code != http.StatusOK {
+		t.Fatalf("settings update: %d", rec.Code)
+	}
+	if !f.s.claudeSubscriptionLimits().HoldSleeping {
+		t.Fatal("updating another setting reset hold_sleeping")
+	}
 }
 
 func TestClaudeSubscriptionMCPOnlyFromLoopback(t *testing.T) {

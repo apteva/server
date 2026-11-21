@@ -137,6 +137,10 @@ type Limits struct {
 	MaxProcs     int
 	IdleTimeout  time.Duration
 	QueueTimeout time.Duration
+	// HoldSleeping keeps the processes of sleeping sessions (see
+	// Config.ParkTools) running until their results arrive, as for any
+	// other tool call, instead of closing them after IdleTimeout.
+	HoldSleeping bool
 }
 
 // ProcessStatus describes one running process.

@@ -181,7 +181,9 @@ func (s *Server) claudePool() (*claudepool.Pool, error) {
 			ToolTimeout: 10*time.Minute + 30*time.Second,
 			// A successful done ends the thread: core sends no result.
 			TerminalTools: []string{"done"},
-			Limits:        s.claudeSubscriptionLimits(),
+			// pace waits for the agent's next event, often for minutes.
+			ParkTools: []string{"pace"},
+			Limits:    s.claudeSubscriptionLimits(),
 			Logf: func(format string, args ...any) {
 				log.Printf(format, args...)
 			},
@@ -199,6 +201,10 @@ type claudeSubscriptionSettings struct {
 	PoolSize     int `json:"pool_size"`
 	IdleSeconds  int `json:"idle_seconds"`
 	QueueSeconds int `json:"queue_seconds"`
+	// HoldSleeping keeps a process for an agent sleeping with pace until
+	// it wakes. By default the process is closed after IdleSeconds and
+	// the conversation resumed when the agent wakes.
+	HoldSleeping bool `json:"hold_sleeping"`
 }
 
 func defaultClaudeSubscriptionSettings() claudeSubscriptionSettings {
@@ -223,6 +229,7 @@ func (c claudeSubscriptionSettings) limits() claudepool.Limits {
 		MaxProcs:     c.PoolSize,
 		IdleTimeout:  time.Duration(c.IdleSeconds) * time.Second,
 		QueueTimeout: time.Duration(c.QueueSeconds) * time.Second,
+		HoldSleeping: c.HoldSleeping,
 	}
 }
 
@@ -244,6 +251,7 @@ func (s *Server) claudeSubscriptionConnection() (int64, claudeSubscriptionSettin
 				*target = int(value)
 			}
 		}
+		settings.HoldSleeping, _ = stored["hold_sleeping"].(bool)
 	}
 	if settings.validate() != nil {
 		settings = defaultClaudeSubscriptionSettings()
@@ -1039,6 +1047,12 @@ func (s *Server) handleClaudeSubscriptionSettings(w http.ResponseWriter, r *http
 			}
 		}
 	}
+	if raw, present := body["hold_sleeping"]; present {
+		if err := json.Unmarshal(raw, &settings.HoldSleeping); err != nil {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "hold_sleeping must be true or false"})
+			return
+		}
+	}
 	if err := settings.validate(); err != nil {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
@@ -1046,6 +1060,7 @@ func (s *Server) handleClaudeSubscriptionSettings(w http.ResponseWriter, r *http
 	state := map[string]any{}
 	_ = json.Unmarshal([]byte(s.store.GetConnectionRuntimeConfigAny(connID)), &state)
 	state["pool_size"], state["idle_seconds"], state["queue_seconds"] = settings.PoolSize, settings.IdleSeconds, settings.QueueSeconds
+	state["hold_sleeping"] = settings.HoldSleeping
 	encoded, _ := json.Marshal(state)
 	if err := s.store.UpdateConnectionRuntimeConfig(connID, string(encoded)); err != nil {
 		writeJSONStatus(w, http.StatusInternalServerError, map[string]any{"error": "could not save settings"})
