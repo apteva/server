@@ -39,6 +39,8 @@ type session struct {
 	awaiting   []ToolCall // tool calls of the last reply, waiting for results
 	waitMoves  int64      // proc.moves when the session started waiting for them
 	retire     bool       // drop the session once its current turn ends
+	parking    bool       // its process is being closed while it sleeps
+	parked     []ToolCall // calls it slept on, resumed by their results
 
 	// turn serializes requests on this session.
 	turn chan struct{}
@@ -121,6 +123,17 @@ func (s *session) awaitsLocked(id string) bool {
 	return false
 }
 
+// sleptOn reports whether id is a call the session was parked on. The
+// pool lock must be held.
+func (s *session) sleptOn(id string) bool {
+	for _, call := range s.parked {
+		if call.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // failHeld answers every held call, used when a session is reset.
 func (s *session) failHeld(text string) {
 	s.callsMu.Lock()
@@ -135,6 +148,7 @@ func (s *session) failHeld(text string) {
 // plan is what a request needs to send to a session.
 type plan struct {
 	toolResults []Message // results for the session's awaiting calls
+	wakeResults []Message // results for the calls a parked session slept on
 	userText    []string  // new user content
 	reseed      bool      // start a fresh Claude session from the history
 }
@@ -216,6 +230,10 @@ func (s *session) planFor(messages []Message) plan {
 		case "user":
 			p.userText = append(p.userText, suffix[i].Text)
 		case "tool":
+			if s.sleptOn(suffix[i].ToolCallID) {
+				p.wakeResults = append(p.wakeResults, suffix[i])
+				continue
+			}
 			// Results for calls this session is not waiting on, e.g.
 			// after its process was restarted mid-turn.
 			p.userText = append(p.userText, renderToolResult(suffix[i]))

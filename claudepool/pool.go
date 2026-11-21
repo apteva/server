@@ -46,7 +46,14 @@ type Config struct {
 	// conversation continues in a new session seeded from the caller's
 	// history.
 	TerminalTools []string
-	Logf          func(format string, args ...any)
+	// ParkTools name tools during which the caller waits for an outside
+	// event, possibly for hours. A session whose pending calls are all
+	// park tools is sleeping: unless Limits.HoldSleeping is set, its
+	// process is closed once it has waited for IdleTimeout, or at once
+	// when another conversation needs the slot, and the session is
+	// resumed when the results arrive.
+	ParkTools []string
+	Logf      func(format string, args ...any)
 }
 
 // Pool shares a bounded number of claude processes between conversations.
@@ -110,7 +117,7 @@ func New(cfg Config) (*Pool, error) {
 		stop:     make(chan struct{}),
 	}
 	p.removeOrphanSessions()
-	go p.reap()
+	go p.reap(reapInterval)
 	return p, nil
 }
 
@@ -458,16 +465,30 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 				sess.deliver(call.ID, toolResult{text: "No result was returned for this tool call.", isError: true})
 			}
 		}
+	case len(pl.wakeResults) > 0:
+		sendErr = proc.send(textBlocks([]string{wakeText(pl)}))
 	default:
 		sendErr = proc.send(textBlocks(pl.userText))
 	}
+	woke := len(pl.wakeResults) > 0
 	if sendErr != nil {
+		if woke {
+			return p.replayAfterFailedWake(ctx, sess, proc, req, emit, sendErr)
+		}
 		p.failTurn(sess, proc)
 		return fmt.Errorf("send to Claude: %w", sendErr)
 	}
 
-	reply, finish, usage, model, err := p.readReply(ctx, sess, proc, emit)
+	emitted := false
+	reply, finish, usage, model, err := p.readReply(ctx, sess, proc, func(ev Event) error {
+		emitted = true
+		return emit(ev)
+	})
 	if err != nil {
+		var retry *RetryError
+		if woke && !emitted && ctx.Err() == nil && !errors.As(err, &retry) {
+			return p.replayAfterFailedWake(ctx, sess, proc, req, emit, err)
+		}
 		p.failTurn(sess, proc)
 		return err
 	}
@@ -476,6 +497,7 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	sess.started = true
 	sess.turns++
 	sess.history = append(append([]Message(nil), req.Messages...), reply)
+	sess.parked = nil
 	if finish == "tool_calls" {
 		sess.awaiting = reply.ToolCalls
 		sess.waitMoves = proc.moves.Load()
@@ -514,6 +536,26 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	// wait for it.
 	go p.finishTurn(sess, proc)
 	return nil
+}
+
+// replayAfterFailedWake handles a session that could not be resumed after
+// sleeping, before any of its reply reached the caller: the request starts
+// over in a fresh session seeded from the caller's history, as it would
+// have without parking. The turn lock is still held.
+func (p *Pool) replayAfterFailedWake(ctx context.Context, sess *session, proc *process, req Request, emit func(Event) error, cause error) error {
+	p.cfg.Logf("[CLAUDE-POOL] session %s: could not resume it after sleeping (%v); starting over from the history", short(sess.id), cause)
+	p.mu.Lock()
+	sess.dirty = true
+	sess.busy = false
+	sess.parked = nil
+	sess.setState("idle", "")
+	if sess.proc == proc {
+		sess.proc = nil
+	}
+	p.notifyLocked()
+	p.mu.Unlock()
+	proc.close()
+	return p.runTurn(ctx, sess, req, emit)
 }
 
 // terminal reports whether every call is to one of TerminalTools.
@@ -844,6 +886,16 @@ func (p *Pool) acquireSlot(ctx context.Context, sess *session) error {
 			proc.close()
 			return nil
 		}
+		if !p.limits.HoldSleeping {
+			if sleeper := p.longestSleepingLocked(sess); sleeper != nil {
+				// A sleeping agent waits for its next event; it is
+				// resumed then, so it gives up its slot without a grace
+				// period.
+				p.mu.Unlock()
+				p.parkSleeping(sleeper, "its slot is needed")
+				continue
+			}
+		}
 		now := time.Now()
 		parked, next := p.longestWaitingLocked(sess, now)
 		if parked != nil {
@@ -966,7 +1018,8 @@ func (p *Pool) parkLocked(sess *session) {
 func (p *Pool) callDropped(sess *session, id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.sessions[sess.id] != sess || sess.proc == nil || !sess.awaitsLocked(id) {
+	if p.sessions[sess.id] != sess || sess.proc == nil || sess.parking || !sess.awaitsLocked(id) {
+		// A parking session's calls end with its turn.
 		return
 	}
 	if sess.turnHeld {
@@ -1074,7 +1127,7 @@ func (p *Pool) spawn(sess *session) error {
 		p.mu.Lock()
 		if sess.proc == proc {
 			sess.proc = nil
-			if sess.busy {
+			if sess.busy && !sess.parking {
 				sess.dirty = true
 			}
 		}
@@ -1099,8 +1152,8 @@ func (p *Pool) retireLocked(sess *session) {
 }
 
 // reap closes idle processes and forgets old conversations.
-func (p *Pool) reap() {
-	ticker := time.NewTicker(reapInterval)
+func (p *Pool) reap(every time.Duration) {
+	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
 		select {
@@ -1109,6 +1162,7 @@ func (p *Pool) reap() {
 		case <-ticker.C:
 		}
 		var closing []*process
+		var sleeping []*session
 		p.mu.Lock()
 		now := time.Now()
 		perOwner := map[string][]*session{}
@@ -1131,6 +1185,10 @@ func (p *Pool) reap() {
 				// next request starts again from its own history.
 				p.cfg.Logf("[CLAUDE-POOL] session %s: Claude carried on without the tool result after %s; closing its process", short(sess.id), now.Sub(sess.stateSince).Round(time.Second))
 				p.parkLocked(sess)
+				continue
+			}
+			if !p.limits.HoldSleeping && p.sleepingLocked(sess) && now.Sub(sess.stateSince) > p.limits.IdleTimeout {
+				sleeping = append(sleeping, sess)
 				continue
 			}
 			if sess.busy && sess.state == "waiting_tool" && now.Sub(sess.stateSince) > p.cfg.ToolTimeout {
@@ -1162,6 +1220,9 @@ func (p *Pool) reap() {
 		p.mu.Unlock()
 		for _, proc := range closing {
 			proc.close()
+		}
+		for _, sess := range sleeping {
+			go p.parkSleeping(sess, "idle timeout")
 		}
 	}
 }
