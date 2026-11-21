@@ -98,6 +98,9 @@ type EnvironmentSpec struct {
 	// AppGrants are the calls this environment's apps may make to apps that
 	// are not installed in it (see runtime_passthrough.go).
 	AppGrants []sdk.RuntimeAppGrant
+	// AppConfig sets install settings on app copies by app name before
+	// they first start (see environment_app_config.go).
+	AppConfig map[string]map[string]string
 }
 
 // Environment is a live test environment.
@@ -1057,6 +1060,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		pending *reservedLocalInstall
 	}
 	reserved := make([]reservedApp, 0, len(appSources))
+	configuredApps := map[string]bool{}
 	for _, src := range appSources {
 		if wm.server == nil {
 			w.Stop()
@@ -1077,6 +1081,21 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		w.installOrder = append(w.installOrder, pending.install.AppName)
 		w.mu.Unlock()
 		reserved = append(reserved, reservedApp{srcName: src.Name, pending: pending})
+		if values, ok := spec.AppConfig[pending.install.AppName]; ok {
+			configuredApps[pending.install.AppName] = true
+			if err := validateRuntimeAppConfig(pending.manifest, values); err != nil {
+				w.Stop()
+				return nil, fmt.Errorf("environment %q: app %q config: %w", spec.ID, pending.install.AppName, err)
+			}
+			if err := wm.server.storeRuntimeAppConfig(pending.install.InstallID, values); err != nil {
+				w.Stop()
+				return nil, fmt.Errorf("environment %q: app %q config: %w", spec.ID, pending.install.AppName, err)
+			}
+		}
+	}
+	if unused := unusedRuntimeAppConfig(spec.AppConfig, configuredApps); len(unused) > 0 {
+		w.Stop()
+		return nil, fmt.Errorf("environment %q: app_config names apps that are not in the runtime: %s", spec.ID, strings.Join(unused, ", "))
 	}
 	var restores map[string]*localRestore
 	if len(reserved) > 0 && spec.RestoreSource != nil {
@@ -1114,6 +1133,12 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 			env["APTEVA_FAKE_TIME"] = clock.Now().Format(time.RFC3339Nano)
 		}
 		name := r.pending.install.AppName
+		cfgEnv, cerr := wm.server.runtimeAppConfigEnv(r.pending.install.InstallID)
+		if cerr != nil {
+			w.Stop()
+			return nil, fmt.Errorf("environment %q: app %q config: %w", spec.ID, r.srcName, cerr)
+		}
+		env["APTEVA_APP_CONFIG"] = cfgEnv
 		inst, ierr := wm.server.startLocalInstall(r.pending, env, spec.RestoredAppDataDirs[r.srcName], restores[name], nil)
 		if ierr != nil {
 			w.Stop()
