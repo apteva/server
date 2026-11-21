@@ -10,6 +10,7 @@ package main
 import (
 	"bytes"
 	"embed"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -51,6 +52,25 @@ func mockFixtureByName(name string) (*mockFixture, bool) {
 		contentType = "audio/wav"
 	}
 	return &mockFixture{name: name, data: data, contentType: contentType}, true
+}
+
+// mockMaxInlineFixture bounds a fixture inlined into a hand-off with
+// fixture_base64, so the hand-off stays well under the SDK's 1 MiB request
+// limit.
+const mockMaxInlineFixture = 512 << 10
+
+// mockFixtureBase64 is a fixture file's bytes, base64-encoded, for apps that
+// should not fetch fixture_url (an app inside an Environment reaches the
+// network only through the environment's edge).
+func mockFixtureBase64(name string) (string, error) {
+	fixture, ok := mockFixtureByName(name)
+	if !ok {
+		return "", fmt.Errorf("fixture_base64: unknown fixture %q", name)
+	}
+	if len(fixture.data) > mockMaxInlineFixture {
+		return "", fmt.Errorf("fixture_base64: fixture %q is %d bytes, over the %d byte inline limit", name, len(fixture.data), mockMaxInlineFixture)
+	}
+	return base64.StdEncoding.EncodeToString(fixture.data), nil
 }
 
 // mockAudioFixtureKnown reports whether name can be played as caller audio.

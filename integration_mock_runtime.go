@@ -212,6 +212,9 @@ func (s *Server) attachSimulatedBinding(w *Environment, setup *simulatedBindingS
 	sim.dialMedia = func(ctx context.Context, target mockDeliveryTarget) (*websocket.Conn, error) {
 		return s.dialSimulatedMedia(ctx, w, target)
 	}
+	sim.handOff = func(ctx context.Context, app string, body []byte) (int, []byte, error) {
+		return s.deliverSimulationHandoff(ctx, w, app, body)
+	}
 	if restored := w.restoredSimulation(slug, app, role); restored != nil {
 		if err := sim.restore(restored); err != nil {
 			return err

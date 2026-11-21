@@ -255,6 +255,11 @@
         "recording_ended_at": "{{recording.recording_ended_at}}",
         "recording_urls": "{{recording.download_urls}}",
         "public_recording_urls": {}
+      },
+      "sip_caller_audio": {
+        "name": "{{audio}}",
+        "url": "{{fixture_url(audio)}}",
+        "wav_base64": "{{fixture_base64(audio)}}"
       }
     },
     "collections": {
@@ -263,7 +268,10 @@
       "call_control_applications": { "id": "numeric", "seedable": true, "defaults": { "record_type": "call_control_application", "active": true, "webhook_api_version": "2" } },
       "calls": { "key": "call_control_id" },
       "streams": { "key": "stream_id", "id": "uuid", "defaults": { "state": "connecting" } },
-      "recordings": { "id": "uuid", "defaults": { "record_type": "recording", "source": "call", "status": "recording", "format": "wav" } }
+      "recordings": { "id": "uuid", "defaults": { "record_type": "recording", "source": "call", "status": "recording", "format": "wav" } },
+      "fqdn_connections": { "id": "numeric", "seedable": true, "defaults": { "record_type": "fqdn_connection", "active": true, "transport_protocol": "UDP", "dtmf_type": "RFC 2833", "encrypted_media": null } },
+      "fqdns": { "id": "numeric", "seedable": true, "defaults": { "record_type": "fqdn", "dns_record_type": "a", "port": 5060 } },
+      "sip_calls": { "id": { "token": "sip_" }, "reportable": true, "defaults": { "record_type": "sip_call", "direction": "incoming" } }
     },
     "media": {
       "protocol": "telnyx",
@@ -280,6 +288,10 @@
         { "respond": { "data": "{{numbers}}", "meta": { "page_number": 1, "page_size": "{{input['page[size]'] || 20}}", "total_pages": 1, "total_results": "{{len(numbers)}}" } } }
       ] },
       "update_phone_number": { "steps": [
+        { "lookup": "phone_numbers", "key": "{{input.id}}", "as": "number", "error": "not_found", "detail": "phone number {{input.id}} not found" },
+        { "when": "input.connection_id", "lookup": "call_control_applications", "key": "{{input.connection_id}}", "as": "target_application" },
+        { "when": "input.connection_id", "lookup": "fqdn_connections", "key": "{{input.connection_id}}", "as": "target_fqdn_connection" },
+        { "require": "!input.connection_id || target_application || target_fqdn_connection", "error": "invalid_parameter", "detail": "connection_id {{input.connection_id}} is neither a Call Control application nor an FQDN connection" },
         { "update": "phone_numbers", "key": "{{input.id}}", "merge": "{{input}}", "omit": ["id"], "set": { "updated_at": "{{now()}}" }, "as": "number", "error": "not_found", "detail": "phone number {{input.id}} not found" },
         { "respond": { "data": "{{number}}" } }
       ] },
@@ -304,6 +316,29 @@
       "delete_call_control_application": { "steps": [
         { "delete": "call_control_applications", "key": "{{input.id}}", "as": "application", "error": "not_found", "detail": "call control application {{input.id}} not found" },
         { "respond": { "data": "{{application}}" } }
+      ] },
+      "create_fqdn_connection": { "steps": [
+        { "require": "input.connection_name", "error": "invalid_parameter", "detail": "connection_name is required" },
+        { "require": "!input.transport_protocol || input.transport_protocol == 'UDP' || input.transport_protocol == 'TCP' || input.transport_protocol == 'TLS'", "error": "invalid_parameter", "detail": "transport_protocol must be UDP, TCP or TLS" },
+        { "require": "input.transport_protocol != 'TLS' || input.encrypted_media != 'SRTP'", "error": "invalid_parameter", "detail": "an FQDN connection cannot combine TLS signaling with SRTP" },
+        { "create": "fqdn_connections", "merge": "{{input}}", "omit": ["id"], "record": { "created_at": "{{now()}}", "updated_at": "{{now()}}" }, "as": "connection" },
+        { "respond": { "data": "{{connection}}" }, "status": 201 }
+      ] },
+      "delete_fqdn_connection": { "steps": [
+        { "delete": "fqdn_connections", "key": "{{input.id}}", "as": "connection", "error": "not_found", "detail": "FQDN connection {{input.id}} not found" },
+        { "respond": { "data": "{{connection}}" } }
+      ] },
+      "create_fqdn": { "steps": [
+        { "lookup": "fqdn_connections", "key": "{{input.connection_id}}", "as": "connection", "error": "invalid_parameter", "detail": "connection_id {{input.connection_id}} is not an FQDN connection" },
+        { "require": "input.fqdn", "error": "invalid_parameter", "detail": "fqdn is required" },
+        { "require": "input.dns_record_type == 'a' || input.dns_record_type == 'srv'", "error": "invalid_parameter", "detail": "dns_record_type must be a or srv" },
+        { "require": "input.port", "error": "invalid_parameter", "detail": "port is required" },
+        { "create": "fqdns", "record": { "connection_id": "{{connection.id}}", "fqdn": "{{input.fqdn}}", "dns_record_type": "{{input.dns_record_type}}", "port": "{{input.port}}", "created_at": "{{now()}}", "updated_at": "{{now()}}" }, "as": "fqdn" },
+        { "respond": { "data": "{{fqdn}}" }, "status": 201 }
+      ] },
+      "delete_fqdn": { "steps": [
+        { "delete": "fqdns", "key": "{{input.id}}", "as": "fqdn", "error": "not_found", "detail": "FQDN {{input.id}} not found" },
+        { "respond": { "data": "{{fqdn}}" } }
       ] },
       "answer_call": { "steps": [
         { "when": "input.command_id", "dedupe": "answer:{{input.call_control_id}}:{{input.command_id}}" },
@@ -507,11 +542,22 @@
     },
     "triggers": {
       "incoming_call": {
-        "description": "A caller dials a provisioned number. Creates a parked call and delivers call.initiated to the Call Control application the number is assigned to.",
-        "input_schema": { "type": "object", "properties": { "to": { "type": "string", "description": "Provisioned number in E.164." }, "from": { "type": "string", "description": "Caller number in E.164." }, "caller_id_name": { "type": "string" }, "sip_headers": { "type": "array", "items": { "type": "object" } }, "caller_audio": { "type": "string", "description": "Caller audio played into the call's media stream once it connects: a caller audio fixture (default caller-speech-8k.wav) or silence." } }, "required": ["to", "from"] },
+        "description": "A caller dials a provisioned number. On a number assigned to a Call Control application, creates a parked call and delivers call.initiated to the application. On a number assigned to an FQDN connection (direct SIP), sends no Call Control webhooks: creates a sip_calls record and hands sip_inbound_call to the app that owns the simulated connection, which places the SIP call itself and reports its progress into the record; the result carries sip_call_id.",
+        "input_schema": { "type": "object", "properties": { "to": { "type": "string", "description": "Provisioned number in E.164." }, "from": { "type": "string", "description": "Caller number in E.164." }, "caller_id_name": { "type": "string" }, "sip_headers": { "type": "array", "items": { "type": "object" } }, "caller_audio": { "type": "string", "description": "Caller audio: a caller audio fixture (default caller-speech-8k.wav) or silence. Played into the media stream of a Call Control call; inlined into the hand-off of a direct SIP call." } }, "required": ["to", "from"] },
         "steps": [
           { "find": "phone_numbers", "where": { "phone_number": "{{input.to}}" }, "as": "number", "error": "not_found", "detail": "{{input.to}} is not a provisioned number" },
-          { "require": "number.connection_id", "error": "invalid_parameter", "detail": "{{input.to}} is not assigned to a Call Control application" },
+          { "require": "number.connection_id", "error": "invalid_parameter", "detail": "{{input.to}} is not assigned to a connection" },
+          { "lookup": "fqdn_connections", "key": "{{number.connection_id}}", "as": "fqdn_connection" },
+          { "when": "fqdn_connection", "require": "fqdn_connection.active != false", "error": "invalid_parameter", "detail": "FQDN connection {{fqdn_connection.id}} is inactive" },
+          { "when": "fqdn_connection", "find": "fqdns", "where": { "connection_id": "{{fqdn_connection.id}}" }, "as": "fqdn", "error": "invalid_parameter", "detail": "FQDN connection {{fqdn_connection.id}} has no FQDN" },
+          { "when": "fqdn_connection", "let": { "audio": "{{input.caller_audio || 'caller-speech-8k.wav'}}", "codecs": "{{fqdn_connection.inbound.codecs}}" } },
+          { "when": "fqdn_connection && !codecs", "let": { "codecs": ["PCMU", "PCMA"] } },
+          { "when": "fqdn_connection", "require": "audio == 'caller-speech-8k.wav' || audio == 'silence'", "error": "invalid_parameter", "detail": "{{audio}} is not a caller audio fixture" },
+          { "when": "fqdn_connection && audio != 'silence'", "let": { "caller_audio": { "$use": "sip_caller_audio" } } },
+          { "when": "fqdn_connection && audio == 'silence'", "let": { "caller_audio": { "name": "silence" } } },
+          { "when": "fqdn_connection", "create": "sip_calls", "record": { "connection_id": "{{fqdn_connection.id}}", "phone_number_id": "{{number.id}}", "from": "{{input.from}}", "to": "{{input.to}}", "caller_id_name": "{{input.caller_id_name || input.from}}", "sip_headers": "{{input.sip_headers}}", "caller_audio": "{{audio}}", "target": { "host": "{{fqdn.fqdn}}", "port": "{{fqdn.port}}", "transport": "{{lower(fqdn_connection.transport_protocol)}}" }, "codecs": "{{codecs}}", "dtmf_type": "{{fqdn_connection.dtmf_type}}", "encrypted_media": "{{fqdn_connection.encrypted_media}}", "started_at": "{{now()}}" }, "as": "sip" },
+          { "when": "fqdn_connection", "handoff": "sip_inbound_call", "collection": "sip_calls", "id": "{{sip.id}}", "lane": "{{sip.id}}", "payload": { "from": "{{sip.from}}", "to": "{{sip.to}}", "caller_id_name": "{{sip.caller_id_name}}", "sip_headers": "{{sip.sip_headers}}", "connection_id": "{{sip.connection_id}}", "target": "{{sip.target}}", "codecs": "{{sip.codecs}}", "dtmf_type": "{{sip.dtmf_type}}", "encrypted_media": "{{sip.encrypted_media}}", "caller_audio": "{{caller_audio}}" } },
+          { "when": "fqdn_connection", "respond": { "sip_call_id": "{{sip.id}}", "connection_id": "{{sip.connection_id}}" } },
           { "lookup": "call_control_applications", "key": "{{number.connection_id}}", "as": "application", "error": "invalid_parameter", "detail": "{{input.to}} is assigned to {{number.connection_id}}, which is not a Call Control application" },
           { "require": "application.active != false", "error": "invalid_parameter", "detail": "Call Control application {{application.id}} is inactive" },
           { "create": "calls", "record": { "call_control_id": "{{token('v3:')}}", "call_leg_id": "{{uuid()}}", "call_session_id": "{{uuid()}}", "connection_id": "{{application.id}}", "from": "{{input.from}}", "to": "{{input.to}}", "caller_id_name": "{{input.caller_id_name || input.from}}", "sip_headers": "{{input.sip_headers}}", "caller_audio": "{{input.caller_audio}}", "direction": "incoming", "state": "parked", "webhook_url": "{{application.webhook_event_url}}", "start_time": "{{now()}}" }, "as": "call" },
@@ -643,6 +689,42 @@
           { "update": "calls", "key": "{{call.call_control_id}}", "unset": ["playback"], "as": "call" },
           { "emit": "call.playback.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "media_url": "{{playback.media_url}}", "media_name": "{{playback.media_name}}", "status": "completed" } },
           { "respond": { "call_control_id": "{{call.call_control_id}}" } }
+        ]
+      },
+      "sip_caller_hangup": {
+        "description": "The caller of a direct SIP call hangs up. Hands sip_hangup to the app that owns the connection, after any earlier hand-off of the call.",
+        "input_schema": { "type": "object", "properties": { "sip_call_id": { "type": "string" }, "cause": { "type": "string", "description": "Defaults to normal_clearing." }, "q850": { "type": "integer", "description": "Q.850 cause code; defaults to 16." } }, "required": ["sip_call_id"] },
+        "steps": [
+          { "lookup": "sip_calls", "key": "{{input.sip_call_id}}", "as": "sip", "error": "invalid_parameter", "detail": "unknown sip_call_id" },
+          { "require": "sip.report.state != 'ended' && sip.report.state != 'failed'", "error": "invalid_call_state", "detail": "SIP call {{sip.id}} is {{sip.report.state}}" },
+          { "update": "sip_calls", "key": "{{sip.id}}", "set": { "caller_hangup": { "cause": "{{input.cause || 'normal_clearing'}}", "q850": "{{input.q850 || 16}}", "at": "{{now()}}" } }, "as": "sip" },
+          { "handoff": "sip_hangup", "collection": "sip_calls", "id": "{{sip.id}}", "lane": "{{sip.id}}", "payload": { "cause": "{{sip.caller_hangup.cause}}", "q850": "{{sip.caller_hangup.q850}}" } },
+          { "respond": { "sip_call_id": "{{sip.id}}" } }
+        ]
+      },
+      "sip_dtmf": {
+        "description": "The caller of a direct SIP call presses keys. Hands sip_dtmf to the app that owns the connection, after any earlier hand-off of the call.",
+        "input_schema": { "type": "object", "properties": { "sip_call_id": { "type": "string" }, "digits": { "type": "string", "description": "Keys pressed, in order (0-9, *, #, A-D)." } }, "required": ["sip_call_id", "digits"] },
+        "steps": [
+          { "lookup": "sip_calls", "key": "{{input.sip_call_id}}", "as": "sip", "error": "invalid_parameter", "detail": "unknown sip_call_id" },
+          { "require": "sip.report.state != 'ended' && sip.report.state != 'failed'", "error": "invalid_call_state", "detail": "SIP call {{sip.id}} is {{sip.report.state}}" },
+          { "require": "input.digits", "error": "invalid_parameter", "detail": "digits is required" },
+          { "handoff": "sip_dtmf", "collection": "sip_calls", "id": "{{sip.id}}", "lane": "{{sip.id}}", "payload": { "digits": "{{input.digits}}", "dtmf_type": "{{sip.dtmf_type}}" } },
+          { "respond": { "sip_call_id": "{{sip.id}}", "digits": "{{input.digits}}" } }
+        ]
+      },
+      "sip_caller_speaks": {
+        "description": "The caller of a direct SIP call speaks. Hands sip_play to the app that owns the connection with the caller audio inlined, after any earlier hand-off of the call.",
+        "input_schema": { "type": "object", "properties": { "sip_call_id": { "type": "string" }, "audio": { "type": "string", "description": "A caller audio fixture (default caller-speech-8k.wav) or silence." } }, "required": ["sip_call_id"] },
+        "steps": [
+          { "lookup": "sip_calls", "key": "{{input.sip_call_id}}", "as": "sip", "error": "invalid_parameter", "detail": "unknown sip_call_id" },
+          { "require": "sip.report.state != 'ended' && sip.report.state != 'failed'", "error": "invalid_call_state", "detail": "SIP call {{sip.id}} is {{sip.report.state}}" },
+          { "let": { "audio": "{{input.audio || 'caller-speech-8k.wav'}}" } },
+          { "require": "audio == 'caller-speech-8k.wav' || audio == 'silence'", "error": "invalid_parameter", "detail": "{{audio}} is not a caller audio fixture" },
+          { "when": "audio != 'silence'", "let": { "caller_audio": { "$use": "sip_caller_audio" } } },
+          { "when": "audio == 'silence'", "let": { "caller_audio": { "name": "silence" } } },
+          { "handoff": "sip_play", "collection": "sip_calls", "id": "{{sip.id}}", "lane": "{{sip.id}}", "payload": { "caller_audio": "{{caller_audio}}" } },
+          { "respond": { "sip_call_id": "{{sip.id}}", "audio": "{{audio}}" } }
         ]
       }
     }

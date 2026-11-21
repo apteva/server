@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 
@@ -60,6 +61,10 @@ func (s *Server) handleEnvironmentAppGateway(w http.ResponseWriter, r *http.Requ
 	tail := "/"
 	if len(parts) == 3 {
 		tail = "/" + parts[2]
+	}
+	if appControlTail(tail) {
+		http.NotFound(w, r)
+		return
 	}
 	environment, ok := s.environments.Get(environmentID)
 	if !ok {
@@ -178,7 +183,20 @@ func (s *Server) handleEnvironmentAppPublicGateway(w http.ResponseWriter, r *htt
 			tail += installParts[1]
 		}
 	}
+	if appControlTail(tail) {
+		http.NotFound(w, r)
+		return
+	}
 	s.proxyEnvironmentInstall(w, r, inst, tail)
+}
+
+// appControlTail reports whether an app path is under /_apteva/, the app's
+// platform control routes (runtime control, integration simulation
+// hand-offs). Only the server calls them, in-process; the gateways, which
+// add the app's own credential, never forward them.
+func appControlTail(tail string) bool {
+	clean := path.Clean("/" + tail)
+	return clean == "/_apteva" || strings.HasPrefix(clean, "/_apteva/")
 }
 
 func (s *Server) proxyEnvironmentInstall(w http.ResponseWriter, r *http.Request, inst *localInstall, tail string) {

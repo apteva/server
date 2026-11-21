@@ -129,6 +129,9 @@ type integrationSimulation struct {
 	fixtureBase string
 	dialMedia   mockMediaDialFunc
 	mediaFrame  time.Duration
+	// handOff posts a hand-off to the app that owns the simulated
+	// connection (see integration_mock_handoff.go).
+	handOff mockHandoffFunc
 
 	mu    sync.Mutex
 	state *mockState
@@ -152,6 +155,9 @@ type mockDelivery struct {
 	record  sdk.RuntimeIntegrationDelivery
 	to      string
 	payload any
+	// handoff is set for work handed to the owning app instead of a
+	// signed webhook.
+	handoff *mockHandoffTarget
 	done    chan struct{}
 }
 
@@ -159,6 +165,7 @@ type mockPendingEvent struct {
 	event, to, lane, eventID string
 	payload                  any
 	occurredAt               time.Time
+	handoff                  *mockHandoffTarget
 }
 
 type mockOutcome struct {
@@ -485,6 +492,16 @@ func (sim *integrationSimulation) execute(op *compiledMockOperation, input map[s
 				event: step.target, to: mockString(to), lane: lane, payload: payload,
 				eventID: run.nextID("uuid", ""), occurredAt: sim.now(),
 			})
+		case "handoff":
+			event, err := sim.handoffEvent(sc, step, work)
+			if err != nil {
+				if failure, ok := err.(*mockStepFailure); ok {
+					return fail(step, failure.detail)
+				}
+				return sim.internalError(err.Error())
+			}
+			event.eventID, event.occurredAt = run.nextID("uuid", ""), sim.now()
+			events = append(events, event)
 		case "dedupe":
 			value, err := step.dedupe.render(sc, &sim.mock.templates)
 			if err != nil {
@@ -668,7 +685,12 @@ func (sim *integrationSimulation) enqueue(events []mockPendingEvent) []*mockDeli
 			payload: event.payload,
 			done:    make(chan struct{}),
 		}
-		if target, err := sim.resolveTarget(event.to); err == nil {
+		if event.handoff != nil {
+			d.handoff = event.handoff
+			if sim.app != "" {
+				d.record.App, d.record.Target = sim.app, mockHandoffPath(sim.app)
+			}
+		} else if target, err := sim.resolveTarget(event.to); err == nil {
 			d.record.App, d.record.Target = target.App, target.path()
 		}
 		sim.deliveries = append(sim.deliveries, d)
@@ -715,6 +737,10 @@ func (sim *integrationSimulation) drain(name string, lane *mockLane) {
 }
 
 func (sim *integrationSimulation) deliverOne(d *mockDelivery) {
+	if d.handoff != nil {
+		sim.deliverHandoff(d)
+		return
+	}
 	target, err := sim.resolveTarget(d.to)
 	if err != nil {
 		sim.recordEvidence(InterceptedCall{Host: hostOf(d.to), Path: pathOf(d.to), Method: http.MethodPost, Blocked: true, Kind: "integration_webhook", Integration: sim.slug, Event: d.record.Event})
@@ -814,6 +840,11 @@ func (sim *integrationSimulation) finishLocked(d *mockDelivery, state string, st
 	}
 	completed := time.Now().UTC()
 	d.record.State, d.record.Status, d.record.Error, d.record.CompletedAt = state, status, message, &completed
+	if d.handoff != nil {
+		// A hand-off payload may inline a fixture; the kept history
+		// does not need it.
+		d.payload = nil
+	}
 	close(d.done)
 }
 
