@@ -179,7 +179,9 @@ func (s *Server) claudePool() (*claudepool.Pool, error) {
 			MCPURL:   "http://127.0.0.1:" + s.port + "/api/llm/claude-subscription/mcp",
 			// Core allows connector calls up to 10 minutes.
 			ToolTimeout: 10*time.Minute + 30*time.Second,
-			Limits:      s.claudeSubscriptionLimits(),
+			// A successful done ends the thread: core sends no result.
+			TerminalTools: []string{"done"},
+			Limits:        s.claudeSubscriptionLimits(),
 			Logf: func(format string, args ...any) {
 				log.Printf(format, args...)
 			},

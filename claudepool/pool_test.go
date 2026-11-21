@@ -685,3 +685,75 @@ func TestProjectDirName(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+var doneTool = Tool{Name: "done", Description: "End this thread", InputSchema: json.RawMessage(`{"type":"object"}`)}
+
+// A reply that only ends the conversation gets no results, so its process
+// is closed at once rather than held until ToolTimeout.
+func TestTerminalToolClosesProcessAtOnce(t *testing.T) {
+	tp := newTestPoolWith(t, Limits{}, func(cfg *Config) {
+		cfg.ToolTimeout = time.Minute
+		cfg.TerminalTools = []string{"done"}
+	})
+	req := Request{Owner: "a", Tools: []Tool{lookupTool, doneTool}, Messages: []Message{user(`CALL done {}`)}}
+	r, err := tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.finish != "tool_calls" || len(r.calls) != 1 || r.calls[0].Name != "done" {
+		t.Fatalf("reply = %+v", r)
+	}
+	if st := tp.Status(); st.Running != 0 || st.Sessions != 0 {
+		t.Fatalf("status after done = %+v, want no process and no session", st)
+	}
+
+	// Should the caller reject done and send its error, the conversation
+	// goes on in a new session seeded from the caller's history.
+	req.Messages = append(req.Messages,
+		Message{Role: "assistant", ToolCalls: r.calls},
+		Message{Role: "tool", ToolCallID: r.calls[0].ID, Text: "done is only for threads", IsError: true})
+	r, err = tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[tool error for call " + req.Messages[2].ToolCallID + "]\ndone is only for threads", "Continue from the last tool results above."} {
+		if !strings.Contains(r.text, want) {
+			t.Fatalf("reply misses %q:\n%s", want, r.text)
+		}
+	}
+	if spawns := tp.spawns(t); len(spawns) != 2 || spawns[1].Mode != "new" || spawns[1].Session == spawns[0].Session {
+		t.Fatalf("spawns = %+v", spawns)
+	}
+}
+
+// Calls that still need results keep the process, even alongside a
+// terminal one, and so does done when it is not configured as terminal.
+func TestNonTerminalCallsAreStillHeld(t *testing.T) {
+	cases := []struct {
+		name     string
+		terminal []string
+		call     string
+	}{
+		{"done with another tool", []string{"done"}, `CALL done {} | lookup {}`},
+		{"done not terminal", nil, `CALL done {}`},
+		{"other tool", []string{"done"}, `CALL lookup {}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tp := newTestPoolWith(t, Limits{}, func(cfg *Config) {
+				cfg.ToolTimeout = time.Minute
+				cfg.TerminalTools = c.terminal
+			})
+			r, err := tp.run(t, Request{Owner: "a", Tools: []Tool{lookupTool, doneTool}, Messages: []Message{user(c.call)}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.finish != "tool_calls" {
+				t.Fatalf("reply = %+v", r)
+			}
+			if st := tp.Status(); st.Running != 1 || st.Sessions != 1 || st.Processes[0].State != "waiting_tool" {
+				t.Fatalf("status = %+v", st)
+			}
+		})
+	}
+}

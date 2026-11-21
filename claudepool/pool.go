@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +39,14 @@ type Config struct {
 	MaxSessionsPerOwner int
 	// SessionTTL drops conversations unused for this long.
 	SessionTTL time.Duration
-	Logf       func(format string, args ...any)
+	// TerminalTools name tools that end the caller's conversation. The
+	// caller sends no results for them, so after a reply that calls only
+	// these tools the process is closed at once instead of holding the
+	// calls until ToolTimeout. If results come after all, the
+	// conversation continues in a new session seeded from the caller's
+	// history.
+	TerminalTools []string
+	Logf          func(format string, args ...any)
 }
 
 // Pool shares a bounded number of claude processes between conversations.
@@ -490,6 +498,14 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	}
 
 	if finish == "tool_calls" {
+		if p.terminal(reply.ToolCalls) {
+			p.mu.Lock()
+			if p.sessions[sess.id] == sess {
+				p.cfg.Logf("[CLAUDE-POOL] session %s: the conversation ended (%s); closing its process", short(sess.id), sess.detail)
+				p.parkLocked(sess)
+			}
+			p.mu.Unlock()
+		}
 		p.releaseTurn(sess)
 		return nil
 	}
@@ -498,6 +514,19 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	// wait for it.
 	go p.finishTurn(sess, proc)
 	return nil
+}
+
+// terminal reports whether every call is to one of TerminalTools.
+func (p *Pool) terminal(calls []ToolCall) bool {
+	if len(calls) == 0 {
+		return false
+	}
+	for _, call := range calls {
+		if !slices.Contains(p.cfg.TerminalTools, call.Name) {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *Pool) finishTurn(sess *session, proc *process) {
