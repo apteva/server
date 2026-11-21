@@ -20,7 +20,8 @@ import (
 
 // A user message "CALL name {json} | name {json}" makes it call those
 // tools; "AUTHFAIL" makes the turn fail as a lost login does; anything
-// else is echoed back as "echo: <text>".
+// else is echoed back as "echo: <text>". CLAUDEPOOL_FAKE_RESUME_FAIL=1
+// makes --resume fail as it does for an unknown session.
 
 const (
 	mcpServerName = "apteva"
@@ -112,6 +113,10 @@ func FakeMain(args []string) int {
 			_, _ = f.Write(append(line, '\n'))
 			_ = f.Close()
 		}
+	}
+	if mode == "resume" && os.Getenv("CLAUDEPOOL_FAKE_RESUME_FAIL") == "1" {
+		fmt.Fprintf(os.Stderr, "No conversation found with session ID: %s\n", session)
+		return 1
 	}
 
 	var mcp struct {

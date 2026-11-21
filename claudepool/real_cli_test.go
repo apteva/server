@@ -158,6 +158,11 @@ func realHeldCall(t *testing.T, tp *testPool, owner string) (reply, Request) {
 // skips the test unless CLAUDEPOOL_REAL_CLI=1.
 func newRealPool(t *testing.T, toolTimeout time.Duration) *testPool {
 	t.Helper()
+	return newRealPoolWith(t, toolTimeout, nil)
+}
+
+func newRealPoolWith(t *testing.T, toolTimeout time.Duration, adjust func(*Config)) *testPool {
+	t.Helper()
 	if os.Getenv("CLAUDEPOOL_REAL_CLI") != "1" {
 		t.Skip("set CLAUDEPOOL_REAL_CLI=1 to run against the installed claude binary")
 	}
@@ -169,14 +174,18 @@ func newRealPool(t *testing.T, toolTimeout time.Duration) *testPool {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { pool.ServeHTTP(w, r) }))
 	t.Cleanup(srv.Close)
 	dir := t.TempDir()
-	pool, err = New(Config{
+	cfg := Config{
 		CLI:         CLI{Binary: bin},
 		WorkDir:     dir + "/work",
 		StateDir:    dir + "/state",
 		MCPURL:      srv.URL,
 		ToolTimeout: toolTimeout,
 		Logf:        t.Logf,
-	})
+	}
+	if adjust != nil {
+		adjust(&cfg)
+	}
+	pool, err = New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
