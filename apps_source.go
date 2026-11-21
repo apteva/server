@@ -287,6 +287,11 @@ func (sup *LocalSupervisor) BuildFromLocalSource(installID int64, m *sdk.Manifes
 	if err := os.MkdirAll(gobuildDir, 0755); err != nil {
 		return 0, "", err
 	}
+	// Restarts (a settings change, boot resume, respawn) resolve the UI and
+	// migrations from this record; the bin's own directory has neither.
+	if err := recordLocalBuildSource(binPath, localSrcDir); err != nil {
+		return 0, "", fmt.Errorf("record local build source: %w", err)
+	}
 	port, err = sup.buildAndSpawn(installID, m, localSrcDir, entry, binPath, gobuildDir, goEnv, env, progress)
 	if err != nil {
 		return 0, "", err

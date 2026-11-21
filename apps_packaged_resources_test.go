@@ -679,3 +679,68 @@ func inheritSidecarState(t *testing.T) {
 	t.Setenv("TEST_SIDECAR_STATE", "1")
 	t.Setenv("APTEVA_CHILD_ENV_ALLOW", "TEST_SIDECAR_STATE")
 }
+
+// An Environment run copy is compiled from a source tree outside the cache
+// into <cache>/_local/<app>/<install>/bin. A restart (a settings change,
+// boot resume, respawn) must keep serving that tree's UI and migrations, not
+// a guessed <app>/<version>/src.
+func TestLocalBuildRestartServesRecordedSourceResources(t *testing.T) {
+	fixture := fixtureBytes(t)
+	m := packagedTodo(t)
+	sup := NewLocalSupervisor(t.TempDir())
+	defer sup.StopAll(time.Second)
+	// The module directory a run copy is built from (a source install's
+	// package tree in production), with no legacy src directory anywhere.
+	src := filepath.Join(t.TempDir(), "packages", packageA, "src", "mcp", "todo")
+	writePackageFile(t, filepath.Join(src, "apteva.yaml"), []byte(packagedTodoManifest), 0644)
+	writePackageFile(t, filepath.Join(src, "ui", "TodoListWidget.mjs"), []byte(todoModule(packageA)), 0644)
+	writePackageFile(t, filepath.Join(src, "ui", "assets", "todo.css"), []byte(".todo{color:"+packageA[:6]+"}"), 0644)
+	writePackageFile(t, filepath.Join(src, "migrations", "001_init.sql"), []byte("CREATE TABLE IF NOT EXISTS todos (id INTEGER);"), 0644)
+	bin := filepath.Join(sup.cacheDir, "_local", m.Name, "52809", "bin")
+	writePackageFile(t, bin, fixture, 0755)
+	if err := recordLocalBuildSource(bin, src); err != nil {
+		t.Fatal(err)
+	}
+
+	// installResourceEnv (settings-change restart, managed runtime start)
+	// replaces an obsolete persisted path with the recorded tree.
+	env := map[string]string{"APTEVA_UI_DIR": filepath.Join(sup.cacheDir, m.Name, m.Version, "src", "mcp", "todo", "ui")}
+	if err := sup.installResourceEnv(52809, m, bin, m.Version, env); err != nil {
+		t.Fatal(err)
+	}
+	if env["APTEVA_UI_DIR"] != filepath.Join(src, "ui") || env["APTEVA_MIGRATIONS_DIR"] != filepath.Join(src, "migrations") {
+		t.Fatalf("resource env %v", env)
+	}
+
+	port := unusedTCPPort(t)
+	for cycle := 0; cycle < 2; cycle++ {
+		env := map[string]string{
+			"TEST_SIDECAR_STATE":    "1",
+			"APTEVA_UI_DIR":         filepath.Join(sup.cacheDir, m.Name, m.Version, "src", "mcp", "todo", "ui"),
+			"APTEVA_MIGRATIONS_DIR": filepath.Join(sup.cacheDir, m.Name, m.Version, "src", "mcp", "todo", "migrations"),
+		}
+		if err := sup.Restart(52809, m, port, bin, env); err != nil {
+			t.Fatal(err)
+		}
+		label := fmt.Sprintf("cycle %d", cycle)
+		assertPackagedWidget(t, port, packageA, label)
+		if st := sidecarStateAt(t, port, http.MethodGet, ""); !reflect.DeepEqual(st.Applied, []string{"001_init.sql"}) {
+			t.Fatalf("%s: migrations %v (dir %s)", label, st.Applied, st.MigrationsDir)
+		}
+		if err := sup.Stop(52809); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(sup.cacheDir, m.Name, m.Version, "src")); !os.IsNotExist(err) {
+		t.Fatal("restart must not create the legacy src directory")
+	}
+
+	// A vanished source tree is reported instead of starting an app with no UI.
+	if err := os.RemoveAll(filepath.Join(src, "ui")); err != nil {
+		t.Fatal(err)
+	}
+	err := sup.Restart(52809, m, port, bin, map[string]string{})
+	if err == nil || !strings.Contains(err.Error(), "UI directory missing") {
+		t.Fatalf("missing UI: %v", err)
+	}
+}
