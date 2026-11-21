@@ -261,6 +261,12 @@ func (s *Server) behaviorMetadata(inst *Agent, out map[string]any) {
 }
 
 func (s *Server) writeBehaviorResponse(w http.ResponseWriter, resp *http.Response, inst *Agent) {
+	s.writeBehaviorResponseWith(w, resp, inst, nil)
+}
+
+// writeBehaviorResponseWith also sets server-side fields on a successful
+// response. A nil value removes the field.
+func (s *Server) writeBehaviorResponseWith(w http.ResponseWriter, resp *http.Response, inst *Agent, extra map[string]any) {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
 	if err != nil || len(data) > 16<<20 {
 		http.Error(w, "invalid core response", http.StatusBadGateway)
@@ -275,6 +281,13 @@ func (s *Server) writeBehaviorResponse(w http.ResponseWriter, resp *http.Respons
 			}
 		}
 		sanitizeDirectiveFields(out)
+		for key, value := range extra {
+			if value == nil {
+				delete(out, key)
+			} else {
+				out[key] = value
+			}
+		}
 		data, _ = json.Marshal(out)
 	}
 	for k, v := range resp.Header {
