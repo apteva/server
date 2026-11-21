@@ -123,9 +123,16 @@ type integrationSimulation struct {
 	deliver      mockDeliverFunc
 	evidence     func(InterceptedCall)
 	backoff      func(attempt int) time.Duration
+	// fixtureBase is the public URL prefix of the fixture files the server
+	// serves (fixture_url). dialMedia opens a media WebSocket to one of the
+	// runtime's apps; mediaFrame is the media pacing interval.
+	fixtureBase string
+	dialMedia   mockMediaDialFunc
+	mediaFrame  time.Duration
 
 	mu    sync.Mutex
 	state *mockState
+	peers map[string]*mockMediaPeer // live media streams by record key, under mu
 
 	dmu        sync.Mutex
 	deliveries []*mockDelivery
@@ -174,6 +181,8 @@ func newIntegrationSimulation(environmentID, slug, app, role string, connectionI
 		salt:         binary.BigEndian.Uint32(digest[:4]),
 		now:          func() time.Time { return time.Now().UTC() },
 		state:        newMockState(),
+		peers:        map[string]*mockMediaPeer{},
+		mediaFrame:   mockMediaFrameInterval,
 		lanes:        map[string]*mockLane{},
 		ctx:          ctx,
 		cancel:       cancel,
@@ -192,6 +201,16 @@ type mockRun struct {
 
 func (r *mockRun) now() string { return r.sim.now().UTC().Format(mockTimeLayout) }
 
+func (r *mockRun) fixtureURL(name string) string { return r.sim.fixtureURL(name) }
+
+func (sim *integrationSimulation) fixtureURL(name string) string {
+	base := strings.TrimRight(sim.fixtureBase, "/")
+	if base == "" {
+		base = "http://localhost/api/integration-simulation/fixtures"
+	}
+	return base + "/" + url.PathEscape(name)
+}
+
 func (r *mockRun) nextID(kind, prefix string) string {
 	r.state.Seq++
 	n := r.state.Seq
@@ -204,10 +223,19 @@ func (r *mockRun) nextID(kind, prefix string) string {
 	return fmt.Sprintf("%08x-0000-4000-8000-%012d", r.sim.salt, n)
 }
 
-type mockStaticFunctions struct{ at string }
+type mockStaticFunctions struct {
+	at  string
+	sim *integrationSimulation
+}
 
 func (f mockStaticFunctions) now() string                  { return f.at }
 func (f mockStaticFunctions) nextID(string, string) string { return "" }
+func (f mockStaticFunctions) fixtureURL(name string) string {
+	if f.sim == nil {
+		return ""
+	}
+	return f.sim.fixtureURL(name)
+}
 
 // --- seeding and restore ---
 
@@ -265,7 +293,23 @@ func (sim *integrationSimulation) restore(state *mockState) error {
 	for key, value := range state.Dedupe {
 		restored.Dedupe[key] = value
 	}
+	// A snapshot holds stream records, not their connections.
+	if media := sim.mock.media; media != nil {
+		if streams := restored.Collections[media.collection]; streams != nil {
+			for _, record := range streams.Records {
+				if live := mockString(record["state"]); live == mockStreamConnecting || live == mockStreamStreaming {
+					record["state"] = mockStreamInterrupted
+					record["error"] = "runtime restored from a snapshot"
+				}
+			}
+		}
+	}
 	sim.mu.Lock()
+	for key, peer := range sim.peers {
+		peer.detached = true
+		peer.abort()
+		delete(sim.peers, key)
+	}
 	sim.state = restored
 	sim.mu.Unlock()
 	return nil
@@ -274,6 +318,7 @@ func (sim *integrationSimulation) restore(state *mockState) error {
 func (sim *integrationSimulation) snapshotState() *mockState {
 	sim.mu.Lock()
 	defer sim.mu.Unlock()
+	sim.flushMediaLocked()
 	out := sim.state.clone()
 	out.Dedupe = map[string]mockCachedResponse{}
 	for key, value := range sim.state.Dedupe {
@@ -313,6 +358,7 @@ func (sim *integrationSimulation) execute(op *compiledMockOperation, input map[s
 	}
 	sc := &mockScope{vars: map[string]any{"input": cloneMockValue(input)}, fn: run}
 	var events []mockPendingEvent
+	var streams []mockStreamOp
 	dedupeKey := ""
 
 	fail := func(step *mockStep, fallback string) mockOutcome {
@@ -452,6 +498,33 @@ func (sim *integrationSimulation) execute(op *compiledMockOperation, input map[s
 				return mockOutcome{status: cached.Status, body: cloneMockValue(cached.Body)}
 			}
 			dedupeKey = key
+		case "stream":
+			keyValue, err := step.key.render(sc, &sim.mock.templates)
+			if err != nil {
+				return sim.internalError(err.Error())
+			}
+			op := mockStreamOp{action: step.target, key: mockString(keyValue)}
+			if _, exists := work.collection(sim.mock.media.collection).Records[op.key]; !exists {
+				return fail(step, fmt.Sprintf("stream %q not found", op.key))
+			}
+			if step.to != nil {
+				to, err := step.to.render(sc, &sim.mock.templates)
+				if err != nil {
+					return sim.internalError(err.Error())
+				}
+				op.url = mockString(to)
+			}
+			if step.audio != nil {
+				audio, err := step.audio.render(sc, &sim.mock.templates)
+				if err != nil {
+					return sim.internalError(err.Error())
+				}
+				op.audio = mockString(audio)
+				if op.audio != "" && !mockAudioFixtureKnown(op.audio) {
+					return fail(step, fmt.Sprintf("audio %q is not a caller audio fixture", op.audio))
+				}
+			}
+			streams = append(streams, op)
 		case "respond":
 			body, err := step.respond.render(sc, &sim.mock.templates)
 			if err != nil {
@@ -470,7 +543,9 @@ func (sim *integrationSimulation) execute(op *compiledMockOperation, input map[s
 				work.Dedupe = dedupe
 			}
 			sim.state = work
-			return mockOutcome{status: status, body: body, deliveries: sim.enqueue(events)}
+			deliveries := sim.enqueue(events)
+			sim.applyStreamOps(streams)
+			return mockOutcome{status: status, body: body, deliveries: deliveries}
 		}
 	}
 	return sim.internalError("operation ended without respond")
@@ -701,7 +776,7 @@ func (sim *integrationSimulation) signedEnvelope(d *mockDelivery, attempt int) (
 		"occurred_at": d.record.OccurredAt.UTC().Format(mockTimeLayout),
 		"payload":     d.payload,
 		"attempt":     float64(attempt),
-	}, fn: mockStaticFunctions{at: sim.now().UTC().Format(mockTimeLayout)}}
+	}, fn: mockStaticFunctions{at: sim.now().UTC().Format(mockTimeLayout), sim: sim}}
 	envelope, err := sim.mock.envelope.render(sc, &sim.mock.templates)
 	if err != nil {
 		return nil, nil, err
@@ -833,6 +908,13 @@ func (sim *integrationSimulation) recordEvidence(call InterceptedCall) {
 }
 
 func (sim *integrationSimulation) stop() {
+	sim.mu.Lock()
+	for _, peer := range sim.peers {
+		peer.abort()
+	}
+	// Cancelled under mu so no stream step can start a peer afterwards.
+	sim.cancel()
+	sim.mu.Unlock()
 	sim.dmu.Lock()
 	sim.stopped = true
 	sim.cancel()

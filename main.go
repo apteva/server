@@ -1383,6 +1383,9 @@ func main() {
 	// sidecars.
 	apiMux.HandleFunc("/environment-app-gateway/", s.handleEnvironmentAppGateway)
 	apiMux.HandleFunc("/environment-app-public/", s.handleEnvironmentAppPublicGateway)
+	// Public fixture files of integration simulations (recording downloads,
+	// caller audio); deterministic, embedded, and free of runtime data.
+	apiMux.HandleFunc("/integration-simulation/fixtures/", s.handleIntegrationSimulationFixture)
 
 	instancesCollectionHandler := s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

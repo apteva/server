@@ -6,7 +6,9 @@ package main
 // simulate=true.
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +24,32 @@ type AppMockConfig struct {
 	Collections map[string]AppMockCollection `json:"collections"`
 	Tools       map[string]AppMockOperation  `json:"tools"`
 	Triggers    map[string]AppMockTrigger    `json:"triggers,omitempty"`
+	Media       *AppMockMedia                `json:"media,omitempty"`
+}
+
+// AppMockMedia makes the simulation a media peer: `stream` steps connect to
+// a WebSocket the app gave the provider, speak the provider's media protocol
+// and play caller audio fixtures into it. One record of Collection describes
+// each stream; the server writes its state and audio counters there.
+type AppMockMedia struct {
+	// Protocol is the provider's wire format. "telnyx" is Telnyx Media
+	// Streaming (connected/start/media/stop/mark frames, base64 audio).
+	Protocol   string `json:"protocol"`
+	Collection string `json:"collection"`
+	// Audio is the default caller audio fixture (a server fixture name).
+	Audio string `json:"audio"`
+	// Events are emitted when a stream connects, stops or fails. To, Lane
+	// and Payload are rendered with the stream record as `stream`.
+	Events  *AppMockMediaEvents `json:"events,omitempty"`
+	To      string              `json:"to,omitempty"`
+	Lane    string              `json:"lane,omitempty"`
+	Payload map[string]any      `json:"payload,omitempty"`
+}
+
+type AppMockMediaEvents struct {
+	Started string `json:"started,omitempty"`
+	Stopped string `json:"stopped,omitempty"`
+	Failed  string `json:"failed,omitempty"`
 }
 
 type AppMockSigning struct {
@@ -71,6 +99,19 @@ type compiledMock struct {
 	collections map[string]*compiledMockCollection
 	tools       map[string]*compiledMockOperation
 	triggers    map[string]*compiledMockTrigger
+	media       *compiledMockMedia
+}
+
+type compiledMockMedia struct {
+	protocol   string
+	collection string
+	audio      string
+	started    string
+	stopped    string
+	failed     string
+	to         mockTemplate
+	lane       mockTemplate
+	payload    mockTemplate
 }
 
 type compiledMockError struct {
@@ -119,14 +160,20 @@ type mockStep struct {
 	status    int
 	errName   string
 	detail    mockTemplate
+	audio     mockTemplate // stream play
 }
 
-var mockStepOperations = []string{"let", "require", "lookup", "find", "list", "create", "update", "delete", "emit", "dedupe", "respond"}
+var mockStepOperations = []string{"let", "require", "lookup", "find", "list", "create", "update", "delete", "emit", "dedupe", "stream", "respond"}
 
 var mockStepFields = map[string]bool{
 	"when": true, "key": true, "where": true, "record": true, "set": true, "merge": true, "omit": true,
 	"unset": true, "as": true, "to": true, "payload": true, "lane": true, "status": true, "error": true, "detail": true,
+	"audio": true,
 }
+
+// Stream step actions. They act on a record of media.collection once the
+// operation succeeds, like emitted events.
+var mockStreamActions = map[string]bool{"start": true, "play": true, "stop": true}
 
 const (
 	mockMaxDeliveryAttempts     = 5
@@ -244,6 +291,13 @@ func compileAppMock(app *AppTemplate) (*compiledMock, error) {
 			events[event.Name] = true
 		}
 	}
+	if cfg.Media != nil {
+		media, err := out.compileMedia(cfg.Media, events)
+		if err != nil {
+			return nil, fmt.Errorf("media: %w", err)
+		}
+		out.media = media
+	}
 	for name, def := range cfg.Tools {
 		if !toolNames[name] {
 			return nil, fmt.Errorf("tools.%s: not a catalog tool", name)
@@ -280,13 +334,84 @@ func compileAppMock(app *AppTemplate) (*compiledMock, error) {
 	if err := checkMockTemplateUses(cfg, out.templates); err != nil {
 		return nil, err
 	}
+	if err := checkMockFixtureReferences(cfg); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+func (m *compiledMock) compileMedia(cfg *AppMockMedia, events map[string]bool) (*compiledMockMedia, error) {
+	if cfg.Protocol != mockMediaProtocolTelnyx {
+		return nil, fmt.Errorf("protocol %q is not supported", cfg.Protocol)
+	}
+	if m.collections[cfg.Collection] == nil {
+		return nil, fmt.Errorf("unknown collection %q", cfg.Collection)
+	}
+	if !mockAudioFixtureKnown(cfg.Audio) {
+		return nil, fmt.Errorf("audio %q is not a caller audio fixture", cfg.Audio)
+	}
+	out := &compiledMockMedia{protocol: cfg.Protocol, collection: cfg.Collection, audio: cfg.Audio}
+	if cfg.Events != nil {
+		out.started, out.stopped, out.failed = cfg.Events.Started, cfg.Events.Stopped, cfg.Events.Failed
+	}
+	for _, event := range []string{out.started, out.stopped, out.failed} {
+		if event != "" && !events[event] {
+			return nil, fmt.Errorf("event %q is not declared in webhooks.events", event)
+		}
+	}
+	if out.started == "" && out.stopped == "" && out.failed == "" {
+		return out, nil
+	}
+	if m.signing == nil || m.envelope == nil {
+		return nil, fmt.Errorf("events need signing and envelope")
+	}
+	if cfg.To == "" {
+		return nil, fmt.Errorf("events need to")
+	}
+	var err error
+	if out.to, err = compileMockTemplate(cfg.To); err != nil {
+		return nil, fmt.Errorf("to: %w", err)
+	}
+	if cfg.Lane != "" {
+		if out.lane, err = compileMockTemplate(cfg.Lane); err != nil {
+			return nil, fmt.Errorf("lane: %w", err)
+		}
+	}
+	payload := cfg.Payload
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if out.payload, err = compileMockTemplate(payload); err != nil {
+		return nil, fmt.Errorf("payload: %w", err)
+	}
+	return out, nil
+}
+
+var mockFixtureCall = regexp.MustCompile(`fixture_url\(\s*'([^']*)'\s*\)`)
+
+// checkMockFixtureReferences rejects fixture_url('name') calls whose
+// literal name is not a served fixture, so a typo fails at compile time.
+func checkMockFixtureReferences(cfg *AppMockConfig) error {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	for _, match := range mockFixtureCall.FindAllStringSubmatch(string(raw), -1) {
+		if _, ok := mockFixtureByName(match[1]); !ok {
+			return fmt.Errorf("fixture_url(%q): unknown fixture", match[1])
+		}
+	}
+	return nil
 }
 
 func checkMockTemplateUses(value any, templates mockTemplates) error {
 	switch v := value.(type) {
 	case *AppMockConfig:
-		for _, part := range []any{v.Envelope, toAnyMap(v.Templates), toolSteps(v.Tools), triggerSteps(v.Triggers)} {
+		parts := []any{v.Envelope, toAnyMap(v.Templates), toolSteps(v.Tools), triggerSteps(v.Triggers)}
+		if v.Media != nil {
+			parts = append(parts, v.Media.Payload)
+		}
+		for _, part := range parts {
 			if err := checkMockTemplateUses(part, templates); err != nil {
 				return err
 			}
@@ -552,6 +677,28 @@ func (m *compiledMock) compileStep(raw map[string]any, events map[string]bool) (
 		if step.dedupe, err = tmpl("dedupe"); err != nil {
 			return nil, err
 		}
+	case "stream":
+		step.target, _ = raw["stream"].(string)
+		if !mockStreamActions[step.target] {
+			return nil, fmt.Errorf("stream must be start, play or stop")
+		}
+		if m.media == nil {
+			return nil, fmt.Errorf("stream needs a media section")
+		}
+		if step.key, err = tmpl("key"); err != nil || step.key == nil {
+			return nil, fmt.Errorf("stream needs key")
+		}
+		if step.target == "start" {
+			if step.to, err = tmpl("to"); err != nil || step.to == nil {
+				return nil, fmt.Errorf("stream start needs to")
+			}
+		}
+		if step.audio, err = tmpl("audio"); err != nil {
+			return nil, err
+		}
+		if step.audio != nil && step.target != "play" {
+			return nil, fmt.Errorf("audio is only valid with stream play")
+		}
 	case "respond":
 		if step.respond, err = tmpl("respond"); err != nil {
 			return nil, err
@@ -559,6 +706,9 @@ func (m *compiledMock) compileStep(raw map[string]any, events map[string]bool) (
 	}
 	if step.op == "lookup" && step.as == "" {
 		return nil, fmt.Errorf("lookup needs as")
+	}
+	if _, ok := raw["audio"]; ok && step.op != "stream" {
+		return nil, fmt.Errorf("audio is only valid with stream")
 	}
 	if step.record, err = mapTmpl("record"); err != nil {
 		return nil, err
