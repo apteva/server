@@ -630,5 +630,112 @@
       },
       "query_params": ["limit"]
     }
-  ]
+  ],
+  "mock": {
+    "version": 1,
+    "errors": {
+      "bad_request": { "status": 400, "body": { "err_code": "Bad Request", "err_msg": "{{detail}}", "request_id": "{{request_id}}" } }
+    },
+    "collections": {
+      "responses": { "id": "uuid", "seedable": true, "defaults": { "outcome": "ok", "used": false } },
+      "default_responses": { "seedable": true },
+      "requests": { "key": "request_id" }
+    },
+    "tools": {
+      "listen": { "steps": [
+        { "let": { "request_id": "{{uuid()}}" } },
+        { "require": "input.url || input.audio", "error": "bad_request", "detail": "Either a url or an audio body is required." },
+        { "require": "!input.callback", "error": "bad_request", "detail": "callback is not simulated; omit it to receive the transcript in the response" },
+        { "find": "responses", "where": { "used": false }, "as": "queued" },
+        { "lookup": "default_responses", "key": "listen", "as": "fallback" },
+        { "when": "queued", "update": "responses", "key": "{{queued.id}}", "set": { "used": true, "used_at": "{{now()}}", "request_id": "{{request_id}}" } },
+        { "let": { "answer": "{{queued || fallback}}" } },
+        { "let": {
+          "outcome": "{{answer.outcome || 'ok'}}",
+          "custom": "{{answer.transcript}}",
+          "duration": "{{answer.duration || 3.89}}",
+          "language": "{{input.language || answer.language || 'en'}}",
+          "fixture_words": [
+            { "word": "hello", "punctuated_word": "Hello,", "start": 0.06, "end": 0.54, "confidence": 0.99 },
+            { "word": "i", "punctuated_word": "I", "start": 0.66, "end": 0.75, "confidence": 0.98 },
+            { "word": "would", "punctuated_word": "would", "start": 0.75, "end": 0.84, "confidence": 0.97 },
+            { "word": "like", "punctuated_word": "like", "start": 0.84, "end": 1.04, "confidence": 0.99 },
+            { "word": "an", "punctuated_word": "an", "start": 1.04, "end": 1.28, "confidence": 0.97 },
+            { "word": "appointment", "punctuated_word": "appointment.", "start": 1.37, "end": 2.0, "confidence": 0.99 },
+            { "word": "sure", "punctuated_word": "Sure,", "start": 2.58, "end": 3.02, "confidence": 0.98 },
+            { "word": "which", "punctuated_word": "which", "start": 3.12, "end": 3.43, "confidence": 0.99 },
+            { "word": "day", "punctuated_word": "day?", "start": 3.43, "end": 3.71, "confidence": 0.99 }
+          ],
+          "no_words": []
+        } },
+        { "let": {
+          "transcript": "{{custom || 'Hello, I would like an appointment. Sure, which day?'}}",
+          "words": "{{answer.words || (custom && no_words) || fixture_words}}"
+        } },
+        { "let": {
+          "paragraphs": { "transcript": "{{transcript}}", "paragraphs": [{ "sentences": [{ "text": "{{transcript}}", "start": 0, "end": "{{duration}}" }], "num_words": "{{len(words)}}", "start": 0, "end": "{{duration}}" }] },
+          "utterances": [{ "id": "{{request_id}}", "start": 0, "end": "{{duration}}", "confidence": "{{answer.confidence || 0.98}}", "channel": 0, "transcript": "{{transcript}}", "words": "{{words}}" }]
+        } },
+        { "create": "requests", "record": { "request_id": "{{request_id}}", "url": "{{input.url}}", "audio": "{{input.audio}}", "model": "{{input.model || 'nova-3'}}", "language": "{{input.language}}", "detect_language": "{{input.detect_language}}", "diarize": "{{input.diarize}}", "paragraphs": "{{input.paragraphs}}", "utterances": "{{input.utterances}}", "outcome": "{{outcome}}", "response_id": "{{answer.id}}", "created_at": "{{now()}}" } },
+        { "when": "outcome == 'payment_required'", "respond": { "err_code": "ASR_PAYMENT_REQUIRED", "err_msg": "Project does not have enough credits for this request and does not have an overage agreement.", "request_id": "{{request_id}}" }, "status": 402 },
+        { "when": "outcome == 'server_error'", "respond": { "err_code": "INTERNAL_SERVER_ERROR", "err_msg": "The server encountered an internal error. Please retry the request.", "request_id": "{{request_id}}" }, "status": 500 },
+        { "when": "outcome == 'timeout'", "respond": { "err_code": "GATEWAY_TIMEOUT", "err_msg": "The request timed out before a transcript was produced.", "request_id": "{{request_id}}" }, "status": 504 },
+        { "when": "outcome == 'bad_audio'", "respond": { "err_code": "Bad Request", "err_msg": "Bad Request: failed to process audio: corrupt or unsupported data", "request_id": "{{request_id}}" }, "status": 400 },
+        { "require": "outcome == 'ok'", "error": "bad_request", "detail": "simulated outcome {{outcome}} is not one of ok, payment_required (402 ASR_PAYMENT_REQUIRED), server_error (500), timeout (504) or bad_audio (400)" },
+        { "respond": {
+          "metadata": { "request_id": "{{request_id}}", "created": "{{now()}}", "duration": "{{duration}}", "channels": 1, "models": ["30089e05-99d1-4376-b32e-c263170674af"] },
+          "results": {
+            "channels": [{
+              "detected_language": "{{(input.detect_language && language) || null}}",
+              "alternatives": [{
+                "transcript": "{{transcript}}",
+                "confidence": "{{answer.confidence || 0.98}}",
+                "words": "{{words}}",
+                "paragraphs": "{{(input.paragraphs && paragraphs) || null}}"
+              }]
+            }],
+            "utterances": "{{(input.utterances && utterances) || null}}"
+          }
+        } }
+      ] }
+    },
+    "triggers": {
+      "queue_response": {
+        "description": "Queues the answer to the next listen call, oldest first: a transcript or a failure (ok, payment_required (402 ASR_PAYMENT_REQUIRED), server_error (500), timeout (504) or bad_audio (400)). Each queued answer is used once.",
+        "input_schema": { "type": "object", "properties": {
+          "outcome": { "type": "string", "enum": ["ok", "payment_required", "server_error", "timeout", "bad_audio"], "description": "Defaults to ok." },
+          "transcript": { "type": "string", "description": "Transcript text for ok; defaults to the fixture transcript of call-recording-mono.wav." },
+          "words": { "type": "array", "items": { "type": "object" }, "description": "Deepgram words (word, start, end, confidence, punctuated_word). Defaults to the fixture words, or none with a custom transcript." },
+          "duration": { "type": "number", "description": "metadata.duration in seconds; defaults to 3.89, the length of the recording fixtures." },
+          "language": { "type": "string", "description": "detected_language when the request asks for detection; defaults to the requested language or en." },
+          "confidence": { "type": "number" }
+        } },
+        "steps": [
+          { "require": "!input.outcome || input.outcome == 'ok' || input.outcome == 'payment_required' || input.outcome == 'server_error' || input.outcome == 'timeout' || input.outcome == 'bad_audio'", "error": "bad_request", "detail": "outcome {{input.outcome}} is not one of ok, payment_required (402 ASR_PAYMENT_REQUIRED), server_error (500), timeout (504) or bad_audio (400)" },
+          { "create": "responses", "merge": "{{input}}", "omit": ["id", "used"], "record": { "outcome": "{{input.outcome || 'ok'}}", "queued_at": "{{now()}}" }, "as": "response" },
+          { "respond": { "id": "{{response.id}}", "outcome": "{{response.outcome}}" } }
+        ]
+      },
+      "set_default_response": {
+        "description": "Sets the answer to every listen call that has no queued answer, for example a lasting payment_required failure. clear restores the fixture transcript.",
+        "input_schema": { "type": "object", "properties": {
+          "outcome": { "type": "string", "enum": ["ok", "payment_required", "server_error", "timeout", "bad_audio"], "description": "Defaults to ok." },
+          "transcript": { "type": "string", "description": "Transcript text for ok; defaults to the fixture transcript of call-recording-mono.wav." },
+          "words": { "type": "array", "items": { "type": "object" }, "description": "Deepgram words (word, start, end, confidence, punctuated_word). Defaults to the fixture words, or none with a custom transcript." },
+          "duration": { "type": "number", "description": "metadata.duration in seconds; defaults to 3.89, the length of the recording fixtures." },
+          "language": { "type": "string", "description": "detected_language when the request asks for detection; defaults to the requested language or en." },
+          "confidence": { "type": "number" },
+          "clear": { "type": "boolean", "description": "Remove the default answer." }
+        } },
+        "steps": [
+          { "require": "!input.outcome || input.outcome == 'ok' || input.outcome == 'payment_required' || input.outcome == 'server_error' || input.outcome == 'timeout' || input.outcome == 'bad_audio'", "error": "bad_request", "detail": "outcome {{input.outcome}} is not one of ok, payment_required (402 ASR_PAYMENT_REQUIRED), server_error (500), timeout (504) or bad_audio (400)" },
+          { "lookup": "default_responses", "key": "listen", "as": "current" },
+          { "when": "current", "delete": "default_responses", "key": "listen" },
+          { "when": "input.clear", "respond": { "outcome": "ok", "cleared": true } },
+          { "create": "default_responses", "merge": "{{input}}", "omit": ["id", "clear"], "record": { "id": "listen", "outcome": "{{input.outcome || 'ok'}}", "updated_at": "{{now()}}" }, "as": "response" },
+          { "respond": { "outcome": "{{response.outcome}}" } }
+        ]
+      }
+    }
+  }
 }

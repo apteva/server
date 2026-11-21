@@ -41,6 +41,8 @@ type mockScope struct {
 type mockFunctions interface {
 	now() string
 	nextID(kind, prefix string) string
+	// fixtureURL is the public URL the server serves a fixture file at.
+	fixtureURL(name string) string
 }
 
 func (e mockLiteral) eval(*mockScope) (any, error) { return e.value, nil }
@@ -139,11 +141,17 @@ func (e mockCall) eval(sc *mockScope) (any, error) {
 		return sc.fn.nextID("numeric", ""), nil
 	case "token":
 		return sc.fn.nextID("token", mockString(args[0])), nil
+	case "fixture_url":
+		name := mockString(args[0])
+		if _, ok := mockFixtureByName(name); !ok {
+			return nil, fmt.Errorf("fixture_url: unknown fixture %q", name)
+		}
+		return sc.fn.fixtureURL(name), nil
 	}
 	return nil, fmt.Errorf("unknown function %s", e.name)
 }
 
-var mockFunctionArity = map[string]int{"len": 1, "lower": 1, "now": 0, "uuid": 0, "numeric_id": 0, "token": 1}
+var mockFunctionArity = map[string]int{"len": 1, "lower": 1, "now": 0, "uuid": 0, "numeric_id": 0, "token": 1, "fixture_url": 1}
 
 func mockTruthy(value any) bool {
 	switch v := value.(type) {

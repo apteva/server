@@ -26,6 +26,9 @@ func (f *fixedMockFunctions) nextID(kind, prefix string) string {
 	f.seq++
 	return fmt.Sprintf("%s%s-%d", prefix, kind, f.seq)
 }
+func (f *fixedMockFunctions) fixtureURL(name string) string {
+	return "https://fixtures.test/" + name
+}
 
 func TestMockExpressionsAndTemplates(t *testing.T) {
 	sc := &mockScope{fn: &fixedMockFunctions{}, vars: map[string]any{
@@ -110,7 +113,7 @@ func loadEmbeddedCatalog(t *testing.T) *AppCatalog {
 func TestEmbeddedCatalogMocksCompile(t *testing.T) {
 	catalog := loadEmbeddedCatalog(t)
 	found := 0
-	for _, slug := range []string{"telnyx"} {
+	for _, slug := range []string{"telnyx", "deepgram"} {
 		if catalog.Get(slug) == nil || catalog.Get(slug).Mock == nil {
 			t.Fatalf("%s has no mock section", slug)
 		}
@@ -161,6 +164,14 @@ type telnyxSimHarness struct {
 	mu        sync.Mutex
 	events    []string
 	failFirst map[string]bool
+	// handler, when set, replaces serveTelephony as the sidecar.
+	handler http.Handler
+}
+
+func (h *telnyxSimHarness) setHandler(handler http.Handler) {
+	h.mu.Lock()
+	h.handler = handler
+	h.mu.Unlock()
 }
 
 func (h *telnyxSimHarness) tool(name string, input map[string]any) *ExecuteResult {
@@ -225,7 +236,16 @@ func newTelnyxSimHarness(t *testing.T) *telnyxSimHarness {
 	manifest := sdk.Manifest{Name: "telephony", Requires: sdk.Requires{Integrations: []sdk.IntegrationDep{{Role: "carrier", CompatibleSlugs: []string{"telnyx"}}}}}
 	h.install = seedRunningInstall(t, s, "telephony", "rt-sim", manifest, nil)
 
-	h.sidecar = httptest.NewServer(http.HandlerFunc(h.serveTelephony))
+	h.sidecar = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.mu.Lock()
+		handler := h.handler
+		h.mu.Unlock()
+		if handler != nil {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		h.serveTelephony(w, r)
+	}))
 	t.Cleanup(h.sidecar.Close)
 	h.runtime = &Environment{
 		ID: "rt-sim", ProjectID: "rt-sim", ownerInstallID: h.owner, edge: &EnvironmentEdge{},
@@ -435,7 +455,7 @@ func TestTelnyxSimulationDrivesTelephonyInboundIVR(t *testing.T) {
 	}
 
 	// Strict mode: a tool the simulation does not define fails.
-	strict := h.tool("dial_call", map[string]any{"connection_id": h.appID, "to": "+15550100002", "from": "+15550100001"})
+	strict := h.tool("transfer_call", map[string]any{"call_control_id": started.CallControlID, "to": "+15550100002"})
 	if strict.Success || strict.Status != http.StatusNotImplemented || strict.Data.(map[string]any)["error"] != sdk.RuntimeErrMockUnsupportedTool {
 		t.Fatalf("unsupported tool = %+v", strict)
 	}

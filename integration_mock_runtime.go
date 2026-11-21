@@ -20,6 +20,7 @@ import (
 	"time"
 
 	sdk "github.com/apteva/app-sdk"
+	"github.com/gorilla/websocket"
 )
 
 // IntegrationSimulationSnapshot is one simulation's state inside a runtime
@@ -206,6 +207,10 @@ func (s *Server) attachSimulatedBinding(w *Environment, setup *simulatedBindingS
 	}
 	sim.deliver = func(ctx context.Context, target mockDeliveryTarget, header http.Header, body []byte) (int, []byte, error) {
 		return s.deliverSimulatedWebhook(ctx, w, target, header, body)
+	}
+	sim.fixtureBase = strings.TrimRight(s.publicBaseURL(), "/") + "/api/integration-simulation/fixtures"
+	sim.dialMedia = func(ctx context.Context, target mockDeliveryTarget) (*websocket.Conn, error) {
+		return s.dialSimulatedMedia(ctx, w, target)
 	}
 	if restored := w.restoredSimulation(slug, app, role); restored != nil {
 		if err := sim.restore(restored); err != nil {

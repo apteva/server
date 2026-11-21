@@ -43,6 +43,9 @@
       { "name": "call.recording.saved", "description": "A call recording was saved." },
       { "name": "call.streaming.started", "description": "Media streaming started on a call." },
       { "name": "call.streaming.stopped", "description": "Media streaming stopped on a call." },
+      { "name": "call.streaming.failed", "description": "Media streaming failed on a call." },
+      { "name": "call.machine.detection.ended", "description": "Answering machine detection finished on an outbound call." },
+      { "name": "call.machine.premium.detection.ended", "description": "Premium answering machine detection finished on an outbound call." },
       { "name": "call.transcription", "description": "A call transcription event was emitted." },
       { "name": "conference.created", "description": "A conference was created." },
       { "name": "conference.ended", "description": "A conference ended." },
@@ -227,13 +230,49 @@
         "direction": "{{call.direction}}",
         "state": "{{call.state}}"
       },
-      "ok": { "data": { "result": "ok" } }
+      "ok": { "data": { "result": "ok" } },
+      "stream_event": {
+        "call_control_id": "{{stream.call_control_id}}",
+        "call_leg_id": "{{stream.call_leg_id}}",
+        "call_session_id": "{{stream.call_session_id}}",
+        "connection_id": "{{stream.connection_id}}",
+        "client_state": "{{stream.client_state}}",
+        "stream_id": "{{stream.stream_id}}",
+        "stream_type": "websocket",
+        "stream_params": { "track": "{{stream.track}}" },
+        "failure_reason": "{{stream.error}}"
+      },
+      "recording_saved": {
+        "call_control_id": "{{recording.call_control_id}}",
+        "call_leg_id": "{{recording.call_leg_id}}",
+        "call_session_id": "{{recording.call_session_id}}",
+        "connection_id": "{{recording.connection_id}}",
+        "client_state": "{{recording.client_state}}",
+        "recording_id": "{{recording.id}}",
+        "channels": "{{recording.channels}}",
+        "format": "{{recording.format}}",
+        "recording_started_at": "{{recording.recording_started_at}}",
+        "recording_ended_at": "{{recording.recording_ended_at}}",
+        "recording_urls": "{{recording.download_urls}}",
+        "public_recording_urls": {}
+      }
     },
     "collections": {
       "phone_numbers": { "id": "numeric", "seedable": true, "defaults": { "record_type": "phone_number", "status": "active", "connection_id": null, "tags": [] } },
       "outbound_voice_profiles": { "id": "numeric", "seedable": true, "defaults": { "record_type": "outbound_voice_profile", "enabled": true } },
       "call_control_applications": { "id": "numeric", "seedable": true, "defaults": { "record_type": "call_control_application", "active": true, "webhook_api_version": "2" } },
-      "calls": { "key": "call_control_id" }
+      "calls": { "key": "call_control_id" },
+      "streams": { "key": "stream_id", "id": "uuid", "defaults": { "state": "connecting" } },
+      "recordings": { "id": "uuid", "defaults": { "record_type": "recording", "source": "call", "status": "recording", "format": "wav" } }
+    },
+    "media": {
+      "protocol": "telnyx",
+      "collection": "streams",
+      "audio": "caller-speech-8k.wav",
+      "events": { "started": "call.streaming.started", "stopped": "call.streaming.stopped", "failed": "call.streaming.failed" },
+      "to": "{{stream.webhook_url}}",
+      "lane": "{{stream.call_control_id}}",
+      "payload": { "$use": "stream_event" }
     },
     "tools": {
       "list_phone_numbers": { "steps": [
@@ -271,7 +310,12 @@
         { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
         { "require": "call.state != 'hangup'", "error": "call_ended" },
         { "require": "call.state == 'parked'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not parked" },
-        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "answered", "answered_at": "{{now()}}", "webhook_url": "{{input.webhook_url || call.webhook_url}}", "client_state": "{{input.client_state || call.client_state}}", "stream_url": "{{input.stream_url}}" }, "as": "call" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "answered", "answered_at": "{{now()}}", "webhook_url": "{{input.webhook_url || call.webhook_url}}", "client_state": "{{input.client_state || call.client_state}}", "record": "{{input.record}}", "record_channels": "{{input.record_channels}}", "record_format": "{{input.record_format}}", "record_track": "{{input.record_track}}" }, "as": "call" },
+        { "when": "call.record == 'record-from-answer'", "create": "recordings", "record": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "connection_id": "{{call.connection_id}}", "channels": "{{call.record_channels || 'single'}}", "requested_format": "{{call.record_format || 'mp3'}}", "track": "{{call.record_track || 'both'}}", "recording_started_at": "{{call.answered_at}}", "created_at": "{{now()}}", "updated_at": "{{now()}}" }, "as": "recording" },
+        { "when": "call.record == 'record-from-answer'", "update": "calls", "key": "{{call.call_control_id}}", "set": { "recording_id": "{{recording.id}}" }, "as": "call" },
+        { "when": "input.stream_url", "create": "streams", "record": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "connection_id": "{{call.connection_id}}", "client_state": "{{call.client_state}}", "webhook_url": "{{call.webhook_url}}", "track": "{{input.stream_track || 'inbound_track'}}", "codec": "{{input.stream_codec || 'PCMU'}}", "sample_rate": "{{(input.stream_codec == 'L16' && input.stream_bidirectional_sampling_rate) || null}}", "bidirectional_mode": "{{input.stream_bidirectional_mode}}", "bidirectional_codec": "{{input.stream_bidirectional_codec}}", "bidirectional_sample_rate": "{{(input.stream_bidirectional_codec == 'L16' && input.stream_bidirectional_sampling_rate) || null}}", "caller_audio": "{{call.caller_audio}}", "autoplay": true, "created_at": "{{now()}}" }, "as": "stream" },
+        { "when": "input.stream_url", "update": "calls", "key": "{{call.call_control_id}}", "set": { "stream_id": "{{stream.stream_id}}" }, "as": "call" },
+        { "when": "input.stream_url", "stream": "start", "key": "{{stream.stream_id}}", "to": "{{input.stream_url}}" },
         { "emit": "call.answered", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "start_time": "{{call.answered_at}}" } },
         { "respond": { "$use": "ok" } }
       ] },
@@ -288,8 +332,13 @@
         { "when": "input.command_id", "dedupe": "hangup:{{input.call_control_id}}:{{input.command_id}}" },
         { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
         { "require": "call.state != 'hangup'", "error": "call_ended" },
-        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "normal_clearing", "hangup_source": "callee", "end_time": "{{now()}}", "client_state": "{{input.client_state || call.client_state}}" }, "unset": ["gather", "playback"], "as": "call" },
-        { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "unspecified", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+        { "let": { "recording_id": "{{call.recording_id}}", "stream_id": "{{call.stream_id}}" } },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{(call.state == 'bridging' && 'originator_cancel') || 'normal_clearing'}}", "hangup_source": "{{(call.direction == 'outgoing' && 'caller') || 'callee'}}", "end_time": "{{now()}}", "client_state": "{{input.client_state || call.client_state}}" }, "unset": ["gather", "playback", "recording_id"], "as": "call" },
+        { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "{{call.sip_hangup_cause || 'unspecified'}}", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+        { "when": "recording_id", "lookup": "recordings", "key": "{{recording_id}}", "as": "recording" },
+        { "when": "recording", "update": "recordings", "key": "{{recording_id}}", "set": { "status": "completed", "recording_ended_at": "{{call.end_time}}", "updated_at": "{{now()}}", "client_state": "{{call.client_state}}", "download_urls": { "wav": "{{fixture_url((recording.channels == 'dual' && 'call-recording-stereo.wav') || 'call-recording-mono.wav')}}" } }, "as": "recording" },
+        { "when": "recording", "emit": "call.recording.saved", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "recording_saved" } },
+        { "when": "stream_id", "stream": "stop", "key": "{{stream_id}}" },
         { "respond": { "$use": "ok" } }
       ] },
       "speak_text": { "steps": [
@@ -337,31 +386,228 @@
         { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
         { "require": "input.digits", "error": "invalid_parameter", "detail": "digits is required" },
         { "respond": { "$use": "ok" } }
+      ] },
+      "dial_call": { "steps": [
+        { "when": "input.command_id", "dedupe": "dial:{{input.connection_id}}:{{input.command_id}}" },
+        { "require": "input.connection_id", "error": "invalid_parameter", "detail": "connection_id is required" },
+        { "require": "input.to", "error": "invalid_parameter", "detail": "to is required" },
+        { "require": "input.from", "error": "invalid_parameter", "detail": "from is required" },
+        { "lookup": "call_control_applications", "key": "{{input.connection_id}}", "as": "application", "error": "invalid_parameter", "detail": "connection_id {{input.connection_id}} is not a Call Control application" },
+        { "require": "application.active != false", "error": "invalid_parameter", "detail": "Call Control application {{application.id}} is inactive" },
+        { "require": "input.webhook_url || application.webhook_event_url", "error": "invalid_parameter", "detail": "webhook_url is required when the application has no webhook_event_url" },
+        { "create": "calls", "record": { "call_control_id": "{{token('v3:')}}", "call_leg_id": "{{uuid()}}", "call_session_id": "{{uuid()}}", "connection_id": "{{application.id}}", "from": "{{input.from}}", "to": "{{input.to}}", "direction": "outgoing", "state": "bridging", "webhook_url": "{{input.webhook_url || application.webhook_event_url}}", "client_state": "{{input.client_state}}", "start_time": "{{now()}}", "timeout_secs": "{{input.timeout_secs}}", "time_limit_secs": "{{input.time_limit_secs}}", "answering_machine_detection": "{{input.answering_machine_detection}}", "record": "{{input.record}}", "record_channels": "{{input.record_channels}}", "record_format": "{{input.record_format}}", "record_track": "{{input.record_track}}" }, "as": "call" },
+        { "when": "input.stream_url", "create": "streams", "record": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "connection_id": "{{call.connection_id}}", "client_state": "{{call.client_state}}", "webhook_url": "{{call.webhook_url}}", "track": "{{input.stream_track || 'inbound_track'}}", "codec": "{{input.stream_codec || 'PCMU'}}", "sample_rate": "{{(input.stream_codec == 'L16' && input.stream_bidirectional_sampling_rate) || null}}", "bidirectional_mode": "{{input.stream_bidirectional_mode}}", "bidirectional_codec": "{{input.stream_bidirectional_codec}}", "bidirectional_sample_rate": "{{(input.stream_bidirectional_codec == 'L16' && input.stream_bidirectional_sampling_rate) || null}}", "caller_audio": "{{call.caller_audio}}", "autoplay": false, "created_at": "{{now()}}" }, "as": "stream" },
+        { "when": "input.stream_url", "update": "calls", "key": "{{call.call_control_id}}", "set": { "stream_id": "{{stream.stream_id}}" }, "as": "call" },
+        { "when": "input.stream_url", "stream": "start", "key": "{{stream.stream_id}}", "to": "{{input.stream_url}}" },
+        { "emit": "call.initiated", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "start_time": "{{call.start_time}}" } },
+        { "respond": { "data": { "record_type": "call", "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "client_state": "{{call.client_state}}", "is_alive": true } } }
+      ] },
+      "get_call_status": { "steps": [
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "not_found", "detail": "call {{input.call_control_id}} not found" },
+        { "respond": { "data": { "record_type": "call", "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "client_state": "{{call.client_state}}", "is_alive": "{{call.state != 'hangup'}}", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } } }
+      ] },
+      "bridge_call": { "steps": [
+        { "when": "input.command_id", "dedupe": "bridge:{{input.source_call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.source_call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "input.call_control_id", "error": "invalid_parameter", "detail": "call_control_id of the leg to bridge to is required" },
+        { "require": "input.call_control_id != call.call_control_id", "error": "invalid_parameter", "detail": "a call cannot be bridged to itself" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "other", "error": "invalid_call_control_id", "detail": "unknown call_control_id {{input.call_control_id}}" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "other.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "other.state == 'answered'", "error": "invalid_call_state", "detail": "call {{other.call_control_id}} is {{other.state}}, not answered" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "bridged_to": "{{other.call_control_id}}", "bridged_at": "{{now()}}", "client_state": "{{input.client_state || call.client_state}}" }, "as": "call" },
+        { "update": "calls", "key": "{{other.call_control_id}}", "set": { "bridged_to": "{{call.call_control_id}}", "bridged_at": "{{call.bridged_at}}" }, "as": "other" },
+        { "emit": "call.bridged", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call" } },
+        { "emit": "call.bridged", "to": "{{other.webhook_url}}", "lane": "{{other.call_control_id}}", "payload": { "call_control_id": "{{other.call_control_id}}", "call_leg_id": "{{other.call_leg_id}}", "call_session_id": "{{other.call_session_id}}", "connection_id": "{{other.connection_id}}", "client_state": "{{other.client_state}}", "from": "{{other.from}}", "to": "{{other.to}}", "direction": "{{other.direction}}", "state": "{{other.state}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "start_streaming": { "steps": [
+        { "when": "input.command_id", "dedupe": "streaming_start:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "input.stream_url", "error": "invalid_parameter", "detail": "stream_url is required" },
+        { "let": { "previous": "{{call.stream_id}}" } },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" }, "as": "call" },
+        { "when": "previous", "stream": "stop", "key": "{{previous}}" },
+        { "when": "input.stream_url", "create": "streams", "record": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "connection_id": "{{call.connection_id}}", "client_state": "{{call.client_state}}", "webhook_url": "{{call.webhook_url}}", "track": "{{input.stream_track || 'inbound_track'}}", "codec": "{{input.stream_codec || 'PCMU'}}", "sample_rate": "{{(input.stream_codec == 'L16' && input.stream_bidirectional_sampling_rate) || null}}", "bidirectional_mode": "{{input.stream_bidirectional_mode}}", "bidirectional_codec": "{{input.stream_bidirectional_codec}}", "bidirectional_sample_rate": "{{(input.stream_bidirectional_codec == 'L16' && input.stream_bidirectional_sampling_rate) || null}}", "caller_audio": "{{call.caller_audio}}", "autoplay": true, "created_at": "{{now()}}" }, "as": "stream" },
+        { "when": "input.stream_url", "update": "calls", "key": "{{call.call_control_id}}", "set": { "stream_id": "{{stream.stream_id}}" }, "as": "call" },
+        { "when": "input.stream_url", "stream": "start", "key": "{{stream.stream_id}}", "to": "{{input.stream_url}}" },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "stop_streaming": { "steps": [
+        { "when": "input.command_id", "dedupe": "streaming_stop:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.stream_id", "error": "invalid_call_state", "detail": "no media stream on this call" },
+        { "require": "!input.stream_id || input.stream_id == call.stream_id", "error": "invalid_parameter", "detail": "stream {{input.stream_id}} is not this call's stream" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" }, "as": "call" },
+        { "stream": "stop", "key": "{{call.stream_id}}" },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "start_call_recording": { "steps": [
+        { "when": "input.command_id", "dedupe": "record_start:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+        { "require": "!call.recording_id", "error": "invalid_call_state", "detail": "a recording is already in progress on this call" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" }, "as": "call" },
+        { "create": "recordings", "record": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "connection_id": "{{call.connection_id}}", "channels": "{{input.channels || 'single'}}", "requested_format": "{{input.format || 'mp3'}}", "track": "{{input.recording_track || 'both'}}", "recording_started_at": "{{now()}}", "created_at": "{{now()}}", "updated_at": "{{now()}}" }, "as": "recording" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "recording_id": "{{recording.id}}" }, "as": "call" },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "pause_call_recording": { "steps": [
+        { "when": "input.command_id", "dedupe": "record_pause:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.recording_id", "error": "invalid_call_state", "detail": "no recording is in progress on this call" },
+        { "require": "!input.recording_id || input.recording_id == call.recording_id", "error": "not_found", "detail": "recording {{input.recording_id}} is not in progress on this call" },
+        { "update": "recordings", "key": "{{call.recording_id}}", "set": { "status": "paused", "paused_at": "{{now()}}", "updated_at": "{{now()}}" } },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "resume_call_recording": { "steps": [
+        { "when": "input.command_id", "dedupe": "record_resume:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.recording_id", "error": "invalid_call_state", "detail": "no recording is in progress on this call" },
+        { "require": "!input.recording_id || input.recording_id == call.recording_id", "error": "not_found", "detail": "recording {{input.recording_id}} is not in progress on this call" },
+        { "update": "recordings", "key": "{{call.recording_id}}", "set": { "status": "recording", "resumed_at": "{{now()}}", "updated_at": "{{now()}}" } },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "stop_call_recording": { "steps": [
+        { "when": "input.command_id", "dedupe": "record_stop:{{input.call_control_id}}:{{input.command_id}}" },
+        { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+        { "require": "call.state != 'hangup'", "error": "call_ended" },
+        { "require": "call.recording_id", "error": "invalid_call_state", "detail": "no recording is in progress on this call" },
+        { "require": "!input.recording_id || input.recording_id == call.recording_id", "error": "not_found", "detail": "recording {{input.recording_id}} is not in progress on this call" },
+        { "update": "calls", "key": "{{call.call_control_id}}", "set": { "client_state": "{{input.client_state || call.client_state}}" }, "unset": ["recording_id"], "as": "updated" },
+        { "lookup": "recordings", "key": "{{call.recording_id}}", "as": "recording", "error": "not_found", "detail": "recording {{call.recording_id}} not found" },
+        { "update": "recordings", "key": "{{recording.id}}", "set": { "status": "completed", "recording_ended_at": "{{now()}}", "updated_at": "{{now()}}", "client_state": "{{updated.client_state}}", "download_urls": { "wav": "{{fixture_url((recording.channels == 'dual' && 'call-recording-stereo.wav') || 'call-recording-mono.wav')}}" } }, "as": "recording" },
+        { "emit": "call.recording.saved", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "recording_saved" } },
+        { "respond": { "$use": "ok" } }
+      ] },
+      "get_recording": { "steps": [
+        { "lookup": "recordings", "key": "{{input.recording_id}}", "as": "recording", "error": "not_found", "detail": "recording {{input.recording_id}} not found" },
+        { "require": "recording.status == 'completed'", "error": "not_found", "detail": "recording {{input.recording_id}} not found" },
+        { "respond": { "data": "{{recording}}" } }
+      ] },
+      "list_recordings": { "steps": [
+        { "list": "recordings", "where": { "call_control_id": "{{input['filter[call_control_id]']}}", "call_session_id": "{{input['filter[call_session_id]']}}", "status": "completed" }, "as": "recordings" },
+        { "respond": { "data": "{{recordings}}", "meta": { "page_number": 1, "page_size": "{{input['page[size]'] || 20}}", "total_pages": 1, "total_results": "{{len(recordings)}}" } } }
+      ] },
+      "delete_recording": { "steps": [
+        { "lookup": "recordings", "key": "{{input.recording_id}}", "as": "recording", "error": "not_found", "detail": "recording {{input.recording_id}} not found" },
+        { "require": "recording.status == 'completed'", "error": "not_found", "detail": "recording {{input.recording_id}} not found" },
+        { "delete": "recordings", "key": "{{recording.id}}", "as": "recording" },
+        { "respond": { "data": "{{recording}}" } }
       ] }
     },
     "triggers": {
       "incoming_call": {
         "description": "A caller dials a provisioned number. Creates a parked call and delivers call.initiated to the Call Control application the number is assigned to.",
-        "input_schema": { "type": "object", "properties": { "to": { "type": "string", "description": "Provisioned number in E.164." }, "from": { "type": "string", "description": "Caller number in E.164." }, "caller_id_name": { "type": "string" }, "sip_headers": { "type": "array", "items": { "type": "object" } } }, "required": ["to", "from"] },
+        "input_schema": { "type": "object", "properties": { "to": { "type": "string", "description": "Provisioned number in E.164." }, "from": { "type": "string", "description": "Caller number in E.164." }, "caller_id_name": { "type": "string" }, "sip_headers": { "type": "array", "items": { "type": "object" } }, "caller_audio": { "type": "string", "description": "Caller audio played into the call's media stream once it connects: a caller audio fixture (default caller-speech-8k.wav) or silence." } }, "required": ["to", "from"] },
         "steps": [
           { "find": "phone_numbers", "where": { "phone_number": "{{input.to}}" }, "as": "number", "error": "not_found", "detail": "{{input.to}} is not a provisioned number" },
           { "require": "number.connection_id", "error": "invalid_parameter", "detail": "{{input.to}} is not assigned to a Call Control application" },
           { "lookup": "call_control_applications", "key": "{{number.connection_id}}", "as": "application", "error": "invalid_parameter", "detail": "{{input.to}} is assigned to {{number.connection_id}}, which is not a Call Control application" },
           { "require": "application.active != false", "error": "invalid_parameter", "detail": "Call Control application {{application.id}} is inactive" },
-          { "create": "calls", "record": { "call_control_id": "{{token('v3:')}}", "call_leg_id": "{{uuid()}}", "call_session_id": "{{uuid()}}", "connection_id": "{{application.id}}", "from": "{{input.from}}", "to": "{{input.to}}", "caller_id_name": "{{input.caller_id_name || input.from}}", "sip_headers": "{{input.sip_headers}}", "direction": "incoming", "state": "parked", "webhook_url": "{{application.webhook_event_url}}", "start_time": "{{now()}}" }, "as": "call" },
+          { "create": "calls", "record": { "call_control_id": "{{token('v3:')}}", "call_leg_id": "{{uuid()}}", "call_session_id": "{{uuid()}}", "connection_id": "{{application.id}}", "from": "{{input.from}}", "to": "{{input.to}}", "caller_id_name": "{{input.caller_id_name || input.from}}", "sip_headers": "{{input.sip_headers}}", "caller_audio": "{{input.caller_audio}}", "direction": "incoming", "state": "parked", "webhook_url": "{{application.webhook_event_url}}", "start_time": "{{now()}}" }, "as": "call" },
           { "emit": "call.initiated", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "caller_id_name": "{{call.caller_id_name}}", "sip_headers": "{{call.sip_headers}}", "start_time": "{{call.start_time}}" } },
           { "respond": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}" } }
         ]
       },
       "caller_hangup": {
-        "description": "The caller hangs up. Delivers call.hangup with hangup_source caller.",
+        "description": "The caller hangs up. Delivers call.hangup with hangup_source caller, then call.recording.saved for a recording in progress, and stops the call's media stream.",
         "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "hangup_cause": { "type": "string", "description": "Defaults to normal_clearing." } }, "required": ["call_control_id"] },
         "steps": [
           { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
           { "require": "call.state != 'hangup'", "error": "call_ended" },
-          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{input.hangup_cause || 'normal_clearing'}}", "hangup_source": "caller", "end_time": "{{now()}}" }, "unset": ["gather", "playback"], "as": "call" },
-          { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "caller", "sip_hangup_cause": "unspecified", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+          { "let": { "recording_id": "{{call.recording_id}}", "stream_id": "{{call.stream_id}}" } },
+          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{input.hangup_cause || 'normal_clearing'}}", "hangup_source": "caller", "sip_hangup_cause": "{{input.sip_hangup_cause || 'unspecified'}}", "end_time": "{{now()}}" }, "unset": ["gather", "playback", "recording_id"], "as": "call" },
+          { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "{{call.sip_hangup_cause || 'unspecified'}}", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+          { "when": "recording_id", "lookup": "recordings", "key": "{{recording_id}}", "as": "recording" },
+          { "when": "recording", "update": "recordings", "key": "{{recording_id}}", "set": { "status": "completed", "recording_ended_at": "{{call.end_time}}", "updated_at": "{{now()}}", "client_state": "{{call.client_state}}", "download_urls": { "wav": "{{fixture_url((recording.channels == 'dual' && 'call-recording-stereo.wav') || 'call-recording-mono.wav')}}" } }, "as": "recording" },
+          { "when": "recording", "emit": "call.recording.saved", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "recording_saved" } },
+          { "when": "stream_id", "stream": "stop", "key": "{{stream_id}}" },
           { "respond": { "call_control_id": "{{call.call_control_id}}", "state": "{{call.state}}" } }
+        ]
+      },
+      "callee_answer": {
+        "description": "The callee of an outbound call (dial_call) answers. Delivers call.answered, starts a record-from-answer recording, starts caller audio on the call's media stream, and delivers the answering machine detection result when dial_call asked for one.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "answered_by": { "type": "string", "description": "Detection result: human (default), machine or not_sure; premium detection also takes human_residence, human_business, silence and fax_detected (default human_residence)." }, "audio": { "type": "string", "description": "Caller audio the callee speaks once media starts: a caller audio fixture (default caller-speech-8k.wav) or silence." } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state != 'hangup'", "error": "call_ended" },
+          { "require": "call.direction == 'outgoing' && call.state == 'bridging'", "error": "invalid_call_state", "detail": "call is a {{call.direction}} call in state {{call.state}}, not an outbound call that is ringing" },
+          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "answered", "answered_at": "{{now()}}", "answered_by": "{{input.answered_by}}" }, "as": "call" },
+          { "when": "call.record == 'record-from-answer'", "create": "recordings", "record": { "call_control_id": "{{call.call_control_id}}", "call_leg_id": "{{call.call_leg_id}}", "call_session_id": "{{call.call_session_id}}", "connection_id": "{{call.connection_id}}", "channels": "{{call.record_channels || 'single'}}", "requested_format": "{{call.record_format || 'mp3'}}", "track": "{{call.record_track || 'both'}}", "recording_started_at": "{{call.answered_at}}", "created_at": "{{now()}}", "updated_at": "{{now()}}" }, "as": "recording" },
+          { "when": "call.record == 'record-from-answer'", "update": "calls", "key": "{{call.call_control_id}}", "set": { "recording_id": "{{recording.id}}" }, "as": "call" },
+          { "emit": "call.answered", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "start_time": "{{call.start_time}}" } },
+          { "when": "call.answering_machine_detection && call.answering_machine_detection != 'disabled' && call.answering_machine_detection != 'premium'", "emit": "call.machine.detection.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "result": "{{input.answered_by || 'human'}}" } },
+          { "when": "call.answering_machine_detection == 'premium'", "emit": "call.machine.premium.detection.ended", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "result": "{{input.answered_by || 'human_residence'}}" } },
+          { "when": "call.stream_id", "stream": "play", "key": "{{call.stream_id}}", "audio": "{{input.audio}}" },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "state": "{{call.state}}", "stream_id": "{{call.stream_id}}", "recording_id": "{{call.recording_id}}" } }
+        ]
+      },
+      "callee_no_answer": {
+        "description": "Nobody answers an outbound call before it times out. Delivers call.hangup with hangup_cause timeout and stops the call's media stream.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state != 'hangup'", "error": "call_ended" },
+          { "require": "call.direction == 'outgoing' && call.state == 'bridging'", "error": "invalid_call_state", "detail": "call is a {{call.direction}} call in state {{call.state}}, not an outbound call that is ringing" },
+          { "let": { "stream_id": "{{call.stream_id}}" } },
+          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "timeout", "hangup_source": "callee", "sip_hangup_cause": "480", "end_time": "{{now()}}" }, "as": "call" },
+          { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "{{call.sip_hangup_cause || 'unspecified'}}", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+          { "when": "stream_id", "stream": "stop", "key": "{{stream_id}}" },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "state": "{{call.state}}" } }
+        ]
+      },
+      "callee_fail": {
+        "description": "An outbound call fails before it is answered: busy by default, or any Telnyx hangup cause such as call_rejected or unallocated_number. Delivers call.hangup and stops the call's media stream.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "cause": { "type": "string", "description": "Telnyx hangup_cause; defaults to user_busy." }, "sip_hangup_cause": { "type": "string", "description": "SIP status; defaults to 486 for user_busy, otherwise unspecified." } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state != 'hangup'", "error": "call_ended" },
+          { "require": "call.direction == 'outgoing' && call.state == 'bridging'", "error": "invalid_call_state", "detail": "call is a {{call.direction}} call in state {{call.state}}, not an outbound call that is ringing" },
+          { "let": { "stream_id": "{{call.stream_id}}", "cause": "{{input.cause || 'user_busy'}}" } },
+          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{cause}}", "hangup_source": "callee", "sip_hangup_cause": "{{input.sip_hangup_cause || (cause == 'user_busy' && '486') || 'unspecified'}}", "end_time": "{{now()}}" }, "as": "call" },
+          { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "{{call.sip_hangup_cause || 'unspecified'}}", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+          { "when": "stream_id", "stream": "stop", "key": "{{stream_id}}" },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "state": "{{call.state}}", "hangup_cause": "{{call.hangup_cause}}" } }
+        ]
+      },
+      "callee_hangup": {
+        "description": "The callee of an answered outbound call hangs up. Delivers call.hangup with hangup_source callee, then call.recording.saved for a recording in progress, and stops the call's media stream.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "hangup_cause": { "type": "string", "description": "Defaults to normal_clearing." } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state != 'hangup'", "error": "call_ended" },
+          { "require": "call.direction == 'outgoing' && call.state == 'answered'", "error": "invalid_call_state", "detail": "call is a {{call.direction}} call in state {{call.state}}, not an answered outbound call" },
+          { "let": { "recording_id": "{{call.recording_id}}", "stream_id": "{{call.stream_id}}" } },
+          { "update": "calls", "key": "{{call.call_control_id}}", "set": { "state": "hangup", "hangup_cause": "{{input.hangup_cause || 'normal_clearing'}}", "hangup_source": "callee", "sip_hangup_cause": "{{input.sip_hangup_cause || 'unspecified'}}", "end_time": "{{now()}}" }, "unset": ["gather", "playback", "recording_id"], "as": "call" },
+          { "emit": "call.hangup", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "call", "hangup_cause": "{{call.hangup_cause}}", "hangup_source": "{{call.hangup_source}}", "sip_hangup_cause": "{{call.sip_hangup_cause || 'unspecified'}}", "start_time": "{{call.start_time}}", "end_time": "{{call.end_time}}" } },
+          { "when": "recording_id", "lookup": "recordings", "key": "{{recording_id}}", "as": "recording" },
+          { "when": "recording", "update": "recordings", "key": "{{recording_id}}", "set": { "status": "completed", "recording_ended_at": "{{call.end_time}}", "updated_at": "{{now()}}", "client_state": "{{call.client_state}}", "download_urls": { "wav": "{{fixture_url((recording.channels == 'dual' && 'call-recording-stereo.wav') || 'call-recording-mono.wav')}}" } }, "as": "recording" },
+          { "when": "recording", "emit": "call.recording.saved", "to": "{{call.webhook_url}}", "lane": "{{call.call_control_id}}", "payload": { "$use": "recording_saved" } },
+          { "when": "stream_id", "stream": "stop", "key": "{{stream_id}}" },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "state": "{{call.state}}" } }
+        ]
+      },
+      "caller_speaks": {
+        "description": "The remote party of a call speaks: queues a caller audio fixture on the call's media stream after any audio still playing.",
+        "input_schema": { "type": "object", "properties": { "call_control_id": { "type": "string" }, "audio": { "type": "string", "description": "Caller audio fixture; defaults to the stream's caller audio (caller-speech-8k.wav unless the call chose another)." } }, "required": ["call_control_id"] },
+        "steps": [
+          { "lookup": "calls", "key": "{{input.call_control_id}}", "as": "call", "error": "invalid_call_control_id", "detail": "unknown call_control_id" },
+          { "require": "call.state == 'answered'", "error": "invalid_call_state", "detail": "call is {{call.state}}, not answered" },
+          { "require": "call.stream_id", "error": "invalid_call_state", "detail": "no media stream on this call" },
+          { "lookup": "streams", "key": "{{call.stream_id}}", "as": "stream", "error": "invalid_call_state", "detail": "no media stream on this call" },
+          { "require": "stream.state == 'streaming' || stream.state == 'connecting'", "error": "invalid_call_state", "detail": "media stream is {{stream.state}}" },
+          { "stream": "play", "key": "{{stream.stream_id}}", "audio": "{{input.audio}}", "error": "invalid_parameter", "detail": "{{input.audio}} is not a caller audio fixture" },
+          { "respond": { "call_control_id": "{{call.call_control_id}}", "stream_id": "{{stream.stream_id}}" } }
         ]
       },
       "gather_input": {
