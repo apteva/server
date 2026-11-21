@@ -113,6 +113,12 @@ type Agent struct {
 	TargetCoreVersion   string    `json:"target_core_version,omitempty"`
 	CoreUpdateAvailable bool      `json:"core_update_available,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
+
+	// The running core can't use the provider credentials saved now: its
+	// chosen provider can't run, or the credentials changed since it started.
+	ProviderUnavailable *coreProviderUnavailable `json:"provider_unavailable,omitempty"`
+	NeedsRestart        bool                     `json:"needs_restart,omitempty"`
+	RestartReason       string                   `json:"restart_reason,omitempty"`
 }
 
 type Store struct {
