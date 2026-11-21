@@ -62,6 +62,7 @@
           "status":        {"type": "string", "enum": ["open","closed","settled","unopened"]},
           "min_close_ts":  {"type": "integer", "description": "Unix-seconds — only markets closing on/after."},
           "max_close_ts":  {"type": "integer", "description": "Unix-seconds — only markets closing on/before."},
+          "mve_filter":    {"type": "string", "enum": ["only","exclude"], "description": "Multivariate (combo) markets: 'exclude' drops them, 'only' returns just them."},
           "cursor":        {"type": "string"},
           "limit":         {"type": "integer", "description": "Max markets (1-1000). Default 100."}
         }
@@ -78,6 +79,20 @@
           "ticker": {"type": "string", "description": "Market ticker — e.g. 'PRES-2028-DJT-YES'."}
         },
         "required": ["ticker"]
+      }
+    },
+    {
+      "name": "get_event",
+      "description": "One event by ticker — title, sub_title, category, series_ticker, mutually_exclusive, plus its markets. Use to read the question a market belongs to (market titles alone are often just the outcome).",
+      "method": "GET",
+      "path": "/events/{event_ticker}",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "event_ticker":        {"type": "string", "description": "Event ticker — e.g. 'KXFED-26DEC'."},
+          "with_nested_markets": {"type": "boolean", "description": "Nest the markets inside the event object instead of a sibling array."}
+        },
+        "required": ["event_ticker"]
       }
     },
     {

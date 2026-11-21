@@ -30,6 +30,7 @@
     {
       "name": "get_series",
       "description": "Fetch one or more BLS time series in a single call. Pass up to 50 series ids in `seriesid` and optional date range. Returns parallel data arrays with period (M01–M12 for months), year, value, and footnotes. Common series: LNS14000000 (unemployment rate), CUUR0000SA0 (CPI all-urban, all items), CES0500000003 (avg hourly earnings), JTS000000000000000JOL (job openings, total).",
+      "public": true,
       "method": "POST",
       "path": "/timeseries/data/",
       "input_schema": {
@@ -51,6 +52,7 @@
     {
       "name": "get_series_single",
       "description": "Latest year's data for ONE series, no body required — useful for quick lookups via the GET form of the API.",
+      "public": true,
       "method": "GET",
       "path": "/timeseries/data/{seriesid}",
       "input_schema": {
@@ -65,6 +67,7 @@
     {
       "name": "popular_series",
       "description": "List BLS's most-requested series, optionally filtered by survey. Use to discover what's actually trafficked vs the long tail. Surveys: CE (Employment), CU (CPI), JT (JOLTS), LN (Labor Force), PR (Productivity), etc.",
+      "public": true,
       "method": "GET",
       "path": "/timeseries/popular",
       "input_schema": {
@@ -77,6 +80,7 @@
     {
       "name": "list_surveys",
       "description": "Every BLS survey + abbreviation. Use to discover the survey landscape before drilling into popular_series.",
+      "public": true,
       "method": "GET",
       "path": "/surveys",
       "input_schema": {
@@ -87,6 +91,7 @@
     {
       "name": "survey_info",
       "description": "Metadata for one survey — title, description, last-update info, units.",
+      "public": true,
       "method": "GET",
       "path": "/surveys/{survey}",
       "input_schema": {

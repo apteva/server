@@ -81,7 +81,8 @@
             "default": 0
           }
         }
-      }
+      },
+      "public": true
     },
     {
       "name": "get_event",
@@ -99,11 +100,12 @@
         "required": [
           "slug"
         ]
-      }
+      },
+      "public": true
     },
     {
       "name": "list_markets",
-      "description": "Get prediction markets from the Gamma API. Markets are individual YES/NO outcomes. Returns condition_id (for CLOB lookup) and clobTokenIds (for trading).",
+      "description": "Get prediction markets from the Gamma API. Markets are individual YES/NO outcomes. Returns condition_id (for CLOB lookup) and clobTokenIds (for trading). Filter by end-date window and sort with order/ascending; public, no credentials needed.",
       "method": "GET",
       "path": "/markets",
       "input_schema": {
@@ -123,9 +125,34 @@
             "type": "integer",
             "description": "Pagination offset",
             "default": 0
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Only markets that are currently active (accepting trades)."
+          },
+          "slug": {
+            "type": "string",
+            "description": "Return the market with this slug."
+          },
+          "end_date_min": {
+            "type": "string",
+            "description": "Only markets ending on/after this ISO 8601 time."
+          },
+          "end_date_max": {
+            "type": "string",
+            "description": "Only markets ending on/before this ISO 8601 time."
+          },
+          "order": {
+            "type": "string",
+            "description": "Sort field, e.g. volumeNum, liquidityNum, endDate."
+          },
+          "ascending": {
+            "type": "boolean",
+            "description": "Sort ascending (default false with order)."
           }
         }
-      }
+      },
+      "public": true
     },
     {
       "name": "get_market",
@@ -143,7 +170,8 @@
         "required": [
           "slug"
         ]
-      }
+      },
+      "public": true
     },
     {
       "name": "list_tags",
@@ -153,7 +181,8 @@
       "input_schema": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "public": true
     },
     {
       "name": "markets_by_tag",
@@ -186,7 +215,8 @@
         "required": [
           "tag_id"
         ]
-      }
+      },
+      "public": true
     },
     {
       "name": "get_sports",
@@ -196,7 +226,8 @@
       "input_schema": {
         "type": "object",
         "properties": {}
-      }
+      },
+      "public": true
     },
     {
       "name": "get_price",
