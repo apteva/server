@@ -681,6 +681,11 @@ type AppToolDef struct {
 	// MaxTimeoutMS is the upper bound for a caller's optional
 	// _apteva.timeout_ms override. The platform hard cap is 600s.
 	MaxTimeoutMS int `json:"max_timeout_ms,omitempty"`
+	// Public marks a read that needs no credentials on an integration
+	// whose other tools do. Apps may run it by slug, without a
+	// connection (integration_public_execute.go). Integrations whose
+	// auth types include "none" are public as a whole.
+	Public bool `json:"public,omitempty"`
 
 	// BodyInput names a single input field whose value carries the raw
 	// request body. Required for endpoints that take binary content
@@ -1584,7 +1589,10 @@ func buildAuthQuery(queryParams map[string]string, credentials map[string]string
 	var parts []string
 	for key, tmpl := range queryParams {
 		val := resolveTemplate(tmpl, credentials)
-		if val != "" {
+		// An unresolved placeholder means the credential was not
+		// supplied (keyless calls): omit the parameter, as buildHeaders
+		// does, rather than sending a literal "{{field}}".
+		if val != "" && !strings.Contains(val, "{{") {
 			parts = append(parts, key+"="+val)
 		}
 	}
@@ -1595,7 +1603,7 @@ func buildAuthBodyParams(bodyParams map[string]string, credentials map[string]st
 	out := map[string]any{}
 	for key, tmpl := range bodyParams {
 		val := resolveTemplate(tmpl, credentials)
-		if val != "" {
+		if val != "" && !strings.Contains(val, "{{") {
 			out[key] = val
 		}
 	}

@@ -880,6 +880,10 @@ func (s *Server) handleCallbackIntegrations(w http.ResponseWriter, r *http.Reque
 		s.handleCallbackIntegrationURLProperty(w, r, parts[0], parts[2])
 		return
 	}
+	if len(parts) == 3 && parts[0] == "public" && parts[2] == "execute" && r.Method == http.MethodPost {
+		s.handleCallbackPublicIntegration(w, r, parts[1])
+		return
+	}
 	if len(parts) != 2 || parts[1] != "execute" || r.Method != http.MethodPost {
 		http.Error(w, "unsupported integration callback", http.StatusMethodNotAllowed)
 		return
