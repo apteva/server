@@ -144,7 +144,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(req.MCPServerIDs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.ConnectionBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
+		if len(req.AppInstallIDs)+len(req.Apps) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(req.MCPServerIDs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.ConnectionBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
 			http.Error(w, "runtime resource limit exceeded", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -163,7 +163,20 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 				http.Error(w, "runtime snapshot not found", http.StatusNotFound)
 				return
 			}
-			if len(req.AppInstallIDs) == 0 && len(man.SourceInstallIDs) > 0 {
+			// A request that names no apps runs the snapshot's apps: those
+			// cloned from project installs and those added by name.
+			snapshotApps := len(req.AppInstallIDs) == 0 && len(req.Apps) == 0
+			if snapshotApps && len(man.SourceApps) > 0 {
+				names := make([]string, 0, len(man.SourceApps))
+				for name := range man.SourceApps {
+					names = append(names, name)
+				}
+				sort.Strings(names)
+				for _, name := range names {
+					req.Apps = append(req.Apps, sdk.RuntimeAppSource{Name: name, Version: man.SourceApps[name]})
+				}
+			}
+			if snapshotApps && len(man.SourceInstallIDs) > 0 {
 				names := make([]string, 0, len(man.SourceInstallIDs))
 				for name := range man.SourceInstallIDs {
 					names = append(names, name)
@@ -200,7 +213,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			}
 		}
 		req.AppInstallIDs = appendUniqueInt64(req.AppInstallIDs, mcpAppIDs...)
-		if len(req.AppInstallIDs) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(selectedMCPs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.ConnectionBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
+		if len(req.AppInstallIDs)+len(req.Apps) > maxRuntimeApps || len(req.ConnectionIDs) > maxRuntimeConnections || len(selectedMCPs) > maxRuntimeManagedMCPs || len(req.HTTPMocks) > maxRuntimeMocks || len(req.IntegrationFixtures) > maxRuntimeMocks || len(req.IntegrationBindings) > maxRuntimeConnections || len(req.ConnectionBindings) > maxRuntimeConnections || len(req.Subscriptions) > maxRuntimeMocks {
 			http.Error(w, "runtime resource limit exceeded", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -224,6 +237,11 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		appSrcDirs, err := s.environmentAppSrcDirsForInstalls(projectID, req.AppInstallIDs)
+		if err != nil {
+			http.Error(w, "runtime apps: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		appSrcDirs, sourceApps, err := s.addRuntimeAppsByName(projectID, appSrcDirs, req.Apps)
 		if err != nil {
 			http.Error(w, "runtime apps: "+err.Error(), http.StatusBadRequest)
 			return
@@ -263,7 +281,8 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			sourceIDs[info.Name] = info.InstallID
 		}
 		for _, selected := range selectedMCPs {
-			if _, collides := sourceIDs[selected.Record.Name]; collides {
+			_, collidesWithNamedApp := sourceApps[selected.Record.Name]
+			if _, collides := sourceIDs[selected.Record.Name]; collides || collidesWithNamedApp {
 				http.Error(w, "runtime managed MCP name collides with app: "+selected.Record.Name, http.StatusBadRequest)
 				return
 			}
@@ -289,6 +308,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			RuntimeOwnerInstallID: installID,
 			RuntimeExpiresAt:      time.Now().Add(ttl).UTC(),
 			SourceInstallIDs:      sourceIDs,
+			SourceApps:            sourceApps,
 			AppSrcDirs:            appSrcDirs,
 			ConnectionIDs:         connectionIDs,
 			NetworkMode:           networkMode,
@@ -962,7 +982,7 @@ func (s *Server) handleRuntimeSnapshots(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 	clockState := runtime.clock.State()
-	man, err := s.captureEnvironmentSnapshot(runtime, CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs(), Clock: &clockState, HTTPMocks: runtime.httpMocks, IntegrationFixtures: runtime.integrationFixtures})
+	man, err := s.captureEnvironmentSnapshot(runtime, CaptureSpec{ID: req.ID, ProjectID: runtime.ProjectID, OwnerInstallID: runtime.OwnerInstallID(), Description: req.Description, AppDataDirs: appDirs, SourceInstallIDs: sourceInstallIDs, SourceApps: runtime.SourceApps(), ManagedMCPs: publicRuntimeManagedMCPs(runtime.ManagedMCPs()), Cassette: runtime.Edge().Cassette(), Subscriptions: runtime.SubscriptionSpecs(), Clock: &clockState, HTTPMocks: runtime.httpMocks, IntegrationFixtures: runtime.integrationFixtures})
 	if err != nil && man != nil {
 		http.Error(w, "snapshot runtime: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1260,6 +1280,59 @@ func (s *Server) handleRuntimeArtifacts(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, map[string]any{"deleted": id})
+}
+
+// addRuntimeAppsByName resolves the apps a runtime request names directly,
+// without a project install, and adds their source dirs to appSrcDirs. They
+// resolve the way required app dependencies do (project or global install,
+// local app cache, registry, development checkout), so a project can test an
+// app it has not installed, with integrations bound only to simulations. It
+// returns the updated dirs and each added app's version constraint.
+func (s *Server) addRuntimeAppsByName(projectID string, appSrcDirs map[string]string, apps []sdk.RuntimeAppSource) (map[string]string, map[string]string, error) {
+	if len(apps) == 0 {
+		return appSrcDirs, nil, nil
+	}
+	if s.environments == nil {
+		return nil, nil, fmt.Errorf("environment manager not configured")
+	}
+	taken := map[string]string{}
+	for name := range appSrcDirs {
+		taken[normalizeAppName(name)] = "app_install_ids"
+	}
+	out := make(map[string]string, len(appSrcDirs)+len(apps))
+	for name, dir := range appSrcDirs {
+		out[name] = dir
+	}
+	versions := make(map[string]string, len(apps))
+	for _, app := range apps {
+		name := strings.TrimSpace(app.Name)
+		version := strings.TrimSpace(app.Version)
+		key := normalizeAppName(name)
+		if key == "" {
+			return nil, nil, fmt.Errorf("app name required")
+		}
+		if from, dup := taken[key]; dup {
+			return nil, nil, fmt.Errorf("app %q is listed twice (also in %s)", name, from)
+		}
+		taken[key] = "apps"
+		dir, err := s.environments.resolveAppSource(projectID, name, version)
+		if err != nil {
+			return nil, nil, fmt.Errorf("app %q: %w", name, err)
+		}
+		manifest, err := environmentManifestFromDir(dir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("app %q: %w", name, err)
+		}
+		if normalizeAppName(manifest.Name) != key {
+			return nil, nil, fmt.Errorf("app %q resolved to a package named %q", name, manifest.Name)
+		}
+		if err := validateEnvironmentAppVersion(manifest.Version, version); err != nil {
+			return nil, nil, fmt.Errorf("app %q: %w", name, err)
+		}
+		out[manifest.Name] = dir
+		versions[manifest.Name] = version
+	}
+	return out, versions, nil
 }
 
 func publicRuntimeSnapshot(manifest *SnapshotManifest) sdk.RuntimeSnapshot {

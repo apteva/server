@@ -52,7 +52,8 @@ type EnvironmentSpec struct {
 	RuntimeOwnerInstallID int64
 	RuntimeExpiresAt      time.Time
 	SourceInstallIDs      map[string]int64
-	Apps                  []SandboxApp // legacy prebuilt-binary sidecars
+	SourceApps            map[string]string // apps added by name, not by install → version constraint
+	Apps                  []SandboxApp      // legacy prebuilt-binary sidecars
 	// AppSrcDirs maps app name → local working-copy dir. These are installed
 	// via the real install path (installLocalSource) under project_id=ID, so
 	// each is a project-scoped REAL install: its callbacks authenticate and
@@ -122,6 +123,7 @@ type Environment struct {
 	server            *Server // back-ref for real installs + teardown (nil for edge-only environments)
 	connectionIDs     []int64
 	sourceInstallIDs  map[string]int64
+	sourceApps        map[string]string
 	mu                sync.Mutex
 	apps              map[string]*SandboxAppInstance
 	installs          map[string]*localInstall    // real installs (AppSrcDirs path), keyed by app name
@@ -154,6 +156,14 @@ func (w *Environment) SourceInstallID(appName string) int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.sourceInstallIDs[appName]
+}
+
+// SourceApps returns the apps this runtime added by name, mapped to their
+// requested version constraints.
+func (w *Environment) SourceApps() map[string]string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return cloneStringMap(w.sourceApps)
 }
 
 func (w *Environment) AddMCPAttachment(a RuntimeMCPAttachment) error {
@@ -983,6 +993,7 @@ func (wm *EnvironmentManager) Create(spec EnvironmentSpec) (*Environment, error)
 		server:              wm.server,
 		connectionIDs:       append([]int64(nil), spec.ConnectionIDs...),
 		sourceInstallIDs:    cloneInt64Map(spec.SourceInstallIDs),
+		sourceApps:          cloneStringMap(spec.SourceApps),
 		appGrants:           append([]sdk.RuntimeAppGrant(nil), spec.AppGrants...),
 		apps:                map[string]*SandboxAppInstance{},
 		installs:            map[string]*localInstall{},
