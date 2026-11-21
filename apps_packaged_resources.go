@@ -23,6 +23,11 @@ import (
 // derives APTEVA_UI_DIR and APTEVA_MIGRATIONS_DIR from that executable. Two
 // packages can share one version, so the directory is never reconstructed
 // from the app name and version, and never picked by scanning the cache.
+//
+// Local builds (Environment run copies) compile a source tree that lives
+// elsewhere into <cache>/_local/<app>/<install>/bin. The build records that
+// source directory beside the executable, so restarts serve the same UI and
+// migrations the first start did.
 
 // appResourceDirs is where an app's UI bundle and migrations live.
 type appResourceDirs struct {
@@ -153,13 +158,72 @@ func verifyPackagedResources(installID int64, m *sdk.Manifest, bin string, pkg p
 	return nil
 }
 
+// localBuildSourceFile, beside a local build's executable, holds the absolute
+// source directory (the app's module directory) the executable was built from.
+const localBuildSourceFile = "source-dir"
+
+// recordLocalBuildSource remembers which source tree a local build came from.
+func recordLocalBuildSource(bin, srcDir string) error {
+	abs, err := filepath.Abs(srcDir)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(filepath.Dir(bin), localBuildSourceFile), []byte(abs+"\n"), 0644)
+}
+
+// localBuildResourceDirs resolves resources for a local build from its
+// recorded source directory. ok is false when bin has no record.
+func localBuildResourceDirs(m *sdk.Manifest, bin string) (dirs appResourceDirs, srcDir string, ok bool) {
+	if bin == "" {
+		return appResourceDirs{}, "", false
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(bin), localBuildSourceFile))
+	if err != nil {
+		return appResourceDirs{}, "", false
+	}
+	srcDir = strings.TrimSpace(string(raw))
+	if srcDir == "" || !filepath.IsAbs(srcDir) {
+		return appResourceDirs{}, "", false
+	}
+	// The recorded directory is the module directory itself, so the
+	// manifest's runtime.source.entry does not apply.
+	return appResourceDirsAt(m, srcDir), srcDir, true
+}
+
+// applyLocalBuildResourceEnv points env at the recorded source tree of a
+// local build and verifies the directories the manifest requires.
+func applyLocalBuildResourceEnv(installID int64, m *sdk.Manifest, bin string, env map[string]string) (bool, error) {
+	dirs, srcDir, ok := localBuildResourceDirs(m, bin)
+	if !ok {
+		return false, nil
+	}
+	isDir := func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && info.IsDir()
+	}
+	missing := func(what, path string) error {
+		return fmt.Errorf("app %s install %d: %s directory missing at %s; the source tree %s this local build was compiled from is gone or incomplete. Recreate the install",
+			m.Name, installID, what, path, srcDir)
+	}
+	if manifestServesUI(m) && !isDir(dirs.UI) {
+		return true, missing("UI", dirs.UI)
+	}
+	if dirs.Migrations != "" && !filepath.IsAbs(m.DB.Migrations) && !isDir(dirs.Migrations) {
+		return true, missing("migrations", dirs.Migrations)
+	}
+	dirs.applyEnv(env)
+	return true, nil
+}
+
 // applyPackagedResourceEnv points env at the resources of the exact packaged
-// executable bin and verifies the ones the manifest requires. It leaves env
-// unchanged for executables outside a hashed package.
+// executable bin, or of the recorded source tree of a local build, and
+// verifies the ones the manifest requires. It leaves env unchanged for other
+// executables.
 func applyPackagedResourceEnv(installID int64, m *sdk.Manifest, bin string, env map[string]string) error {
 	dirs, pkg, ok, err := packagedResourceDirs(m, bin)
 	if !ok {
-		return nil
+		_, err := applyLocalBuildResourceEnv(installID, m, bin, env)
+		return err
 	}
 	if err != nil {
 		return fmt.Errorf("app %s install %d version %s: %w", m.Name, installID, pkg.Version, err)
@@ -172,12 +236,16 @@ func applyPackagedResourceEnv(installID int64, m *sdk.Manifest, bin string, env 
 }
 
 // installResourceEnv sets resource directories for restarting an installed
-// app from binPath. Packaged executables use their own package. Legacy flat
-// source caches keep <cache>/<app>/<installed version>/src. Binary releases
-// and local-development builds keep whatever env already holds.
+// app from binPath. Packaged executables use their own package and local
+// builds their recorded source tree. Legacy flat source caches keep
+// <cache>/<app>/<installed version>/src. Binary releases keep whatever env
+// already holds.
 func (sup *LocalSupervisor) installResourceEnv(installID int64, m *sdk.Manifest, binPath, installedVersion string, env map[string]string) error {
 	if _, ok := packagedBinaryPath(binPath); ok {
 		return applyPackagedResourceEnv(installID, m, binPath, env)
+	}
+	if ok, err := applyLocalBuildResourceEnv(installID, m, binPath, env); ok || err != nil {
+		return err
 	}
 	if m.Runtime.Source != nil && m.Runtime.Source.Repo != "" {
 		version := installedVersion
