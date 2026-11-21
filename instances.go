@@ -44,7 +44,10 @@ type runningAgent struct {
 	done                chan struct{}
 	waitErr             error
 	diagMu              sync.Mutex
-	lastProc            string // latest /proc snapshot captured while the child was alive
+	lastProc            string            // latest /proc snapshot captured while the child was alive
+	providerEnv         map[string]string // fingerprint of the provider credentials this core started with; nil when adopted
+	credentialsAt       time.Time         // last comparison of providerEnv with the saved credentials (runtimeMu)
+	credentialsStale    bool
 }
 
 const coreRuntimeInfoCacheTTL = 5 * time.Second
@@ -72,9 +75,10 @@ func (r *runningAgent) wait() error {
 }
 
 type coreRuntimeInfo struct {
-	Version       string
-	BuildTime     string
-	UptimeSeconds int
+	Version             string
+	BuildTime           string
+	UptimeSeconds       int
+	ProviderUnavailable *coreProviderUnavailable
 }
 
 func (r *runningAgent) process() *os.Process {
@@ -841,7 +845,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		log.Printf("[SPAWN] core agent=%d pid=%d port=%d FAILED to listen within 5s (last check: connection refused)", id, pid, p)
 	}(inst.ID, cmd.Process.Pid, port)
 
-	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{})}
+	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{}), providerEnv: providerEnvFingerprint(providerEnv)}
 	ri.releaseResources = releaseResources
 	if identity, e := readRuntimeProcessIdentity(cmd.Process.Pid); e == nil {
 		ri.resourceIdentity = &identity
@@ -1715,17 +1719,19 @@ func (im *AgentManager) coreRuntimeInfoContext(ctx context.Context, instanceID i
 		return coreRuntimeInfo{}, false
 	}
 	var body struct {
-		Version       string `json:"core_version"`
-		BuildTime     string `json:"core_build_time"`
-		UptimeSeconds int    `json:"uptime_seconds"`
+		Version             string                   `json:"core_version"`
+		BuildTime           string                   `json:"core_build_time"`
+		UptimeSeconds       int                      `json:"uptime_seconds"`
+		ProviderUnavailable *coreProviderUnavailable `json:"provider_unavailable"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return coreRuntimeInfo{}, false
 	}
 	info := coreRuntimeInfo{
-		Version:       strings.TrimSpace(body.Version),
-		BuildTime:     strings.TrimSpace(body.BuildTime),
-		UptimeSeconds: body.UptimeSeconds,
+		Version:             strings.TrimSpace(body.Version),
+		BuildTime:           strings.TrimSpace(body.BuildTime),
+		UptimeSeconds:       body.UptimeSeconds,
+		ProviderUnavailable: body.ProviderUnavailable,
 	}
 	ri.runtimeMu.Lock()
 	ri.runtimeInfo = info
@@ -1763,8 +1769,10 @@ func (s *Server) enrichAgentRuntime(inst *Agent) {
 		if inst.CoreStartedAt == "" {
 			inst.CoreStartedAt = coreRuntimeStartedAt(info).Format(time.RFC3339Nano)
 		}
+		inst.ProviderUnavailable = info.ProviderUnavailable
 	}
 	inst.CoreUpdateAvailable = coreVersionOutdated(inst.CoreVersion, CoreVersion)
+	s.markProviderRestart(inst, false)
 }
 
 // --- HTTP Handlers ---
@@ -2272,6 +2280,7 @@ func (s *Server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		populateAgentBuiltinSummary(inst, s.GetProviderPool(inst.UserID, inst.ProjectID))
 		s.enrichAgentRuntime(inst)
+		s.markProviderRestart(inst, true)
 		if err := s.store.populateAgentAppearance(inst); err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -2749,8 +2758,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Core's PUT /config consumes mcp_servers as one complete desired list.
 	// Serialize the read/merge/write here so a directive edit or two
 	// simultaneous attachment changes cannot silently disconnect tools.
+	// A provider switch that needs a restart releases it early: the restart
+	// takes it again.
+	var unlockOnce sync.Once
 	unlockConfig := s.lockAgentConfig(instanceID)
-	defer unlockConfig()
+	releaseConfig := func() { unlockOnce.Do(unlockConfig) }
+	defer releaseConfig()
 	inst, err = s.store.GetAgentByIDContext(r.Context(), instanceID)
 	if err != nil {
 		http.Error(w, "instance not found", http.StatusNotFound)
@@ -3337,6 +3350,24 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			if directiveSent {
 				s.refreshChannelChatConversationDirectives(inst.ID)
+			}
+			// Core takes the new provider choice but can't run it when its
+			// credentials arrived after the core started. Restart so it can.
+			if effectiveDefault != "" {
+				data, readErr := io.ReadAll(io.LimitReader(resp.Body, (16<<20)+1))
+				if readErr != nil || len(data) > 16<<20 {
+					http.Error(w, "invalid core response", http.StatusBadGateway)
+					return
+				}
+				resp.Body = io.NopCloser(bytes.NewReader(data))
+				var reported struct {
+					ProviderUnavailable *coreProviderUnavailable `json:"provider_unavailable"`
+				}
+				if json.Unmarshal(data, &reported) == nil && reported.ProviderUnavailable != nil {
+					releaseConfig()
+					s.writeBehaviorResponseWith(w, resp, inst, s.providerSwitchRestart(r.Context(), inst, reported.ProviderUnavailable))
+					return
+				}
 			}
 		}
 		s.writeBehaviorResponse(w, resp, inst)

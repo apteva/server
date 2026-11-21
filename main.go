@@ -256,6 +256,9 @@ type Server struct {
 	// nil and starts the real managed Core through ensureMetaAgentRunning.
 	platformHelperStarter         func(int64) (*Agent, error)
 	platformHelperActivationLocks sync.Map
+	// Narrow seam for provider-switch restart tests. Production leaves it nil
+	// and replaces the core through updateAgentCore.
+	providerSwitchRestarter func(context.Context, int64) error
 
 	// Personal and Business share one Conversations dependency. Serialize
 	// preparation so concurrent interface selections cannot duplicate it.
