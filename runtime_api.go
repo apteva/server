@@ -268,6 +268,10 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 				return
 			}
 		}
+		if err := validateRuntimeAppConfigShape(req.AppConfig); err != nil {
+			http.Error(w, "runtime app config: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		appGrants, err := validateRuntimeAppGrants(req.AppGrants)
 		if err != nil {
 			http.Error(w, "runtime app grants: "+err.Error(), http.StatusBadRequest)
@@ -294,6 +298,7 @@ func (s *Server) handleRuntimeCollection(w http.ResponseWriter, r *http.Request)
 			Clock:                 req.Clock,
 			Subscriptions:         subscriptions,
 			AppGrants:             appGrants,
+			AppConfig:             req.AppConfig,
 		}
 		var runtime *Environment
 		if req.SnapshotID != "" {
