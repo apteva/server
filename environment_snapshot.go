@@ -39,6 +39,7 @@ type SnapshotManifest struct {
 	Description         string                        `json:"description,omitempty"`
 	Apps                []string                      `json:"apps"` // sidecar names captured
 	SourceInstallIDs    map[string]int64              `json:"source_install_ids,omitempty"`
+	SourceApps          map[string]string             `json:"source_apps,omitempty"` // apps added by name → version constraint
 	ManagedMCPs         []sdk.RuntimeManagedMCP       `json:"managed_mcps,omitempty"`
 	HasAgent            bool                          `json:"has_agent"`    // agent/ dir present
 	HasCassette         bool                          `json:"has_cassette"` // cassette.json present
@@ -93,6 +94,7 @@ type CaptureSpec struct {
 	// SourceInstallIDs maps each captured app name to the project install it
 	// was cloned from, allowing a snapshot-only runtime request to restore apps.
 	SourceInstallIDs map[string]int64
+	SourceApps       map[string]string // apps added by name → version constraint
 	ManagedMCPs      []sdk.RuntimeManagedMCP
 	// Cassette, when non-nil, is saved as cassette.json.
 	Cassette *Cassette
@@ -129,6 +131,7 @@ func (ss *SnapshotStore) Capture(spec CaptureSpec) (*SnapshotManifest, error) {
 		OwnerInstallID:         spec.OwnerInstallID,
 		Description:            spec.Description,
 		SourceInstallIDs:       cloneInt64Map(spec.SourceInstallIDs),
+		SourceApps:             cloneStringMap(spec.SourceApps),
 		ManagedMCPs:            append([]sdk.RuntimeManagedMCP(nil), spec.ManagedMCPs...),
 		Subscriptions:          append([]EnvironmentSubscriptionSpec(nil), spec.Subscriptions...),
 		CreatedAt:              time.Now(),
