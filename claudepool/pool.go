@@ -1157,6 +1157,12 @@ func (p *Pool) Status() Status {
 		if sess.busy || sess.turnHeld {
 			st.Busy++
 		}
+		switch sess.state {
+		case "starting", "replying", "finishing":
+			st.Generating++
+		case "waiting_tool":
+			st.WaitingTool++
+		}
 		st.Processes = append(st.Processes, ProcessStatus{
 			Session:    short(sess.id),
 			Owner:      sess.owner,

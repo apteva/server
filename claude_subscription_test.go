@@ -367,6 +367,9 @@ func TestClaudeSubscriptionStatusAndSettings(t *testing.T) {
 	if pool["max_processes"] != float64(2) || pool["idle_seconds"] != float64(45) || pool["queue_seconds"] != float64(60) {
 		t.Fatalf("pool after update = %+v", pool)
 	}
+	if pool["generating"] != float64(0) || pool["waiting_tool"] != float64(0) {
+		t.Fatalf("pool must say what its processes are doing: %+v", pool)
+	}
 	if _, settings, _ := f.s.claudeSubscriptionConnection(); settings.PoolSize != 2 || settings.IdleSeconds != 45 {
 		t.Fatalf("settings not saved on the connection: %+v", settings)
 	}

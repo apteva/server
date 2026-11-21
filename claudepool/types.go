@@ -157,8 +157,10 @@ type ProcessStatus struct {
 type Status struct {
 	MaxProcs     int             `json:"max_processes"`
 	Running      int             `json:"running"`
-	Busy         int             `json:"busy"`
-	Waiting      int             `json:"waiting"`
+	Busy         int             `json:"busy"`         // in a turn, including waiting for tool results
+	Generating   int             `json:"generating"`   // starting, replying or finishing a reply
+	WaitingTool  int             `json:"waiting_tool"` // waiting for the caller's tool results
+	Waiting      int             `json:"waiting"`      // turns queued for a free process
 	Sessions     int             `json:"sessions"`
 	IdleTimeout  time.Duration   `json:"-"`
 	QueueTimeout time.Duration   `json:"-"`

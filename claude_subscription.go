@@ -898,6 +898,8 @@ func (s *Server) handleClaudeSubscriptionStatus(w http.ResponseWriter, r *http.R
 			"max_processes": status.MaxProcs,
 			"running":       status.Running,
 			"busy":          status.Busy,
+			"generating":    status.Generating,
+			"waiting_tool":  status.WaitingTool,
 			"waiting":       status.Waiting,
 			"sessions":      status.Sessions,
 			"idle_seconds":  int(status.IdleTimeout / time.Second),
