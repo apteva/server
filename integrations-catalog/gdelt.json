@@ -25,6 +25,8 @@
       "description": "Full-text article search across GDELT's worldwide corpus. Returns ArtList = list of matching articles (title, url, domain, language, country, date, image, themes, social-image). Powerful query syntax: 'biden AND trump', '\"interest rate\" AND fed', 'sourcecountry:US AND theme:ECON_INTEREST_RATES'. Use mode=ArtList for articles; TimelineVol/TimelineTone/TimelineLang/TimelineSourceCountry for aggregations.",
       "method": "GET",
       "path": "/doc/doc",
+      "rate_limit": {"min_interval_ms": 5500, "max_retries": 1, "retry_statuses": [429]},
+      "timeout_ms": 30000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -45,6 +47,8 @@
       "description": "Time-series volume of articles matching a query — shows how many sources are covering the topic over time. Spikes correlate with real-world events (elections, market crashes, geopolitical incidents). Convenience wrapper around doc_search with mode=TimelineVol.",
       "method": "GET",
       "path": "/doc/doc",
+      "rate_limit": {"min_interval_ms": 5500, "max_retries": 1, "retry_statuses": [429]},
+      "timeout_ms": 30000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -61,6 +65,8 @@
       "description": "Aggregate sentiment-tone timeline (positive vs negative coverage) for articles matching a query. Useful for tracking media sentiment shifts on a topic over time — Fed coverage tone before/after FOMC, geopolitical sentiment before/after announcements.",
       "method": "GET",
       "path": "/doc/doc",
+      "rate_limit": {"min_interval_ms": 5500, "max_retries": 1, "retry_statuses": [429]},
+      "timeout_ms": 30000,
       "input_schema": {
         "type": "object",
         "properties": {
@@ -77,6 +83,8 @@
       "description": "Geographic distribution of articles matching a query — returns lat/lng points + intensity. Use to see WHERE a story is being covered most heavily, which correlates with where the event is actually happening.",
       "method": "GET",
       "path": "/geo/geo",
+      "rate_limit": {"min_interval_ms": 5500, "max_retries": 1, "retry_statuses": [429]},
+      "timeout_ms": 30000,
       "input_schema": {
         "type": "object",
         "properties": {

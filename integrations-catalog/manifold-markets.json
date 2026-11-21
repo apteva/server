@@ -75,7 +75,8 @@
           "term":   {"type": "string", "description": "Search query."},
           "limit":  {"type": "integer", "description": "Max results, default 30."},
           "filter": {"type": "string", "enum": ["all","open","closed","resolved","closing-this-month","closing-next-month"], "default": "open"},
-          "sort":   {"type": "string", "enum": ["score","newest","liquidity","most-popular","closing-soon","resolve-date","start-time"], "default": "score"}
+          "sort":   {"type": "string", "enum": ["score","newest","liquidity","most-popular","closing-soon","resolve-date","start-time","24-hour-vol"], "default": "score"},
+          "contractType": {"type": "string", "enum": ["ALL","BINARY","MULTIPLE_CHOICE","BOUNTY","POLL"], "description": "Restrict to one market type; BINARY for yes/no questions."}
         },
         "required": ["term"]
       }
