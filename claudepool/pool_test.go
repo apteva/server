@@ -186,6 +186,10 @@ func TestToolCallsAreHeldUntilResultsArrive(t *testing.T) {
 	if st := tp.Status(); st.Processes[0].State != "waiting_tool" || st.Processes[0].Detail != "lookup, other" {
 		t.Fatalf("status = %+v", st.Processes)
 	}
+	// A process waiting for tools is in a turn but generates nothing.
+	if st := tp.Status(); st.Busy != 1 || st.WaitingTool != 1 || st.Generating != 0 {
+		t.Fatalf("busy %d, waiting_tool %d, generating %d; want 1, 1, 0", st.Busy, st.WaitingTool, st.Generating)
+	}
 
 	req.Messages = append(req.Messages,
 		Message{Role: "assistant", ToolCalls: r.calls},
