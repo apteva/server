@@ -286,6 +286,43 @@ func TestClaudeSubscriptionChatRejectsBadCallers(t *testing.T) {
 	}
 }
 
+// A project connection serves agents of that project and agents outside any
+// project, like the Helper, which are offered it too; not other projects.
+func TestClaudeSubscriptionProjectConnectionScope(t *testing.T) {
+	f := newClaudeSubFixture(t)
+	other, err := f.s.store.CreateProject(f.userID, "Studio", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.store.dbExec(`UPDATE connections SET project_id=? WHERE id=?`, other.ID, f.connID); err != nil {
+		t.Fatal(err)
+	}
+	var own string
+	if err := f.s.store.dbQueryRow(`SELECT project_id FROM agents WHERE id=?`, f.agentID).Scan(&own); err != nil {
+		t.Fatal(err)
+	}
+	body := map[string]any{"model": "opus", "stream": true, "messages": []any{map[string]any{"role": "user", "content": "hi"}}}
+	for _, tc := range []struct {
+		name, project string
+		ok            bool
+	}{
+		{"another project", own, false},
+		{"no project", "", true},
+		{"the connection's project", other.ID, true},
+	} {
+		if _, err := f.s.store.dbExec(`UPDATE agents SET project_id=? WHERE id=?`, tc.project, f.agentID); err != nil {
+			t.Fatal(err)
+		}
+		r := f.chat(t, body)
+		if tc.ok && (r.status != http.StatusOK || r.content != "echo: hi") {
+			t.Fatalf("%s: status = %d content = %q %s", tc.name, r.status, r.content, r.errBody)
+		}
+		if !tc.ok && (r.status != http.StatusServiceUnavailable || !strings.Contains(r.errBody, "not_connected")) {
+			t.Fatalf("%s: status = %d %s, want not_connected", tc.name, r.status, r.errBody)
+		}
+	}
+}
+
 // Core starts thinking before its key reaches the database.
 func TestClaudeSubscriptionAcceptsBootingAgent(t *testing.T) {
 	f := newClaudeSubFixture(t)

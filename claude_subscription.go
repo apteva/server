@@ -713,12 +713,14 @@ func (s *Server) claudeSubscriptionComplete(w http.ResponseWriter, r *http.Reque
 }
 
 // claudeSubscriptionConnectedFor reports whether the user has an active
-// Claude subscription connection visible to the project.
+// Claude subscription connection visible to the project. It follows the
+// agent's provider list (ListRuntimeConnections): an agent outside any
+// project, like the Helper, sees the user's connections in every project.
 func (s *Server) claudeSubscriptionConnectedFor(userID int64, projectID string) bool {
 	var count int
 	err := s.store.dbQueryRow(`SELECT COUNT(*) FROM connections
-		WHERE app_slug=? AND user_id=? AND status='active' AND (COALESCE(project_id,'')='' OR project_id=?)`,
-		claudeSubscriptionSlug, userID, projectID).Scan(&count)
+		WHERE app_slug=? AND user_id=? AND status='active' AND (?='' OR COALESCE(project_id,'')='' OR project_id=?)`,
+		claudeSubscriptionSlug, userID, projectID, projectID).Scan(&count)
 	return err == nil && count > 0
 }
 
