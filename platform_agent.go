@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -512,6 +513,11 @@ func (s *Server) ensureMetaAgentRunning(userID int64) (*Agent, error) {
 	if raw, err := json.Marshal(cfg); err == nil {
 		helper.Config = string(raw)
 	}
+	// startManagedAgent reloads the row, so save the gateway version first.
+	// Otherwise it is lost and every later read restarts a current Helper.
+	if err := s.store.UpdateAgent(helper); err != nil {
+		return nil, fmt.Errorf("persist platform helper gateway version: %w", err)
+	}
 	// Give the meta-agent the Apteva server gateway, channels, and
 	// Environment control tools before Start so core merges them into
 	// config.json.
@@ -855,6 +861,26 @@ func (s *Server) platformHelperConversationsInstall(userID int64) (installID, mc
 	return installID, mcpServerID, err == nil && installID > 0
 }
 
+// platformHelperConversationsLinked reports whether the Helper has both parts
+// of its Conversations attachment: the app link that makes it a chat target
+// and the Conversations tools in its MCP selection.
+func (s *Server) platformHelperConversationsLinked(userID int64) bool {
+	installID, mcpServerID, ok := s.platformHelperConversationsInstall(userID)
+	if !ok || mcpServerID <= 0 {
+		return false
+	}
+	helper, err := s.store.GetPlatformHelper(userID)
+	if err != nil {
+		return false
+	}
+	var enabled int
+	if err := s.store.dbQueryRow(`SELECT enabled FROM app_agent_bindings WHERE install_id=? AND agent_id=?`,
+		installID, helper.ID).Scan(&enabled); err != nil || enabled != 1 {
+		return false
+	}
+	return slices.Contains(helperSelectedGlobalMCPServerIDs(helper), mcpServerID)
+}
+
 func (s *Server) ensurePlatformHelperConversations(userID int64, allowInstall bool) (int64, int64, error) {
 	installID, mcpServerID, installed := s.platformHelperConversationsInstall(userID)
 	if !installed {
@@ -949,6 +975,19 @@ func (s *Server) handlePlatformHelperEnsureDefault(w http.ResponseWriter, r *htt
 	defer unlock()
 	status := s.currentPlatformHelperStatus(userID)
 	if status.Activated {
+		// Helpers from before explicit activation count as activated but were
+		// never linked to Conversations, so the chat treats them as
+		// unavailable. Finish their activation, which also starts them.
+		if status.ConversationsInstalled && status.ProviderConfigured && !cloneQuarantineEnabled() && !s.platformHelperConversationsLinked(userID) {
+			installID, mcpID, err := s.ensurePlatformHelperConversations(userID, false)
+			if err == nil {
+				err = s.activatePreparedPlatformHelper(userID, installID, mcpID)
+			}
+			if err != nil {
+				log.Printf("[PLATFORM-HELPER] link Conversations to activated helper user=%d: %v", userID, err)
+			}
+			status = s.currentPlatformHelperStatus(userID)
+		}
 		// Activated means kept running: bring back a Helper that stopped
 		// (crash, failed boot start) the next time the dashboard checks.
 		if status.State != "running" && status.ProviderConfigured && !cloneQuarantineEnabled() {
@@ -1032,7 +1071,8 @@ func (s *Server) activatePreparedPlatformHelper(userID, installID, conversations
 	setPlatformHelperActivated(helper, true)
 	selected := append(helperSelectedGlobalMCPServerIDs(helper), conversationsMCPID)
 	setHelperSelectedGlobalMCPServerIDs(helper, selected)
-	if _, err := s.ensurePlatformHelperRuntimeConfig(helper); err != nil {
+	runtimeChanged, err := s.ensurePlatformHelperRuntimeConfig(helper)
+	if err != nil {
 		return fmt.Errorf("configure platform helper: %w", err)
 	}
 	if err := s.store.UpdateAgent(helper); err != nil {
@@ -1041,6 +1081,16 @@ func (s *Server) activatePreparedPlatformHelper(userID, installID, conversations
 	if _, err := s.store.dbExec(`INSERT INTO app_agent_bindings(install_id,agent_id,enabled) VALUES(?,?,1)
 		ON CONFLICT(install_id,agent_id) DO UPDATE SET enabled=1`, installID, helper.ID); err != nil {
 		return fmt.Errorf("attach Conversations to platform helper: %w", err)
+	}
+	// The starter reloads the saved row, so it sees no change for a Helper
+	// that is already running. Give the running core its new tools here.
+	if runtimeChanged && s.agents != nil && s.agents.IsRunning(helper.ID) {
+		if err := s.applyPlatformHelperMCPConfig(helper); err != nil {
+			return fmt.Errorf("apply platform helper capabilities: %w", err)
+		}
+		if _, err := s.resetPlatformHelperConversationThreads(helper); err != nil {
+			return fmt.Errorf("refresh platform helper conversation capabilities: %w", err)
+		}
 	}
 	starter := s.platformHelperStarter
 	if starter == nil {
