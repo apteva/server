@@ -29,7 +29,7 @@ func workspacePageToolDefinitions() []toolDef {
 		required          []string
 	}{
 		{"pages_list", "List your Pages in the current project, including Home. Returns the layout revision.", nil},
-		{"page_get", "Read one Page's widget instances and revision. Use widget IDs from this result for edits.", nil},
+		{"page_get", "Read one Page's widget instances and revision. Use widget IDs from this result for edits. inherited true means this project's Home shows the All projects Home; the first edit saves those widgets as the project's own Home.", nil},
 		{"page_create", "Create a personal Page in the current scope. Returns page.id and revision for adding widgets.", []string{"title"}},
 		{"page_update", "Edit a Page's title, description, layout or pinned state. Omitted fields are preserved, including all widgets. Read page_get first.", []string{"page_id", "revision"}},
 		{"widgets_list", "List or search installed widgets available for this Page, including their settings. Omit query to list all available widgets.", nil},
@@ -136,7 +136,10 @@ type workspacePageState struct {
 	Revision  int64             `json:"revision"`
 	Widgets   []json.RawMessage `json:"widgets"`
 	Explicit  bool              `json:"explicit"`
-	Changed   bool              `json:"changed"`
+	// Inherited marks a project Home without a layout of its own, which
+	// shows the All projects Home.
+	Inherited bool `json:"inherited,omitempty"`
+	Changed   bool `json:"changed"`
 }
 
 func (s *Server) handleWorkspacePageTool(w http.ResponseWriter, r *http.Request) {
@@ -244,6 +247,13 @@ func (s *Server) handleWorkspacePageTool(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	raw, explicit := scope.Slots[surface]
+	// A project Home without a layout of its own shows the All projects
+	// Home, as on the dashboard, and the first edit saves those widgets as
+	// the project's Home, as the dashboard's first edit does.
+	inherited := false
+	if shared := layout.Global.Slots[surface]; !explicit && req.Scope == "project" && surface == "dashboard.home" && jsonArray(shared) {
+		raw, inherited = shared, true
+	}
 	widgets := []json.RawMessage{}
 	if len(raw) > 0 && string(raw) != "null" && json.Unmarshal(raw, &widgets) != nil {
 		http.Error(w, "saved widget layout could not be read", 500)
@@ -252,7 +262,7 @@ func (s *Server) handleWorkspacePageTool(w http.ResponseWriter, r *http.Request)
 	if widgets == nil {
 		widgets = []json.RawMessage{}
 	}
-	state := workspacePageState{Page: page, Scope: req.Scope, ProjectID: req.ProjectID, Revision: revision, Widgets: widgets, Explicit: explicit}
+	state := workspacePageState{Page: page, Scope: req.Scope, ProjectID: req.ProjectID, Revision: revision, Widgets: widgets, Explicit: explicit, Inherited: inherited}
 	if req.Action == "page_update" {
 		if req.PageID == "" || page.Kind == "system" {
 			http.Error(w, "only custom Pages can be edited", 400)
@@ -284,6 +294,9 @@ func (s *Server) handleWorkspacePageTool(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	definitions := s.pageWidgetDefinitions(req.ProjectID, surface, req.Scope == "global")
+	if inherited {
+		state.Widgets = sharedPageWidgets(widgets, surface, definitions)
+	}
 	if req.Action == "page_get" {
 		state.Widgets = normalizePageWidgetIDs(state.Widgets, surface)
 		writeJSON(w, state)
@@ -383,6 +396,7 @@ func (s *Server) handleWorkspacePageTool(w http.ResponseWriter, r *http.Request)
 	state.Widgets = normalizePageWidgetIDs(updated, surface)
 	state.Revision = revision
 	state.Explicit = true
+	state.Inherited = false
 	state.Changed = true
 	writeJSON(w, state)
 }
@@ -441,6 +455,35 @@ func pageWidgetObject(raw json.RawMessage, surface string, index int) map[string
 		fields["id"], _ = json.Marshal(fmt.Sprintf("legacy:%d:%s", index, component))
 	}
 	return fields
+}
+
+func jsonArray(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+// sharedPageWidgets is a layout saved in another scope, reused as this
+// Page's default. Like the dashboard, it leaves out widgets this scope
+// cannot provide rather than showing them as unavailable.
+func sharedPageWidgets(widgets []json.RawMessage, surface string, definitions []dashboardWidgetDefinition) []json.RawMessage {
+	known := map[string]bool{}
+	for _, definition := range definitions {
+		known[definition.Component] = true
+		// App widgets may be saved under the app name or its install namespace.
+		if _, name, ok := strings.Cut(definition.Component, ":"); ok && definition.App != "" {
+			known[definition.App+":"+name] = true
+		}
+	}
+	out := make([]json.RawMessage, 0, len(widgets))
+	for _, raw := range normalizePageWidgetIDs(widgets, surface) {
+		var widget struct {
+			Component string `json:"component"`
+		}
+		if json.Unmarshal(raw, &widget) == nil && known[widget.Component] {
+			out = append(out, raw)
+		}
+	}
+	return out
 }
 
 func normalizePageWidgetIDs(widgets []json.RawMessage, surface string) []json.RawMessage {

@@ -434,6 +434,59 @@ func TestPageMCPUnconfiguredPageMatchesEmptyDashboardCanvas(t *testing.T) {
 	}
 }
 
+// A project Home without a layout of its own shows the All projects Home on
+// the dashboard. Agents see the same widgets, and their first edit saves them
+// as the project's Home instead of replacing them.
+func TestPageMCPProjectHomeInheritsAllProjectsHome(t *testing.T) {
+	s, _ := pageToolsFixture(t)
+	shared := json.RawMessage(`["native:agents",{"id":"usage","component":"native:usage","size":"full"},{"id":"gone","component":"offline:metric","size":"half"}]`)
+	if _, _, err := s.store.PatchUserUILayoutGlobalSurface(1, "dashboard.home", shared, nil); err != nil {
+		t.Fatal(err)
+	}
+	widgetIDs := func(state workspacePageState) []string {
+		var ids []string
+		for _, raw := range state.Widgets {
+			var widget struct{ ID string }
+			json.Unmarshal(raw, &widget)
+			ids = append(ids, widget.ID)
+		}
+		return ids
+	}
+	state := readPageToolState(t, pageToolRequest(t, s, 1, "page_get", nil))
+	if got := fmt.Sprint(widgetIDs(state)); !state.Inherited || state.Explicit || got != "[legacy:0:native:agents usage]" {
+		t.Fatalf("project Home = %s inherited=%v explicit=%v, want the All projects widgets this project can show", got, state.Inherited, state.Explicit)
+	}
+
+	state = readPageToolState(t, pageToolRequest(t, s, 1, "widget_configure", map[string]any{"widget_id": "legacy:0:native:agents", "settings": map[string]any{"max_rows": 8}, "revision": state.Revision}))
+	if got := fmt.Sprint(widgetIDs(state)); state.Inherited || !state.Explicit || got != "[legacy:0:native:agents usage]" {
+		t.Fatalf("after the first edit = %s inherited=%v explicit=%v", got, state.Inherited, state.Explicit)
+	}
+	if !strings.Contains(string(state.Widgets[0]), `"max_rows":8`) {
+		t.Fatalf("inherited widget was not configured: %s", state.Widgets[0])
+	}
+	state = readPageToolState(t, pageToolRequest(t, s, 1, "widget_add", map[string]any{"widget_id": "apps", "component": "native:apps", "revision": state.Revision}))
+	if got := fmt.Sprint(widgetIDs(state)); got != "[legacy:0:native:agents usage apps]" {
+		t.Fatalf("after adding = %s", got)
+	}
+	global := readPageToolState(t, pageToolRequest(t, s, 1, "page_get", map[string]any{"scope": "global", "project_id": ""}))
+	if global.Inherited || len(global.Widgets) != 3 || strings.Contains(string(global.Widgets[0]), "max_rows") {
+		t.Fatalf("the All projects Home changed: %+v", global)
+	}
+
+	// A project Home saved empty on purpose stays empty, and custom Pages
+	// never inherit.
+	if _, _, err := s.store.PatchUserUILayoutSurface(1, "p", "dashboard.home", json.RawMessage(`[]`), nil); err != nil {
+		t.Fatal(err)
+	}
+	if state := readPageToolState(t, pageToolRequest(t, s, 1, "page_get", nil)); state.Inherited || len(state.Widgets) != 0 {
+		t.Fatalf("an empty project Home inherited widgets: %+v", state)
+	}
+	seedToolPage(t, s, 1, "p", "report")
+	if state := readPageToolState(t, pageToolRequest(t, s, 1, "page_get", map[string]any{"page_id": "report"})); state.Inherited || len(state.Widgets) != 0 {
+		t.Fatalf("a custom Page inherited Home widgets: %+v", state)
+	}
+}
+
 func TestPageMCPCreateAndPartialUpdatePreserveWidgetsAndMetadata(t *testing.T) {
 	s, _ := pageToolsFixture(t)
 	seedToolPage(t, s, 1, "other", "untouched")
