@@ -344,12 +344,102 @@ func subscriptionPayloadMatches(sub *Subscription, payload json.RawMessage) bool
 		return false
 	}
 	for key, wantValue := range want {
-		gotValue, ok := got[key]
-		if !ok || !jsonFieldValueMatches(gotValue, wantValue) {
+		if !subscriptionFieldMatches(subscriptionFieldValues(got, key), wantValue) {
 			return false
 		}
 	}
 	return true
+}
+
+// subscriptionFieldValues finds a filter field in an event payload. A key
+// that names a top-level field is used as is; otherwise a dotted key walks
+// nested objects, and through arrays of objects it collects the field from
+// every element ("to.email" over a list of recipients).
+func subscriptionFieldValues(doc map[string]any, key string) []any {
+	if value, ok := doc[key]; ok {
+		return []any{value}
+	}
+	if !strings.Contains(key, ".") {
+		return nil
+	}
+	current := []any{doc}
+	for _, segment := range strings.Split(key, ".") {
+		var next []any
+		for _, value := range current {
+			switch node := value.(type) {
+			case map[string]any:
+				if child, ok := node[segment]; ok {
+					next = append(next, child)
+				}
+			case []any:
+				for _, element := range node {
+					if object, ok := element.(map[string]any); ok {
+						if child, ok := object[segment]; ok {
+							next = append(next, child)
+						}
+					}
+				}
+			}
+		}
+		if len(next) == 0 {
+			return nil
+		}
+		current = next
+	}
+	return current
+}
+
+func subscriptionFieldMatches(values []any, want any) bool {
+	for _, value := range values {
+		if op, ok := want.(map[string]any); ok {
+			if subscriptionOperatorMatches(value, op) {
+				return true
+			}
+		} else if jsonFieldValueMatches(value, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// subscriptionOperatorMatches applies one operator from
+// normalizeSubscriptionFilterOperator. Array fields match when any element
+// does, as for scalar filters.
+func subscriptionOperatorMatches(got any, op map[string]any) bool {
+	if values, ok := got.([]any); ok {
+		for _, value := range values {
+			if subscriptionOperatorMatches(value, op) {
+				return true
+			}
+		}
+		return false
+	}
+	for name, arg := range op {
+		if name == "in" {
+			options, _ := arg.([]any)
+			for _, option := range options {
+				if jsonScalarEqual(got, option) {
+					return true
+				}
+			}
+			return false
+		}
+		text, ok := got.(string)
+		want, _ := arg.(string)
+		if !ok || want == "" {
+			return false
+		}
+		text, want = strings.ToLower(text), strings.ToLower(want)
+		switch name {
+		case "prefix":
+			return strings.HasPrefix(text, want)
+		case "suffix":
+			return strings.HasSuffix(text, want)
+		case "contains":
+			return strings.Contains(text, want)
+		}
+	}
+	return false
 }
 
 // jsonFieldValueMatches is intentionally small: scalar event fields compare
