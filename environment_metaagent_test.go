@@ -23,9 +23,15 @@ func TestEnsureEnvironmentMCPOnHelper(t *testing.T) {
 		IncludeAptevaServer bool             `json:"include_apteva_server"`
 		IncludeChannels     bool             `json:"include_channels"`
 		MCPServers          []map[string]any `json:"mcp_servers"`
+		Execution           struct {
+			Mode string `json:"mode"`
+		} `json:"execution_control"`
 	}
 	if err := json.Unmarshal([]byte(helper.Config), &cfg); err != nil {
 		t.Fatalf("config not valid JSON: %v", err)
+	}
+	if cfg.Execution.Mode != "auto" {
+		t.Fatalf("expected platform helper to run in auto mode, got %q: %s", cfg.Execution.Mode, helper.Config)
 	}
 	if !cfg.IncludeAptevaServer {
 		t.Fatalf("expected platform helper to force include_apteva_server=true: %s", helper.Config)
