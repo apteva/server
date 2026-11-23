@@ -128,6 +128,10 @@ type Server struct {
 	// core consumes one desired mcp_servers list; without this lock two
 	// concurrent attach/detach or directive edits can overwrite each other.
 	agentConfigLocks sync.Map // agent id -> *sync.Mutex
+	// appMCPReconciledRevisions remembers the bridge revision whose bound
+	// agents were last reconciled, so repeated registration of one activation
+	// reconciles them once.
+	appMCPReconciledRevisions sync.Map // app install id -> string
 	// agentSkillLocks serializes reconciliation of app-owned skill memories for
 	// one agent. App attachment changes, app upgrades, and startup repair can
 	// otherwise race and create parallel supersede chains for the same skill.

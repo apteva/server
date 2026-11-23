@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -380,6 +381,13 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 			appMCPUpstreamID(installID), inst.ProjectID,
 		).Scan(&serverID)
 		if err != nil {
+			if inst.Kind != "platform_helper" && s.appInstallDisabled(installID) {
+				// A disabled app rejects every connection, so Core would
+				// carry a dead entry that fails each later update. The
+				// binding stays and re-attaches the app when it is enabled.
+				changed = true
+				continue
+			}
 			// An uninstalled or temporarily unavailable app must not cause us
 			// to destructively drop the user's desired attachment.
 			refreshed = append(refreshed, entry)
@@ -401,40 +409,188 @@ func (s *Server) refreshAgentAppMCPConfigs(inst *Agent) error {
 		refreshed = append(refreshed, replacement)
 	}
 
-	configPath := filepath.Join(s.agents.instanceDir(inst.ID), "config.json")
 	if changed {
-		if _, err := os.Stat(configPath); err == nil {
-			if err := s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
-				cfg["mcp_servers"] = mcpMapsAsAny(refreshed)
-				return nil
-			}); err != nil {
-				return err
-			}
-		} else if !os.IsNotExist(err) {
+		if err := s.saveStoppedAgentMCPServers(inst, refreshed); err != nil {
 			return err
-		} else {
-			var cfg map[string]any
-			if strings.TrimSpace(inst.Config) != "" {
-				if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
-					return err
-				}
-			}
-			if cfg == nil {
-				cfg = map[string]any{}
-			}
-			cfg["mcp_servers"] = mcpMapsAsAny(refreshed)
-			encoded, err := json.Marshal(cfg)
-			if err != nil {
-				return err
-			}
-			inst.Config = string(encoded)
-			if err := s.store.UpdateAgent(inst); err != nil {
-				return err
-			}
 		}
 		log.Printf("[MCP-ATTACH] refreshed stale app configs agent=%d", inst.ID)
 	}
 	return s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, mcpMapsAsAny(refreshed))
+}
+
+// saveStoppedAgentMCPServers writes a stopped agent's MCP set where its start
+// will read it: config.json once the agent has one, otherwise the agent's
+// initial configuration. The caller holds the agent config lock.
+func (s *Server) saveStoppedAgentMCPServers(inst *Agent, servers []map[string]any) error {
+	configPath := filepath.Join(s.agents.instanceDir(inst.ID), "config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		return s.writeStoppedConfigAtomic(inst.ID, func(cfg map[string]any) error {
+			cfg["mcp_servers"] = mcpMapsAsAny(servers)
+			return nil
+		})
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	var cfg map[string]any
+	if strings.TrimSpace(inst.Config) != "" {
+		if err := json.Unmarshal([]byte(inst.Config), &cfg); err != nil {
+			return err
+		}
+	}
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	cfg["mcp_servers"] = mcpMapsAsAny(servers)
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	inst.Config = string(encoded)
+	return s.store.UpdateAgent(inst)
+}
+
+func (s *Server) appInstallDisabled(installID int64) bool {
+	var status string
+	err := s.store.dbQueryRow(`SELECT status FROM app_installs WHERE id=?`, installID).Scan(&status)
+	return err == nil && status == "disabled"
+}
+
+// boundAppAgentIDs lists the agents with an enabled binding to an install.
+func (s *Server) boundAppAgentIDs(installID int64) ([]int64, error) {
+	rows, err := s.store.dbQuery(
+		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1 ORDER BY agent_id`,
+		installID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list bound agents for install %d: %w", installID, err)
+	}
+	defer rows.Close()
+	var agentIDs []int64
+	for rows.Next() {
+		var agentID int64
+		if err := rows.Scan(&agentID); err != nil {
+			return nil, err
+		}
+		agentIDs = append(agentIDs, agentID)
+	}
+	return agentIDs, rows.Err()
+}
+
+// detachDisabledAppTools takes a disabled app out of the MCP configuration of
+// every ordinary agent bound to it, live and stopped. The bindings stay: they
+// are what re-attaches the app when it is enabled again. It runs after the
+// bridge row is removed, so syncing bindings cannot drop them. Best-effort:
+// an agent that cannot be updated now drops the entry at its next start.
+func (s *Server) detachDisabledAppTools(installID int64) {
+	agentIDs, err := s.boundAppAgentIDs(installID)
+	if err != nil {
+		log.Printf("[APPS-MCP] disable detach install=%d: %v", installID, err)
+		return
+	}
+	for _, agentID := range agentIDs {
+		agent, err := s.store.GetAgentByID(agentID)
+		if err != nil || agent == nil || agent.Kind == "platform_helper" {
+			continue
+		}
+		if err := s.detachDisabledAppFromAgent(agent, installID); err != nil {
+			log.Printf("[APPS-MCP] disable detach install=%d agent=%d: %v", installID, agentID, err)
+		}
+	}
+}
+
+func (s *Server) detachDisabledAppFromAgent(agent *Agent, installID int64) error {
+	unlock := s.lockAgentConfig(agent.ID)
+	defer unlock()
+	port := s.agents.GetPort(agent.ID)
+	current, err := s.currentAgentMCPServers(agent, port)
+	if err != nil {
+		return err
+	}
+	next := removeAppInstallMCPConfig(current, installID)
+	if mcpConfigListsEqual(current, next) {
+		return nil
+	}
+	if port > 0 {
+		_, _, _, err = s.applyOrdinaryAgentMCPServersLocked(agent, port, current, next)
+		return err
+	}
+	if err := s.saveStoppedAgentMCPServers(agent, next); err != nil {
+		return err
+	}
+	return s.syncAppBindingsFromMCPServers(agent.ID, agent.ProjectID, mcpMapsAsAny(next))
+}
+
+// attachAppMCPToStoppedBoundAgents puts an app's entry back into the saved
+// configuration of stopped ordinary agents still bound to it, such as after
+// the app is enabled again. Running agents get it from the live reconcile.
+func (s *Server) attachAppMCPToStoppedBoundAgents(installID int64) error {
+	agentIDs, err := s.boundAppAgentIDs(installID)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, agentID := range agentIDs {
+		if s.agents.IsRunning(agentID) {
+			continue
+		}
+		if err := s.attachAppMCPToStoppedAgent(agentID, installID); err != nil {
+			errs = append(errs, fmt.Errorf("attach install %d to stopped agent %d: %w", installID, agentID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Server) attachAppMCPToStoppedAgent(agentID, installID int64) error {
+	unlock := s.lockAgentConfig(agentID)
+	defer unlock()
+	if s.agents.IsRunning(agentID) {
+		return nil
+	}
+	agent, err := s.store.GetAgentByID(agentID)
+	if err != nil {
+		return err
+	}
+	if agent == nil || agent.Kind == "platform_helper" {
+		return nil
+	}
+	var serverID int64
+	err = s.store.dbQueryRow(`
+		SELECT id FROM mcp_servers
+		WHERE source='app' AND upstream_id=?
+		  AND (COALESCE(project_id,'')='' OR project_id=?)`,
+		appMCPUpstreamID(installID), agent.ProjectID,
+	).Scan(&serverID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	record, err := s.store.GetMCPServerByIDUnscoped(serverID)
+	if err != nil {
+		return err
+	}
+	serverPort := s.port
+	if serverPort == "" {
+		serverPort = localServerPort()
+	}
+	entry, err := gatewayMCPConfigFromRecord(*record, agent.ProjectID, serverPort, "")
+	if err != nil {
+		return err
+	}
+	s.authorizeFileReferenceMCPConfig(agent, entry)
+	current, err := s.currentAgentMCPServers(agent, 0)
+	if err != nil {
+		return err
+	}
+	next := mutateMCPServers(current, []map[string]any{entry}, "add")
+	if mcpConfigListsEqual(current, next) {
+		return nil
+	}
+	if err := s.saveStoppedAgentMCPServers(agent, next); err != nil {
+		return err
+	}
+	return s.syncAppBindingsFromMCPServers(agent.ID, agent.ProjectID, mcpMapsAsAny(next))
 }
 
 // reconcileRunningAgentAppMCP replaces one app attachment through Core's
@@ -509,12 +665,56 @@ func (s *Server) reconcileRunningAgentAppMCP(ctx context.Context, agentID, insta
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("apply live app MCP config: status %d: %s", resp.StatusCode, strings.TrimSpace(string(detail)))
+		return newCoreMCPApplyError(resp.StatusCode, detail, desired, installID)
 	}
 	if err := s.syncAppBindingsFromMCPServers(agentID, inst.ProjectID, mcpMapsAsAny(desired)); err != nil {
 		return fmt.Errorf("sync app attachment metadata: %w", err)
 	}
 	return nil
+}
+
+// coreMCPApplyError is a live MCP configuration Core rejected. Core names the
+// connections it could not make when it can; AppFailed reports whether one of
+// them belongs to the app being applied.
+type coreMCPApplyError struct {
+	Status    int
+	Detail    string
+	Failed    []string
+	AppFailed bool
+}
+
+func (e *coreMCPApplyError) Error() string {
+	return fmt.Sprintf("apply live app MCP config: status %d: %s", e.Status, e.Detail)
+}
+
+func newCoreMCPApplyError(status int, body []byte, desired []map[string]any, installID int64) *coreMCPApplyError {
+	out := &coreMCPApplyError{Status: status, Detail: strings.TrimSpace(string(body))}
+	var reported struct {
+		Error  string   `json:"error"`
+		Failed []string `json:"failed_mcp_servers"`
+	}
+	if json.Unmarshal(body, &reported) != nil {
+		return out
+	}
+	if reported.Error != "" {
+		out.Detail = reported.Error
+	}
+	appNames := map[string]bool{}
+	for _, entry := range desired {
+		if name, _ := entry["name"].(string); name != "" && appInstallIDFromMCPConfig(entry) == installID {
+			appNames[name] = true
+		}
+	}
+	for _, name := range reported.Failed {
+		if name = strings.TrimSpace(name); name == "" {
+			continue
+		}
+		out.Failed = append(out.Failed, name)
+		if appNames[name] {
+			out.AppFailed = true
+		}
+	}
+	return out
 }
 
 func removeAppInstallMCPConfig(current []map[string]any, installID int64) []map[string]any {

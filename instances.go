@@ -2869,6 +2869,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		rawBody["config"] = body.Config
 	}
 
+	// App installations an MCP remove detached although their bridge row is
+	// gone. Their bindings are dropped once the new set is applied.
+	var unbridgedAppRemovals []int64
 	// The public additive MCP endpoint is rewritten to these internal fields
 	// before entering this handler. Resolve inventory ids and merge them while
 	// the same per-agent lock used by every other config update is held.
@@ -2895,13 +2898,20 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "action must be add, remove, or set", http.StatusBadRequest)
 			return
 		}
+		var removeAppIDs []int64
 		if value := rawBody["_app_install_ids"]; value != nil {
 			appIDs, err := positiveAttachmentIDs(value)
 			if err != nil {
 				http.Error(w, "bound_app_install_ids must contain positive integers", http.StatusBadRequest)
 				return
 			}
-			appMCPIDs, err := s.resolveAgentAppMCPIDs(inst, appIDs)
+			var appMCPIDs []int64
+			if action == "remove" {
+				appMCPIDs, unbridgedAppRemovals, err = s.resolveAgentAppMCPRemoval(inst, appIDs)
+				removeAppIDs = appIDs
+			} else {
+				appMCPIDs, err = s.resolveAgentAppMCPIDs(inst, appIDs)
+			}
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -2937,7 +2947,13 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		rawBody["mcp_servers"] = mcpMapsAsAny(mutateMCPServers(current, selected, action))
+		next := mutateMCPServers(current, selected, action)
+		for _, installID := range removeAppIDs {
+			// The install_id is the durable identity: it matches entries
+			// whose name or URL no longer matches a bridge row.
+			next = removeAppInstallMCPConfig(next, installID)
+		}
+		rawBody["mcp_servers"] = mcpMapsAsAny(next)
 		delete(rawBody, "_mcp_action")
 		delete(rawBody, "_mcp_server_ids")
 		delete(rawBody, "_app_install_ids")
@@ -3343,8 +3359,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 					resp.StatusCode = http.StatusAccepted
 				}
 			}
-			if err := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"]); err != nil {
-				log.Printf("[CONFIG] sync app bindings failed agent=%d: %v", inst.ID, err)
+			bindErr := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"])
+			if bindErr == nil {
+				bindErr = s.dropAppAgentBindings(inst.ID, unbridgedAppRemovals)
+			}
+			if bindErr != nil {
+				log.Printf("[CONFIG] sync app bindings failed agent=%d: %v", inst.ID, bindErr)
 				http.Error(w, "core config updated but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 				return
 			}
@@ -3420,8 +3440,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"]); err != nil {
-		log.Printf("[CONFIG] sync stopped app bindings failed agent=%d: %v", inst.ID, err)
+	bindErr := s.syncAppBindingsFromMCPServers(inst.ID, inst.ProjectID, rawBody["mcp_servers"])
+	if bindErr == nil {
+		bindErr = s.dropAppAgentBindings(inst.ID, unbridgedAppRemovals)
+	}
+	if bindErr != nil {
+		log.Printf("[CONFIG] sync stopped app bindings failed agent=%d: %v", inst.ID, bindErr)
 		http.Error(w, "config saved but app attachment metadata could not be synchronized", http.StatusInternalServerError)
 		return
 	}

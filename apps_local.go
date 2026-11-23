@@ -920,13 +920,18 @@ func (s *Server) installLocally(installID int64, m *sdk.Manifest, projectID stri
 	}
 	s.LoadInstalledApps()
 	s.reconcileAllAppDepBindings()
-	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+	reconcileAgents, err := s.refreshAppMCPBridgeAfterActivation(installID, oldMCPSurface)
+	if err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
 	// Blue-green handoff complete: DB + registry + mcp_servers all
 	// point at NEW. Terminate whatever spawn parked. No-op on fresh
-	// installs.
+	// installs. Agents reach the app through the name-keyed proxy, so
+	// retire OLD before refreshing them, which can take a while.
 	s.localApps.RetireOld(installID, 5*time.Second)
+	if err := reconcileAgents(); err != nil {
+		log.Printf("[APPS] refresh bound agents install=%d: %v", installID, err)
+	}
 	if removed := s.pruneUnreferencedAppVersions(m.Name, m.Version); len(removed) > 0 {
 		log.Printf("[APPS-LOCAL] reclaimed %d stale binary version dir(s) for %s: %v", len(removed), m.Name, removed)
 	}

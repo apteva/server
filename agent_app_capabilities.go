@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -72,6 +73,55 @@ func (s *Server) resolveAgentAppMCPIDs(inst *Agent, installIDs []int64) ([]int64
 		ids = append(ids, mcpID)
 	}
 	return ids, nil
+}
+
+// resolveAgentAppMCPRemoval validates installations to detach. Unlike attach,
+// an installation whose bridge row is gone (disabled or uninstalled) is not an
+// error: the caller removes its entries by the install_id in their URL and
+// drops the bindings, which the MCP-derived binding sync keeps for such apps.
+// A running installation that never had MCP tools is still refused.
+func (s *Server) resolveAgentAppMCPRemoval(inst *Agent, installIDs []int64) (serverIDs, unbridged []int64, err error) {
+	for _, installID := range installIDs {
+		if installID <= 0 {
+			return nil, nil, fmt.Errorf("bound_app_install_ids must contain positive integers")
+		}
+		var project, status string
+		err := s.store.dbQueryRow(`SELECT COALESCE(project_id,''), status FROM app_installs WHERE id=?`, installID).Scan(&project, &status)
+		if err == sql.ErrNoRows {
+			unbridged = append(unbridged, installID)
+			continue
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("load app installation %d: %w", installID, err)
+		}
+		if project != "" && project != inst.ProjectID {
+			return nil, nil, fmt.Errorf("app installation %d is not in the agent's project", installID)
+		}
+		var mcpID int64
+		err = s.store.dbQueryRow(`SELECT id FROM mcp_servers WHERE source='app' AND upstream_id=? AND COALESCE(project_id,'')=? ORDER BY id LIMIT 1`, appMCPUpstreamID(installID), project).Scan(&mcpID)
+		switch {
+		case err == nil:
+			serverIDs = append(serverIDs, mcpID)
+		case err != sql.ErrNoRows:
+			return nil, nil, fmt.Errorf("resolve app installation %d tools: %w", installID, err)
+		case status == "running":
+			return nil, nil, fmt.Errorf("app installation %d has no registered MCP tools to detach", installID)
+		default:
+			unbridged = append(unbridged, installID)
+		}
+	}
+	return serverIDs, unbridged, nil
+}
+
+// dropAppAgentBindings deletes an agent's bindings to installations it was
+// explicitly detached from whose bridge row is gone.
+func (s *Server) dropAppAgentBindings(agentID int64, installIDs []int64) error {
+	for _, installID := range installIDs {
+		if _, err := s.store.dbExec(`DELETE FROM app_agent_bindings WHERE agent_id=? AND install_id=?`, agentID, installID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Return only identities derived from actual live/saved MCP configuration.
