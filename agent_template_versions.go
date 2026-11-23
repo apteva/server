@@ -43,7 +43,10 @@ const (
 // agentTemplateBody is the versioned part of a template. Name, icon,
 // description, highlights and order are catalog details edited in place.
 type agentTemplateBody struct {
-	Directive       string        `json:"directive"`
+	Directive string `json:"directive"`
+	// PresetDirective is set for built-in roles: the preset text agents
+	// created by workspace setup were rendered from.
+	PresetDirective string        `json:"preset_directive,omitempty"`
 	Mode            string        `json:"mode"`
 	Unconscious     bool          `json:"unconscious"`
 	RecommendedApps []string      `json:"recommended_apps"`
@@ -52,7 +55,7 @@ type agentTemplateBody struct {
 
 func agentTemplateBodyOf(t AgentTemplate) agentTemplateBody {
 	b := agentTemplateBody{
-		Directive: t.Directive, Mode: t.Mode, Unconscious: t.Unconscious,
+		Directive: t.Directive, PresetDirective: t.PresetDirective, Mode: t.Mode, Unconscious: t.Unconscious,
 		RecommendedApps: t.RecommendedApps, Requirements: t.Requirements,
 	}
 	if b.RecommendedApps == nil {
@@ -67,6 +70,16 @@ func agentTemplateBodyOf(t AgentTemplate) agentTemplateBody {
 func (b agentTemplateBody) encode() string {
 	data, _ := json.Marshal(b)
 	return string(data)
+}
+
+// directiveFor renders the version's instructions for one agent. Agents
+// created by a workspace preset get the preset text with their project's
+// values filled in, exactly as preset setup rendered it.
+func (b agentTemplateBody) directiveFor(presetValues map[string]string) string {
+	if len(presetValues) > 0 && b.PresetDirective != "" {
+		return expandPresetTemplate(b.PresetDirective, presetValues)
+	}
+	return b.Directive
 }
 
 func (b agentTemplateBody) requiredApps() []string {
@@ -124,6 +137,7 @@ func (s *Store) migrateAgentTemplateVersions() error {
 				follow_latest       INTEGER NOT NULL DEFAULT 0,
 				base_directive_etag TEXT    NOT NULL,
 				base_mode           TEXT    NOT NULL,
+				preset_values_json  TEXT    NOT NULL DEFAULT '',
 				last_error          TEXT    NOT NULL DEFAULT '',
 				created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
 				updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -154,6 +168,15 @@ func (s *Store) recordBuiltinTemplateVersions() error {
 	templates, err := collectSQLRows(rows, scanAgentTemplate)
 	if err != nil {
 		return err
+	}
+	presetText := map[string]string{}
+	if current, err := presetAgentTemplates(); err == nil {
+		for _, t := range current {
+			presetText[t.ID] = t.PresetDirective
+		}
+	}
+	for i := range templates {
+		templates[i].PresetDirective = presetText[templates[i].ID]
 	}
 	tx, err := s.dbBegin()
 	if err != nil {
@@ -278,15 +301,19 @@ type agentTemplateLink struct {
 	FollowLatest      bool
 	BaseDirectiveETag string
 	BaseMode          string
-	LastError         string
+	// PresetValues are the values a workspace preset filled into this
+	// agent's instructions; nil for agents not created by a preset.
+	PresetValues map[string]string
+	LastError    string
 }
 
 func (s *Store) agentTemplateLink(agentID int64) (*agentTemplateLink, error) {
 	var l agentTemplateLink
 	var follow int
-	err := s.dbQueryRow(`SELECT agent_id, template_id, version, checked_version, follow_latest, base_directive_etag, base_mode, last_error
+	var presetValues string
+	err := s.dbQueryRow(`SELECT agent_id, template_id, version, checked_version, follow_latest, base_directive_etag, base_mode, preset_values_json, last_error
 		FROM agent_template_links WHERE agent_id=?`, agentID).Scan(
-		&l.AgentID, &l.TemplateID, &l.Version, &l.CheckedVersion, &follow, &l.BaseDirectiveETag, &l.BaseMode, &l.LastError)
+		&l.AgentID, &l.TemplateID, &l.Version, &l.CheckedVersion, &follow, &l.BaseDirectiveETag, &l.BaseMode, &presetValues, &l.LastError)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -294,21 +321,55 @@ func (s *Store) agentTemplateLink(agentID int64) (*agentTemplateLink, error) {
 		return nil, err
 	}
 	l.FollowLatest = follow == 1
+	if presetValues != "" {
+		_ = json.Unmarshal([]byte(presetValues), &l.PresetValues)
+	}
 	return &l, nil
 }
 
 // linkAgentToTemplate records that agentID received version of templateID,
 // with baseDirective and baseMode as the values that version set.
-func (s *Store) linkAgentToTemplate(agentID int64, templateID string, version int, follow bool, baseDirective, baseMode string) error {
+// presetValues are kept for agents a workspace preset rendered.
+func (s *Store) linkAgentToTemplate(agentID int64, templateID string, version int, follow bool, baseDirective, baseMode string, presetValues map[string]string) error {
+	values := ""
+	if len(presetValues) > 0 {
+		encoded, _ := json.Marshal(presetValues)
+		values = string(encoded)
+	}
 	_, err := s.dbExec(`INSERT INTO agent_template_links
-			(agent_id, template_id, version, checked_version, follow_latest, base_directive_etag, base_mode)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+			(agent_id, template_id, version, checked_version, follow_latest, base_directive_etag, base_mode, preset_values_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent_id) DO UPDATE SET template_id=excluded.template_id, version=excluded.version,
 			checked_version=excluded.checked_version, follow_latest=excluded.follow_latest,
 			base_directive_etag=excluded.base_directive_etag, base_mode=excluded.base_mode,
-			last_error='', updated_at=CURRENT_TIMESTAMP`,
-		agentID, templateID, version, version, boolToInt(follow), agentTemplateDirectiveETag(baseDirective), agentMode(baseMode))
+			preset_values_json=excluded.preset_values_json, last_error='', updated_at=CURRENT_TIMESTAMP`,
+		agentID, templateID, version, version, boolToInt(follow), agentTemplateDirectiveETag(baseDirective), agentMode(baseMode), values)
 	return err
+}
+
+// linkPresetAgentToTemplate links an agent a workspace preset just created
+// to the built-in role it came from, pinned like any built-in template
+// agent. It links only when the role's latest version holds the same preset
+// text the agent was rendered from; instructions overridden during setup
+// then count as local changes.
+func (s *Server) linkPresetAgentToTemplate(userID, agentID int64, presetID string, spec ProjectPresetAgent, values map[string]string) error {
+	templateID := "preset:" + presetID + ":" + spec.Key
+	if _, err := s.store.GetAgentTemplate(userID, templateID); err != nil {
+		return nil // not a shipped role
+	}
+	latest, err := s.store.ensureAgentTemplateVersioned(templateID)
+	if err != nil {
+		return err
+	}
+	body, err := s.store.agentTemplateVersionBody(templateID, latest)
+	if err != nil {
+		return err
+	}
+	if body.PresetDirective == "" || body.PresetDirective != spec.Directive {
+		return nil
+	}
+	return s.store.linkAgentToTemplate(agentID, templateID, latest, false,
+		body.directiveFor(values), s.agentModeAllowedFor(userID, body.Mode), values)
 }
 
 // agentModeAllowedFor applies the access policy's autonomy limit, the same
@@ -440,7 +501,7 @@ func (s *Server) applyAgentTemplateVersion(ctx context.Context, agentID int64, v
 		_, err = s.store.dbExec(`UPDATE agent_template_links SET checked_version=MAX(checked_version,?), last_error='', updated_at=CURRENT_TIMESTAMP WHERE agent_id=?`, version, agentID)
 		return agentTemplateChangedLocally, err
 	}
-	nextDirective := withoutAgentControls(body.Directive)
+	nextDirective := withoutAgentControls(body.directiveFor(link.PresetValues))
 	nextMode := s.agentModeAllowedFor(inst.UserID, body.Mode)
 	if link.Version == version && agentTemplateDirectiveETag(current) == agentTemplateDirectiveETag(nextDirective) && agentMode(inst.Mode) == nextMode {
 		_, err = s.store.dbExec(`UPDATE agent_template_links SET checked_version=MAX(checked_version,?), last_error='', updated_at=CURRENT_TIMESTAMP WHERE agent_id=?`, version, agentID)
@@ -905,7 +966,7 @@ func (s *Server) handleSaveAgentAsTemplate(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "create template: "+err.Error(), http.StatusConflict)
 		return
 	}
-	if err := s.store.linkAgentToTemplate(agentID, created.ID, created.Version, true, directive, inst.Mode); err != nil {
+	if err := s.store.linkAgentToTemplate(agentID, created.ID, created.Version, true, directive, inst.Mode, nil); err != nil {
 		http.Error(w, "link agent to template: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

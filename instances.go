@@ -2019,7 +2019,7 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	// edited before creation already count as local changes.
 	if templateSelection != nil {
 		if err := s.store.linkAgentToTemplate(inst.ID, templateSelection.Template.ID, templateSelection.Version,
-			templateSelection.Follow, templateSelection.Body.Directive, s.agentModeAllowedFor(userID, templateSelection.Body.Mode)); err != nil {
+			templateSelection.Follow, templateSelection.Body.Directive, s.agentModeAllowedFor(userID, templateSelection.Body.Mode), nil); err != nil {
 			_ = s.store.DeleteAgent(userID, inst.ID)
 			http.Error(w, "link agent to template", http.StatusInternalServerError)
 			return

@@ -517,3 +517,102 @@ func TestAgentTemplateRolloutSkipsAgentPinnedAfterListing(t *testing.T) {
 		t.Fatalf("pinned agent moved: %q", got)
 	}
 }
+
+// Agents created by a workspace preset are linked to their built-in roles,
+// pinned, and a later role version is rendered with the project's own
+// description, exactly as preset setup rendered the first one.
+func TestPresetAgentsAreLinkedToTheirRoles(t *testing.T) {
+	s := newTestServer(t)
+	seedPresetProject(t, s, "apply-project")
+	sidecar, _ := presetEvalsFixture(t)
+	seedPresetEvalsApp(t, s, "apply-project", sidecar.URL)
+	crmInstallID := seedAppWithTools(t, s, "crm", "apply-project", []string{"contacts_list"})
+	if err := s.registerAppMCP(crmInstallID); err != nil {
+		t.Fatal(err)
+	}
+	const description = "Find and qualify leads for independent clinics"
+	req := authedRequest(t, http.MethodPost, "/projects/apply-project/setup/apply", "", map[string]any{
+		"preset_id": "business-lead-generation", "description": description,
+	})
+	req.Header.Set("X-Apteva-Operator-ID", "1")
+	rec := httptest.NewRecorder()
+	s.handleProject(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("apply status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	agents, err := s.store.ListAgentsInProject("apply-project")
+	if err != nil || len(agents) == 0 {
+		t.Fatalf("agents=%d err=%v", len(agents), err)
+	}
+	for _, agent := range agents {
+		link := templateTestLink(t, s, agent.ID)
+		if link == nil || !strings.HasPrefix(link.TemplateID, "preset:business-lead-generation:") || link.FollowLatest || link.PresetValues["description"] != description {
+			t.Fatalf("agent %q link=%+v", agent.Name, link)
+		}
+		row := templateTestAgent(t, s, agent.ID)
+		if st, err := s.agentTemplateStatusFor(context.Background(), row, true); err != nil || st.ChangedLocally || st.UpdateAvailable {
+			t.Fatalf("agent %q status=%+v err=%v", agent.Name, st, err)
+		}
+	}
+
+	// A release changes one role's preset text.
+	agent := agents[0]
+	link := templateTestLink(t, s, agent.ID)
+	role, err := s.store.GetAgentTemplate(1, link.TemplateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, _ := s.store.agentTemplateVersionBody(link.TemplateID, link.Version)
+	role.PresetDirective = current.PresetDirective + " Confirm every lead's opt-in before outreach."
+	tx, err := s.store.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, created, err := recordAgentTemplateVersion(tx, *role, 0)
+	if err != nil || !created {
+		t.Fatalf("record version=%d created=%v err=%v", version, created, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	row := templateTestAgent(t, s, agent.ID)
+	if st, _ := s.agentTemplateStatusFor(context.Background(), row, true); !st.UpdateAvailable || st.ChangedLocally {
+		t.Fatalf("after release status=%+v", st)
+	}
+	s.rolloutAgentTemplatesOnce(context.Background())
+	if got := templateTestAgent(t, s, agent.ID).Directive; got != row.Directive {
+		t.Fatal("pinned preset agent was updated by the rollout")
+	}
+	w, out := templateTestLinkRequest(t, s, agent.ID, http.MethodPut, map[string]any{"version": version})
+	if w.Code != http.StatusOK || out["outcome"] != agentTemplateApplied {
+		t.Fatalf("take version status=%d body=%s", w.Code, w.Body.String())
+	}
+	got := templateTestAgent(t, s, agent.ID).Directive
+	if got != expandPresetTemplate(role.PresetDirective, map[string]string{"description": description}) || !strings.Contains(got, description) || !strings.Contains(got, "Confirm every lead's opt-in") {
+		t.Fatalf("new version was not rendered for the project: %q", got)
+	}
+}
+
+// A preset whose role text differs from the shipped role is not linked.
+func TestPresetAgentWithDifferentRoleTextIsNotLinked(t *testing.T) {
+	s := newTestServer(t)
+	ensureTestAdmin(t, s)
+	catalog, err := loadProjectPresetCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	preset := catalog.ByID["development-software"]
+	spec := preset.Agents[0]
+	values := map[string]string{"description": "A billing API"}
+	agent, err := s.store.CreateAgent(1, spec.Name, expandPresetTemplate(spec.Directive, values), spec.Mode, `{}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Directive += " Customized by this installation."
+	if err := s.linkPresetAgentToTemplate(1, agent.ID, preset.ID, spec, values); err != nil {
+		t.Fatal(err)
+	}
+	if link := templateTestLink(t, s, agent.ID); link != nil {
+		t.Fatalf("customized preset role was linked: %+v", link)
+	}
+}

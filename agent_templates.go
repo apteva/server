@@ -60,9 +60,14 @@ type AgentTemplate struct {
 	// Version is the template's latest saved version. Instructions, mode,
 	// background memory and requirements are versioned; see
 	// agent_template_versions.go.
-	Version   int       `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Version int `json:"version"`
+	// PresetDirective is a built-in role's preset text before the project
+	// description is filled in. It is versioned with the template so agents
+	// created by workspace presets can receive later versions rendered the
+	// same way. Not stored on the row.
+	PresetDirective string    `json:"-"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // agentTemplateSelect reads every scanAgentTemplate column. A template
@@ -166,7 +171,7 @@ func presetAgentTemplates() ([]AgentTemplate, error) {
 				Category: preset.Category, PresetName: preset.Name,
 				Name: agent.Name, Icon: agent.Icon, Description: description, Directive: directive,
 				Mode: agent.Mode, Unconscious: agent.Unconscious, RecommendedApps: agent.Apps,
-				Requirements: requirements, SortOrder: len(out),
+				Requirements: requirements, SortOrder: len(out), PresetDirective: agent.Directive,
 			})
 		}
 	}
