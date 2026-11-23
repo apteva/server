@@ -383,19 +383,25 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 		p.releaseTurn(old)
 		p.mu.Lock()
 	}
-	// A new system prompt or tool list restarts the process between
-	// turns, never while tools are pending. The model is switched in
-	// place at any time: callers pick a model per request, and most turns
-	// leave tool calls pending.
+	// A new system prompt restarts the process between turns, never while
+	// tools are pending, and so does a tool list the process does not have
+	// (including one it was told about but never read). A tool list that
+	// changes while tools are pending reaches the running process with
+	// their results (see syncClientTools). The model is switched in place
+	// at any time: callers pick a model per request, and most turns leave
+	// tool calls pending.
 	key := toolsKey(req.Tools)
 	if len(sess.awaiting) == 0 {
-		if sess.proc != nil && (sess.system != req.System || sess.toolsKey != key) {
+		staleTools := sess.toolsKey != key || (sess.listed != nil && sess.listedKey != key)
+		if sess.proc != nil && (sess.system != req.System || staleTools) {
 			proc := sess.proc
 			sess.proc = nil
 			p.notifyLocked()
 			defer proc.close()
 		}
 		sess.system, sess.toolsKey, sess.tools = req.System, key, append([]Tool(nil), req.Tools...)
+	} else if sess.toolsKey != key {
+		sess.toolsKey, sess.tools = key, append([]Tool(nil), req.Tools...)
 	}
 	switchModel := sess.proc != nil && sess.model != req.Model
 	if sess.proc == nil {
@@ -659,6 +665,11 @@ type blockState struct {
 	toolID   string
 	toolName string
 	args     strings.Builder
+	rejected bool // a tool call Claude Code answers itself (clientHasTool)
+}
+
+func (b *blockState) isCall() bool {
+	return b != nil && b.kind == "tool_use" && !b.rejected
 }
 
 // readReply streams one model reply: it ends when the model stops,
@@ -670,6 +681,7 @@ func (p *Pool) readReply(ctx context.Context, sess *session, proc *process, emit
 		blocks     = map[int]*blockState{}
 		nextTool   int
 		stopReason string
+		rejected   []string // calls in this message Claude Code answers itself
 	)
 	// Claude Code streams continuously while it works; a long silence
 	// means the process is stuck.
@@ -740,6 +752,11 @@ func (p *Pool) readReply(ctx context.Context, sess *session, proc *process, emit
 			}
 			b := &blockState{kind: ev.ContentBlock.Type}
 			blocks[ev.Index] = b
+			if b.kind == "tool_use" && !p.clientHasTool(sess, ev.ContentBlock.Name) {
+				b.rejected = true
+				rejected = append(rejected, ev.ContentBlock.Name)
+				continue
+			}
 			if b.kind == "tool_use" {
 				b.toolIdx = nextTool
 				nextTool++
@@ -761,7 +778,7 @@ func (p *Pool) readReply(ctx context.Context, sess *session, proc *process, emit
 			case "thinking_delta":
 				err = emit(Event{Kind: EventThinking, Text: ev.Delta.Thinking})
 			case "input_json_delta":
-				if b := blocks[ev.Index]; b != nil && b.kind == "tool_use" {
+				if b := blocks[ev.Index]; b.isCall() {
 					b.args.WriteString(ev.Delta.PartialJSON)
 					err = emit(Event{Kind: EventToolArgs, ToolIndex: b.toolIdx, ToolID: b.toolID, ToolName: b.toolName, Text: ev.Delta.PartialJSON})
 				}
@@ -770,7 +787,7 @@ func (p *Pool) readReply(ctx context.Context, sess *session, proc *process, emit
 				return reply, "", usage, model, err
 			}
 		case "content_block_stop":
-			if b := blocks[ev.Index]; b != nil && b.kind == "tool_use" {
+			if b := blocks[ev.Index]; b.isCall() {
 				args := b.args.String()
 				if strings.TrimSpace(args) == "" {
 					args = "{}"
@@ -785,6 +802,15 @@ func (p *Pool) readReply(ctx context.Context, sess *session, proc *process, emit
 				usage.OutputTokens = ev.Usage.OutputTokens
 			}
 		case "message_stop":
+			if len(rejected) > 0 {
+				p.cfg.Logf("[CLAUDE-POOL] session %s: Claude called %s, which its tool list does not have; not passing the call on", short(sess.id), strings.Join(rejected, ", "))
+				if stopReason == "tool_use" && len(reply.ToolCalls) == 0 {
+					// Claude Code answers those calls with an error, and the
+					// model carries on in its next message.
+					blocks, stopReason, rejected = map[int]*blockState{}, "", nil
+					continue
+				}
+			}
 			reply.Text = text.String()
 			switch {
 			case stopReason == "tool_use" && len(reply.ToolCalls) > 0:
@@ -1046,6 +1072,8 @@ func (p *Pool) spawn(sess *session) error {
 	p.mu.Lock()
 	cli := p.cfg.CLI
 	system, model, tools, started := sess.system, sess.model, sess.tools, sess.started
+	// The new process reads its own tool list when it starts.
+	sess.listedKey, sess.listed = "", nil
 	p.mu.Unlock()
 
 	bin, err := cli.Resolve()

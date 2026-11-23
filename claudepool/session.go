@@ -42,6 +42,14 @@ type session struct {
 	parking    bool       // its process is being closed while it sleeps
 	parked     []ToolCall // calls it slept on, resumed by their results
 
+	// The tool list the running process last read: Claude Code reads it
+	// when it starts and again only when told it changed. listed holds the
+	// exposed names and is nil until the process has read a list;
+	// relisted is closed at the next read.
+	listedKey string
+	listed    map[string]bool
+	relisted  chan struct{}
+
 	// turn serializes requests on this session.
 	turn chan struct{}
 
@@ -67,6 +75,7 @@ func newSession(owner, label string) *session {
 		state:      "new",
 		stateSince: time.Now(),
 		turn:       make(chan struct{}, 1),
+		relisted:   make(chan struct{}),
 		held:       map[string]chan toolResult{},
 		results:    map[string]toolResult{},
 	}

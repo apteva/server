@@ -113,8 +113,10 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeRPC(w, req.ID, map[string]any{
 			"protocolVersion": version,
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": mcpServerName, "version": "1"},
+			// The caller's tool list changes mid-turn (search_tools loads
+			// schemas), and Claude Code re-reads it only when told.
+			"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}},
+			"serverInfo":   map[string]any{"name": mcpServerName, "version": "1"},
 		}, nil)
 	case "ping":
 		writeRPC(w, req.ID, map[string]any{}, nil)
@@ -126,14 +128,18 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// While a call is held, Claude Code only sees silence, and it
 		// gives up on calls silent for too long (5 minutes by default
 		// since 2.1.3xx). Progress notifications keep the call alive:
-		// the reply turns into an event stream at the first one.
+		// the reply turns into an event stream at the first one. The same
+		// stream tells Claude Code that the tool list changed.
 		var stream *eventStream
-		var keepAlive func() error
-		if token := progressToken(req.Params); token != nil && acceptsEventStream(r) {
-			stream = &eventStream{w: w, token: token}
-			keepAlive = stream.progress
+		var keepAlive, notify func() error
+		if acceptsEventStream(r) {
+			stream = &eventStream{w: w, token: progressToken(req.Params)}
+			notify = stream.toolsChanged
+			if stream.token != nil {
+				keepAlive = stream.progress
+			}
 		}
-		result, ok := p.callTool(r.Context(), sess, req.Params, keepAlive)
+		result, ok := p.callTool(r.Context(), sess, req.Params, keepAlive, notify)
 		if !ok {
 			return
 		}
@@ -218,6 +224,10 @@ func (s *eventStream) progress() error {
 	})
 }
 
+func (s *eventStream) toolsChanged() error {
+	return s.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+}
+
 func (s *eventStream) send(msg any) error {
 	if !s.started {
 		s.started = true
@@ -236,9 +246,17 @@ func (s *eventStream) send(msg any) error {
 	return http.NewResponseController(s.w).Flush()
 }
 
+// listTools answers tools/list and records what the process now has.
 func (p *Pool) listTools(sess *session) []map[string]any {
 	p.mu.Lock()
 	tools := sess.tools
+	sess.listedKey = sess.toolsKey
+	sess.listed = make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		sess.listed[exposedName(tool.Name)] = true
+	}
+	close(sess.relisted)
+	sess.relisted = make(chan struct{})
 	p.mu.Unlock()
 	out := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
@@ -257,8 +275,9 @@ func (p *Pool) listTools(sess *session) []map[string]any {
 
 // callTool holds a tool call until the caller sends its result. keepAlive,
 // when set, runs every progressInterval while the call is held; an error
-// means Claude Code is no longer listening.
-func (p *Pool) callTool(ctx context.Context, sess *session, raw json.RawMessage, keepAlive func() error) (map[string]any, bool) {
+// means Claude Code is no longer listening. notify, when set, tells Claude
+// Code that its tool list changed (see syncClientTools).
+func (p *Pool) callTool(ctx context.Context, sess *session, raw json.RawMessage, keepAlive, notify func() error) (map[string]any, bool) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -313,7 +332,54 @@ func (p *Pool) callTool(ctx context.Context, sess *session, raw json.RawMessage,
 			}
 		}
 	}
+	p.syncClientTools(ctx, sess, notify)
 	return toolReply(result), true
+}
+
+// relistTimeout bounds how long a tool result waits for Claude Code to
+// read a changed tool list.
+var relistTimeout = 5 * time.Second
+
+// syncClientTools runs before a tool result goes back to Claude Code. When
+// the caller sent a new tool list while the call was held (search_tools
+// loading schemas, for example), it tells Claude Code the list changed and
+// waits for it to read the list, so the model's next request has the new
+// tools. Claude Code otherwise reads the list only when it starts.
+func (p *Pool) syncClientTools(ctx context.Context, sess *session, notify func() error) {
+	if notify == nil {
+		return
+	}
+	p.mu.Lock()
+	stale := sess.listed != nil && sess.listedKey != sess.toolsKey
+	relisted := sess.relisted
+	p.mu.Unlock()
+	if !stale || notify() != nil {
+		return
+	}
+	timer := time.NewTimer(relistTimeout)
+	defer timer.Stop()
+	select {
+	case <-relisted:
+	case <-timer.C:
+		p.cfg.Logf("[CLAUDE-POOL] session %s: Claude did not read the changed tool list within %s", short(sess.id), relistTimeout)
+	case <-ctx.Done():
+	case <-p.stop:
+	}
+}
+
+// clientHasTool reports whether Claude Code can run a tool the model
+// called. With its built-in tools off it runs only the pool's MCP tools in
+// the list it last read, and answers any other call itself ("No such tool
+// available"). Such a call must not reach the caller, which would run it
+// while the model is told it failed.
+func (p *Pool) clientHasTool(sess *session, name string) bool {
+	short, ok := strings.CutPrefix(name, toolPrefix)
+	if !ok {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return sess.listed == nil || sess.listed[short]
 }
 
 func toolReply(result toolResult) map[string]any {

@@ -19,9 +19,19 @@ import (
 )
 
 // A user message "CALL name {json} | name {json}" makes it call those
-// tools; "AUTHFAIL" makes the turn fail as a lost login does; anything
-// else is echoed back as "echo: <text>". CLAUDEPOOL_FAKE_RESUME_FAIL=1
-// makes --resume fail as it does for an unknown session.
+// tools; " ;; " separates the model's messages, so "CALL a {} ;; b {}"
+// calls a, then b once a's result is back. A "raw:" name is called without
+// the MCP prefix. "AUTHFAIL" makes the turn fail as a lost login does;
+// anything else is echoed back as "echo: <text>".
+// CLAUDEPOOL_FAKE_RESUME_FAIL=1 makes --resume fail as it does for an
+// unknown session.
+//
+// Like Claude Code, it reads the tool list when it starts and again only
+// on notifications/tools/list_changed (from a server that declared
+// listChanged), and answers a call to a tool not in that list itself,
+// with "NOTLISTED <name>", without reaching the server.
+// CLAUDEPOOL_FAKE_IGNORE_LIST_CHANGED=1 makes it ignore those
+// notifications.
 
 const (
 	mcpServerName = "apteva"
@@ -128,6 +138,10 @@ func FakeMain(args []string) int {
 	raw, _ := os.ReadFile(mcpFile)
 	_ = json.Unmarshal(raw, &mcp)
 	server := mcp.MCPServers[mcpServerName]
+	client := &fakeMCP{url: server.URL, headers: server.Headers}
+	if client.url != "" {
+		client.connect()
+	}
 
 	out := bufio.NewWriter(os.Stdout)
 	var outMu, modelMu sync.Mutex
@@ -231,28 +245,39 @@ func FakeMain(args []string) int {
 			continue
 		case strings.HasPrefix(text, "CALL "):
 			type call struct{ id, name, args string }
-			var calls []call
-			for _, spec := range strings.Split(strings.TrimPrefix(text, "CALL "), " | ") {
-				name, args, _ := strings.Cut(strings.TrimSpace(spec), " ")
-				toolN++
-				calls = append(calls, call{id: fmt.Sprintf("toolu_%d_%d", os.Getpid(), toolN), name: name, args: args})
-			}
-			event(map[string]any{"type": "message_start", "message": map[string]any{"model": currentModel(), "usage": map[string]any{"input_tokens": 3, "output_tokens": 1}}})
-			for i, c := range calls {
-				event(map[string]any{"type": "content_block_start", "index": i, "content_block": map[string]any{"type": "tool_use", "id": c.id, "name": toolPrefix + c.name}})
-				half := len(c.args) / 2
-				event(map[string]any{"type": "content_block_delta", "index": i, "delta": map[string]any{"type": "input_json_delta", "partial_json": c.args[:half]}})
-				event(map[string]any{"type": "content_block_delta", "index": i, "delta": map[string]any{"type": "input_json_delta", "partial_json": c.args[half:]}})
-				event(map[string]any{"type": "content_block_stop", "index": i})
-			}
-			event(map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "tool_use"}, "usage": map[string]any{"output_tokens": 12}})
-			event(map[string]any{"type": "message_stop"})
-			emit(map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant"}})
 			var results []string
-			for _, c := range calls {
-				results = append(results, fakeMCPCall(server.URL, server.Headers, c.id, c.name, c.args))
+			for _, step := range strings.Split(strings.TrimPrefix(text, "CALL "), " ;; ") {
+				var calls []call
+				for _, spec := range strings.Split(step, " | ") {
+					name, args, _ := strings.Cut(strings.TrimSpace(spec), " ")
+					toolN++
+					calls = append(calls, call{id: fmt.Sprintf("toolu_%d_%d", os.Getpid(), toolN), name: name, args: args})
+				}
+				event(map[string]any{"type": "message_start", "message": map[string]any{"model": currentModel(), "usage": map[string]any{"input_tokens": 3, "output_tokens": 1}}})
+				for i, c := range calls {
+					called := toolPrefix + c.name
+					if bare, ok := strings.CutPrefix(c.name, "raw:"); ok {
+						called = bare
+					}
+					event(map[string]any{"type": "content_block_start", "index": i, "content_block": map[string]any{"type": "tool_use", "id": c.id, "name": called}})
+					half := len(c.args) / 2
+					event(map[string]any{"type": "content_block_delta", "index": i, "delta": map[string]any{"type": "input_json_delta", "partial_json": c.args[:half]}})
+					event(map[string]any{"type": "content_block_delta", "index": i, "delta": map[string]any{"type": "input_json_delta", "partial_json": c.args[half:]}})
+					event(map[string]any{"type": "content_block_stop", "index": i})
+				}
+				event(map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "tool_use"}, "usage": map[string]any{"output_tokens": 12}})
+				event(map[string]any{"type": "message_stop"})
+				emit(map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant"}})
+				for _, c := range calls {
+					if strings.HasPrefix(c.name, "raw:") || !client.has(c.name) {
+						// Claude Code: "No such tool available".
+						results = append(results, "NOTLISTED "+strings.TrimPrefix(c.name, "raw:"))
+						continue
+					}
+					results = append(results, client.call(c.id, c.name, c.args))
+				}
+				emit(map[string]any{"type": "user", "message": map[string]any{"role": "user"}})
 			}
-			emit(map[string]any{"type": "user", "message": map[string]any{"role": "user"}})
 			reply("got: " + strings.Join(results, " | "))
 		default:
 			reply("echo: " + text)
@@ -263,78 +288,123 @@ func FakeMain(args []string) int {
 	return 0
 }
 
-func fakeMCPCall(url string, headers map[string]string, id, name, args string) string {
-	post := func(body any) (map[string]any, error) {
-		raw, _ := json.Marshal(body)
-		ctx, cancel := context.WithCancel(context.Background())
-		type answer struct {
-			out map[string]any
-			err error
+// fakeMCP is the fake's connection to the pool's MCP server.
+type fakeMCP struct {
+	url         string
+	headers     map[string]string
+	listChanged bool // the server declared tools.listChanged
+
+	mu    sync.Mutex
+	tools map[string]bool // the list it last read
+}
+
+// connect initializes the connection and reads the tool list, as Claude
+// Code does when it starts.
+func (m *fakeMCP) connect() {
+	init, err := fakePost(context.Background(), m.url, m.headers, rpc(0, "initialize", map[string]any{"protocolVersion": "2025-06-18"}), nil, nil)
+	if err == nil {
+		result, _ := init["result"].(map[string]any)
+		caps, _ := result["capabilities"].(map[string]any)
+		tools, _ := caps["tools"].(map[string]any)
+		m.listChanged, _ = tools["listChanged"].(bool)
+	}
+	m.list()
+}
+
+func (m *fakeMCP) list() {
+	names := map[string]bool{}
+	if resp, err := fakePost(context.Background(), m.url, m.headers, rpc(1, "tools/list", nil), nil, nil); err == nil {
+		result, _ := resp["result"].(map[string]any)
+		tools, _ := result["tools"].([]any)
+		for _, tool := range tools {
+			if t, _ := tool.(map[string]any); t != nil {
+				name, _ := t["name"].(string)
+				names[name] = true
+			}
 		}
-		done := make(chan answer, 1)
-		progress := make(chan struct{}, 64)
-		go func() {
-			out, err := fakePost(ctx, url, headers, raw, progress)
-			done <- answer{out, err}
-		}()
-		// Like Claude Code: give up on a call after a silence (no
-		// response and no progress) and carry on with an error result.
-		// Claude Code leaves the request itself open;
-		// CLAUDEPOOL_FAKE_DROP_CLOSES=1 closes it instead.
-		silence := time.Duration(0)
-		if d, err := time.ParseDuration(os.Getenv("CLAUDEPOOL_FAKE_DROP_AFTER")); err == nil && d > 0 {
-			silence = d
-		}
-		var idle <-chan time.Time
-		var timer *time.Timer
-		if silence > 0 {
-			timer = time.NewTimer(silence)
-			defer timer.Stop()
-			idle = timer.C
-		}
+	}
+	m.mu.Lock()
+	m.tools = names
+	m.mu.Unlock()
+}
+
+func (m *fakeMCP) has(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tools[name]
+}
+
+// notified handles a server notification other than progress.
+func (m *fakeMCP) notified(method string) {
+	if method == "notifications/tools/list_changed" && m.listChanged && os.Getenv("CLAUDEPOOL_FAKE_IGNORE_LIST_CHANGED") != "1" {
+		m.list()
+	}
+}
+
+func rpc(id int, method string, params any) []byte {
+	msg := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+	if params != nil {
+		msg["params"] = params
+	}
+	raw, _ := json.Marshal(msg)
+	return raw
+}
+
+func (m *fakeMCP) call(id, name, args string) string {
+	var arguments any
+	_ = json.Unmarshal([]byte(args), &arguments)
+	raw := rpc(2, "tools/call", map[string]any{
+		"name": name, "arguments": arguments, "_meta": map[string]any{"claudecode/toolUseId": id, "progressToken": 2},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	type answer struct {
+		out map[string]any
+		err error
+	}
+	done := make(chan answer, 1)
+	progress := make(chan struct{}, 64)
+	go func() {
+		out, err := fakePost(ctx, m.url, m.headers, raw, progress, m.notified)
+		done <- answer{out, err}
+	}()
+	// Like Claude Code: give up on a call after a silence (no response
+	// and no progress) and carry on with an error result. Claude Code
+	// leaves the request itself open; CLAUDEPOOL_FAKE_DROP_CLOSES=1
+	// closes it instead.
+	silence := time.Duration(0)
+	if d, err := time.ParseDuration(os.Getenv("CLAUDEPOOL_FAKE_DROP_AFTER")); err == nil && d > 0 {
+		silence = d
+	}
+	if silence > 0 {
+		timer := time.NewTimer(silence)
+		defer timer.Stop()
 		for {
 			select {
 			case a := <-done:
 				cancel()
-				return a.out, a.err
+				return callText(a.out, a.err)
 			case <-progress:
-				if timer != nil {
-					timer.Reset(silence)
-				}
-			case <-idle:
+				timer.Reset(silence)
+			case <-timer.C:
 				if os.Getenv("CLAUDEPOOL_FAKE_DROP_CLOSES") == "1" {
 					cancel()
 				} else {
 					go func() { <-done; cancel() }() // open until it ends
 				}
-				return nil, fmt.Errorf("no response or progress for %s", silence)
+				return callText(nil, fmt.Errorf("no response or progress for %s", silence))
 			}
 		}
 	}
-	list, err := post(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-	if err != nil {
-		return "LISTFAIL " + err.Error()
-	}
-	found := false
-	result, _ := list["result"].(map[string]any)
-	tools, _ := result["tools"].([]any)
-	for _, tool := range tools {
-		if m, _ := tool.(map[string]any); m["name"] == name {
-			found = true
-		}
-	}
-	if !found {
-		return "NOTLISTED " + name
-	}
-	var arguments any
-	_ = json.Unmarshal([]byte(args), &arguments)
-	resp, err := post(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
-		"name": name, "arguments": arguments, "_meta": map[string]any{"claudecode/toolUseId": id, "progressToken": 2},
-	}})
+	a := <-done
+	cancel()
+	return callText(a.out, a.err)
+}
+
+func callText(resp map[string]any, err error) string {
 	if err != nil {
 		return "CALLFAIL " + err.Error()
 	}
-	result, _ = resp["result"].(map[string]any)
+	result, _ := resp["result"].(map[string]any)
 	content, _ := result["content"].([]any)
 	text := ""
 	if len(content) > 0 {
@@ -348,8 +418,8 @@ func fakeMCPCall(url string, headers map[string]string, id, name, args string) s
 
 // fakePost sends one MCP request and returns the response, reading an event
 // stream when the server answers with one; each progress notification is
-// signalled on progress.
-func fakePost(ctx context.Context, url string, headers map[string]string, raw []byte, progress chan<- struct{}) (map[string]any, error) {
+// signalled on progress, and other notifications go to notified.
+func fakePost(ctx context.Context, url string, headers map[string]string, raw []byte, progress chan<- struct{}, notified func(method string)) (map[string]any, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -380,10 +450,14 @@ func fakePost(ctx context.Context, url string, headers map[string]string, raw []
 		if err := json.Unmarshal([]byte(data), &out); err != nil {
 			return nil, err
 		}
-		if out["method"] == "notifications/progress" {
-			select {
-			case progress <- struct{}{}:
-			default:
+		if method, _ := out["method"].(string); method != "" {
+			if method == "notifications/progress" {
+				select {
+				case progress <- struct{}{}:
+				default:
+				}
+			} else if notified != nil {
+				notified(method)
 			}
 			continue
 		}
