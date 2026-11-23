@@ -280,6 +280,10 @@ func openStore(path string, migrate bool) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+		if err := s.migrateAgentTemplateVersions(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate agent template versions: %w", err)
+		}
 	}
 	if s.apiKeyUsage, err = newAPIKeyUsageTracker(db); err != nil {
 		db.Close()
@@ -2641,6 +2645,7 @@ func (s *Store) DeleteUser(userID int64) error {
 	// but we clean it up anyway for explicit hygiene.
 	for _, q := range []string{
 		"DELETE FROM telemetry WHERE agent_id IN (SELECT id FROM agents WHERE user_id = ?)",
+		"DELETE FROM agent_template_links WHERE agent_id IN (SELECT id FROM agents WHERE user_id = ?)",
 		"DELETE FROM agents WHERE user_id = ?",
 		"DELETE FROM api_keys WHERE user_id = ?",
 		"DELETE FROM sessions WHERE user_id = ?",
@@ -2651,6 +2656,8 @@ func (s *Store) DeleteUser(userID int64) error {
 		"DELETE FROM channels WHERE user_id = ?",
 		"DELETE FROM project_invites WHERE invited_by = ?",
 		"DELETE FROM user_template_hidden WHERE user_id = ?",
+		"DELETE FROM agent_template_links WHERE template_id IN (SELECT id FROM agent_templates WHERE user_id = ?)",
+		"DELETE FROM agent_template_versions WHERE template_id IN (SELECT id FROM agent_templates WHERE user_id = ?)",
 		"DELETE FROM agent_templates WHERE user_id = ?",
 		"DELETE FROM projects WHERE user_id = ?",
 		"DELETE FROM oauth_states WHERE user_id = ?",
@@ -3614,6 +3621,7 @@ func (s *Store) DeleteAgent(userID, instanceID int64) error {
 		"DELETE FROM app_agent_bindings    WHERE agent_id = ?",
 		"DELETE FROM agent_thread_scopes   WHERE agent_id = ?",
 		"DELETE FROM agent_creation_keys   WHERE agent_id = ?",
+		"DELETE FROM agent_template_links  WHERE agent_id = ?",
 		"DELETE FROM agents                 WHERE id = ?",
 	}
 	for _, q := range stmts {

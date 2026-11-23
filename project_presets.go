@@ -977,6 +977,15 @@ func (s *Server) handleProjectPresetApply(w http.ResponseWriter, r *http.Request
 		}
 		created = append(created, result)
 		agentIDs[agent.Key] = result.ID
+		for _, spec := range preview.Preset.Agents {
+			if spec.Key != agent.Key {
+				continue
+			}
+			values := map[string]string{"description": preview.Project["description"]}
+			if err := s.linkPresetAgentToTemplate(getUserID(r), result.ID, preview.Preset.ID, spec, values); err != nil {
+				log.Printf("[TEMPLATE] link preset agent=%d role=%s: %v", result.ID, agent.Key, err)
+			}
+		}
 	}
 	setupProgress, setupErr := s.applyPresetSetup(r, projectID, preview.Preset, agentIDs, body.RetrySetupSteps)
 	applyStatus := "applied"

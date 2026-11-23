@@ -677,6 +677,8 @@ var updateCaptureRules = map[string]updateCaptureRule{
 	"mcp_servers":        {columns: updateColumnSet("name", "description")},
 	// Built-in starter templates are upserted by each release at boot.
 	"agent_templates": {rowColumn: "source", rowValue: "builtin"},
+	// ...and get a new version when a release changed their content.
+	"agent_template_versions": {rowColumn: "source", rowValue: "builtin"},
 	// Ledgers of one-time migrations; a release ignores versions it does not
 	// know. What the migration itself changed is captured separately.
 	"server_schema_migrations": {all: true, ledger: true},

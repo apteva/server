@@ -1465,6 +1465,17 @@ func main() {
 			return
 		}
 
+		// /instances/:id/template — the template the agent follows or is
+		// pinned to; /template/save makes a new template from the agent.
+		if path == agentIDPart+"/template" {
+			s.handleAgentTemplateLink(w, r, agentID)
+			return
+		}
+		if path == agentIDPart+"/template/save" {
+			s.handleSaveAgentAsTemplate(w, r, agentID)
+			return
+		}
+
 		// /instances/:id/background-memory — inspect or toggle the
 		// per-agent unconscious consolidation thread. Runtime changes
 		// require a controlled restart so core boot owns spawn/teardown.
@@ -1883,6 +1894,13 @@ func main() {
 			s.runAgentBehaviorReconciler(runtimeCtx)
 		}
 	}()
+	templateRolloutDone := make(chan struct{})
+	go func() {
+		defer close(templateRolloutDone)
+		if !quarantined {
+			s.runAgentTemplateRollouts(runtimeCtx)
+		}
+	}()
 	deviceEventsDone := make(chan struct{})
 	go func() {
 		defer close(deviceEventsDone)
@@ -1912,6 +1930,7 @@ func main() {
 		<-runtimeDone
 		<-deviceEventsDone
 		<-behaviorDone
+		<-templateRolloutDone
 		if s.pollingDispatcher != nil {
 			s.pollingDispatcher.Stop()
 		}

@@ -88,12 +88,14 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		// Agents
 		{Name: "agents_list", Description: "List compact Apteva agent summaries visible to this user. Results are searchable and paginated and default to the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional name/status search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
 		{Name: "agents_get", Description: "Get one Apteva agent with actual attached apps and MCP identities, without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
-		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt. List agents first and reuse a stable idempotency_key.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name", "directive"}}},
+		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt. List agents first and reuse a stable idempotency_key. Pass template_id to create it from a saved agent template: omitted directive and mode come from the template, and the agent receives the template's later versions.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions; required unless template_id is given"}, "template_id": {Type: "string", Description: "Agent template to create from (agent_templates_list)"}, "template_version": {Type: "integer", Description: "Pin the agent to this template version instead of following the latest"}, "follow_template": {Type: "boolean", Description: "Receive later template versions; defaults to true for your own templates and false for built-in ones"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name"}}},
 		{Name: "agents_update", Description: "Update agent metadata, settings or actual capabilities. Use top-level bound_app_install_ids from apps_list to attach app tools, including coordination apps plus domain apps, and bound_connection_ids to attach integration connections; never place attachment IDs in config. Returns verified current capabilities. Does not start a stopped agent.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "object", Description: "Advanced runtime settings only; attachment selectors belong at the top level"}, "bound_app_install_ids": {Type: "array", Description: "App installation IDs from apps_list. Resolves to real MCP attachments. Defaults to additive add when only app IDs are supplied.", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach or remove; each resolves to the connection's MCP server, created on first attach. Defaults to additive add when supplied without mcp_server_ids.", Items: &toolParam{Type: "integer"}}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "add, remove, or set for the combined app/connection/MCP selection. Defaults to add for app or connection selection; legacy mcp_server_ids defaults to set. Use add to preserve other capabilities"}}, Required: []string{"id"}}},
 		{Name: "agents_start", Description: "Start a stopped agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable event_id to opt into idempotent delivery and a lifecycle-tracked execution receipt; tracked and untracked events both default to main when thread_id is omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Reusing it with the same message returns duplicate=true and the same execution_id without waking another turn."}}, Required: []string{"id", "message"}}},
 		{Name: "agents_delete", Description: "Delete an agent and return an authoritative receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
+		{Name: "agent_templates_list", Annotations: readOnly, Description: "List agent templates (saved agent definitions) with their latest version. Agents created from a template with agents_create can receive its later versions.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"query": {Type: "string", Description: "Optional name search"}}}},
+		{Name: "agent_templates_save", Description: "Create an agent template, or save a new version of one of your own. A new version updates following agents whose instructions and mode are unchanged since their last template version; agents with local changes are left as they are. Updates require expected_version, the version you read.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Template to update; omit to create one"}, "expected_version": {Type: "integer", Description: "Required with id: the template's latest version as you read it"}, "name": {Type: "string", Description: "Template name (required to create)"}, "directive": {Type: "string", Description: "Agent instructions (required to create)"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "description": {Type: "string", Description: "Short description"}}}},
 		{Name: "agent_list_activity", Description: "List recent agent activity. Defaults to 25 compact rows; payloads are opt-in and raw debugging is capped at 10 rows.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "agent_id": {Type: "integer", Description: "Optional agent ID. Omit to list activity for all agents in the project."}, "thread_id": {Type: "string", Description: "Optional thread ID filter, e.g. main."}, "kind": {Type: "string", Description: "Optional filter: all, thought, tool, thread, event, or error."}, "status": {Type: "string", Description: "Optional filter: all, running, success, error, or info."}, "period": {Type: "string", Description: "Lookback window such as 1h, 24h, 7d, 30d, or a Go duration like 15m. Defaults to 24h."}, "since": {Type: "string", Description: "Optional RFC3339 timestamp; overrides period."}, "limit": {Type: "integer", Description: "Maximum action rows, default 25 and maximum 100."}, "query": {Type: "string", Description: "Optional text search across agent, thread, title and detail."}, "include_payloads": {Type: "boolean", Description: "Include bounded thought text and tool arguments/results."}, "include_raw": {Type: "boolean", Description: "Include raw telemetry for debugging; limits results to 10 rows."}}}},
 		{Name: "agents_health", Annotations: readOnly, Description: "Current agent health: a state (stopped, unknown, failing, working, waiting, idle) with reasons, Core's live inference health, last call and failure times, window error counts and unsettled tracked executions. Up to 25 agents per page. Threads are listed when agent_id is set or include_threads=true.", InputSchema: toolSchema{Type: "object", Properties: monitorParams(map[string]toolParam{
 			"period":          {Type: "string", Description: "Window for the error counts: 1h (default), 24h, 7d, 30d or 90d."},
@@ -1747,11 +1749,13 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		directive, _ := args["directive"].(string)
 		agentName = strings.TrimSpace(agentName)
 		directive = strings.TrimSpace(directive)
+		templateID, _ := args["template_id"].(string)
+		templateID = strings.TrimSpace(templateID)
 		if agentName == "" {
 			return nil, fmt.Errorf("name is required")
 		}
-		if directive == "" {
-			return nil, fmt.Errorf("directive is required")
+		if directive == "" && templateID == "" {
+			return nil, fmt.Errorf("directive is required unless template_id is given")
 		}
 		pid, _ := args["project_id"].(string)
 		if pid == "" {
@@ -1764,6 +1768,21 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			// Legacy system MCPs are opt-in now — the conversations
 			// app owns the conversation surface.
 			"include_channels": false,
+		}
+		if templateID != "" {
+			body["template_id"] = templateID
+			if raw, ok := args["template_version"]; ok && raw != nil {
+				version, err := parseIntArg(raw)
+				if err != nil || version <= 0 {
+					return nil, fmt.Errorf("template_version must be a positive integer")
+				}
+				body["template_version"] = version
+			}
+			if v, ok, err := optionalBoolArg(args["follow_template"]); err != nil {
+				return nil, fmt.Errorf("follow_template must be true or false")
+			} else if ok {
+				body["follow_template"] = v
+			}
 		}
 		if key, _ := args["idempotency_key"].(string); strings.TrimSpace(key) != "" {
 			body["idempotency_key"] = strings.TrimSpace(key)
@@ -1814,6 +1833,28 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			return nil, err
 		}
 		return compactGatewayAgent(out, false, nil), nil
+
+	case "agent_templates_list":
+		var templates []AgentTemplate
+		if err := serverAPI.do(http.MethodGet, "/agent-templates", nil, &templates); err != nil {
+			return nil, err
+		}
+		query, _ := args["query"].(string)
+		query = strings.ToLower(strings.TrimSpace(query))
+		out := []map[string]any{}
+		for _, t := range templates {
+			if t.ID == "empty" || (query != "" && !strings.Contains(strings.ToLower(t.Name), query)) {
+				continue
+			}
+			out = append(out, map[string]any{
+				"id": t.ID, "name": t.Name, "source": t.Source, "version": t.Version,
+				"mode": t.Mode, "description": t.Description,
+			})
+		}
+		return map[string]any{"templates": out}, nil
+
+	case "agent_templates_save":
+		return gatewaySaveAgentTemplate(serverAPI, args)
 
 	case "agents_update":
 		id, _ := parseIntArg(args["id"])
@@ -2484,4 +2525,58 @@ func parseCSV(v any) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// gatewaySaveAgentTemplate creates a template or saves a new version of
+// one. Updates start from the stored template, so fields the agent leaves
+// out keep their values, and require the version the agent read.
+func gatewaySaveAgentTemplate(serverAPI gatewayAPIClient, args map[string]any) (any, error) {
+	id, _ := args["id"].(string)
+	id = strings.TrimSpace(id)
+	body := map[string]any{}
+	if id != "" {
+		expected, err := parseIntArg(args["expected_version"])
+		if err != nil || expected <= 0 {
+			return nil, fmt.Errorf("expected_version is required when updating a template")
+		}
+		var current map[string]any
+		if err := serverAPI.do(http.MethodGet, "/agent-templates/"+url.PathEscape(id), nil, &current); err != nil {
+			return nil, err
+		}
+		for _, key := range []string{"name", "icon", "description", "highlights", "directive", "mode", "unconscious", "recommended_apps", "requirements", "sort_order"} {
+			if value, ok := current[key]; ok {
+				body[key] = value
+			}
+		}
+		body["expected_version"] = expected
+	}
+	for _, key := range []string{"name", "directive", "mode", "description"} {
+		if value, ok := args[key].(string); ok && strings.TrimSpace(value) != "" {
+			body[key] = value
+		}
+	}
+	var saved struct {
+		AgentTemplate
+		Agents []agentTemplateFollower `json:"agents"`
+	}
+	if id == "" {
+		if body["name"] == nil || body["directive"] == nil {
+			return nil, fmt.Errorf("name and directive are required to create a template")
+		}
+		if err := serverAPI.do(http.MethodPost, "/agent-templates", body, &saved.AgentTemplate); err != nil {
+			return nil, err
+		}
+	} else if err := serverAPI.do(http.MethodPut, "/agent-templates/"+url.PathEscape(id), body, &saved); err != nil {
+		return nil, err
+	}
+	following := 0
+	for _, agent := range saved.Agents {
+		if agent.FollowLatest {
+			following++
+		}
+	}
+	return map[string]any{
+		"id": saved.ID, "name": saved.Name, "version": saved.Version,
+		"linked_agents": len(saved.Agents), "following_agents": following,
+	}, nil
 }

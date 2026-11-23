@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,9 +57,27 @@ type AgentTemplate struct {
 	// inside each template card.
 	ResolvedLogos []TemplateLogo `json:"resolved_logos,omitempty"`
 	SortOrder     int            `json:"sort_order"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	// Version is the template's latest saved version. Instructions, mode,
+	// background memory and requirements are versioned; see
+	// agent_template_versions.go.
+	Version int `json:"version"`
+	// PresetDirective is a built-in role's preset text before the project
+	// description is filled in. It is versioned with the template so agents
+	// created by workspace presets can receive later versions rendered the
+	// same way. Not stored on the row.
+	PresetDirective string    `json:"-"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
+
+// agentTemplateSelect reads every scanAgentTemplate column. A template
+// saved before versioning reports version 1, which it gets when first used.
+const agentTemplateSelect = `
+		SELECT t.id, COALESCE(t.user_id, 0), t.source, t.source_ref, t.name, t.icon,
+		       t.description, t.highlights, t.directive, t.mode, t.unconscious, t.recommended_apps,
+		       t.requirements, t.sort_order, t.created_at, t.updated_at,
+		       COALESCE((SELECT MAX(v.version) FROM agent_template_versions v WHERE v.template_id = t.id), 1)
+		  FROM agent_templates t`
 
 // Requirement is one entry on a template's setup checklist. Four
 // kinds:
@@ -152,7 +171,7 @@ func presetAgentTemplates() ([]AgentTemplate, error) {
 				Category: preset.Category, PresetName: preset.Name,
 				Name: agent.Name, Icon: agent.Icon, Description: description, Directive: directive,
 				Mode: agent.Mode, Unconscious: agent.Unconscious, RecommendedApps: agent.Apps,
-				Requirements: requirements, SortOrder: len(out),
+				Requirements: requirements, SortOrder: len(out), PresetDirective: agent.Directive,
 			})
 		}
 	}
@@ -203,11 +222,7 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 	for _, t := range builtins {
 		current[t.ID] = true
 	}
-	rows, err := s.dbQuery(`
-		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
-		       description, highlights, directive, mode, unconscious, recommended_apps,
-		       requirements, sort_order, created_at, updated_at
-		  FROM agent_templates t
+	rows, err := s.dbQuery(agentTemplateSelect+`
 		 WHERE (t.user_id IS NULL OR t.user_id = ?)
 		   AND t.id NOT IN (
 		       SELECT template_id FROM user_template_hidden WHERE user_id = ?
@@ -239,13 +254,9 @@ func (s *Store) ListAgentTemplates(userID int64) ([]AgentTemplate, error) {
 // caller is allowed to see (builtin/app are global, user-owned must
 // match userID).
 func (s *Store) GetAgentTemplate(userID int64, id string) (*AgentTemplate, error) {
-	row := s.dbQueryRow(`
-		SELECT id, COALESCE(user_id, 0), source, source_ref, name, icon,
-		       description, highlights, directive, mode, unconscious, recommended_apps,
-		       requirements, sort_order, created_at, updated_at
-		  FROM agent_templates
-		 WHERE id = ?
-		   AND (user_id IS NULL OR user_id = ?)`,
+	row := s.dbQueryRow(agentTemplateSelect+`
+		 WHERE t.id = ?
+		   AND (t.user_id IS NULL OR t.user_id = ?)`,
 		id, userID,
 	)
 	t, err := scanAgentTemplate(row)
@@ -259,20 +270,26 @@ func (s *Store) GetAgentTemplate(userID int64, id string) (*AgentTemplate, error
 	return &t, nil
 }
 
-// CreateAgentTemplate inserts a new user-owned template. id is
-// generated from the name (lowercase, hyphenated) prefixed with the
+// CreateAgentTemplate inserts a new user-owned template as version 1. id
+// is generated from the name (lowercase, hyphenated) prefixed with the
 // user id so cross-user collisions can't happen.
 func (s *Store) CreateAgentTemplate(userID int64, t AgentTemplate) (*AgentTemplate, error) {
 	if t.ID == "" {
 		t.ID = userTemplateID(userID, t.Name)
 	}
+	t.Source = "user"
 	appsJSON, _ := json.Marshal(t.RecommendedApps)
 	highlightsJSON, _ := json.Marshal(t.Highlights)
 	reqJSON, _ := json.Marshal(t.Requirements)
 	if t.Requirements == nil {
 		reqJSON = []byte("[]")
 	}
-	_, err := s.dbExec(`
+	tx, err := s.dbBegin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(`
 		INSERT INTO agent_templates
 			(id, user_id, source, source_ref, name, icon, description,
 			 highlights, directive, mode, unconscious, recommended_apps, requirements,
@@ -285,19 +302,45 @@ func (s *Store) CreateAgentTemplate(userID int64, t AgentTemplate) (*AgentTempla
 	if err != nil {
 		return nil, err
 	}
+	// A deleted template's id can be reused; its versions went with it.
+	if _, _, err := recordAgentTemplateVersion(tx, t, userID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return s.GetAgentTemplate(userID, t.ID)
 }
 
 // UpdateAgentTemplate edits only a caller-owned template. Builtin and app
 // templates are shared catalog entries and must never be mutated by a tenant.
-func (s *Store) UpdateAgentTemplate(userID int64, id string, t AgentTemplate) error {
+// A change to the versioned part saves a new version, which it returns with
+// created=true. expected, when positive, must be the latest version.
+func (s *Store) UpdateAgentTemplate(userID int64, id string, t AgentTemplate, expected int) (version int, created bool, err error) {
 	appsJSON, _ := json.Marshal(t.RecommendedApps)
 	highlightsJSON, _ := json.Marshal(t.Highlights)
 	reqJSON, _ := json.Marshal(t.Requirements)
 	if t.Requirements == nil {
 		reqJSON = []byte("[]")
 	}
-	result, err := s.dbExec(`
+	tx, err := s.dbBegin()
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+	previous, err := scanAgentTemplate(tx.QueryRow(agentTemplateSelect+` WHERE t.id = ? AND t.user_id = ?`, id, userID))
+	if err != nil {
+		return 0, false, err
+	}
+	// A template saved before versioning keeps its old content as version 1.
+	latest, _, err := recordAgentTemplateVersion(tx, previous, 0)
+	if err != nil {
+		return 0, false, err
+	}
+	if expected > 0 && expected != latest {
+		return latest, false, errAgentTemplateVersionConflict
+	}
+	result, err := tx.Exec(`
 		UPDATE agent_templates
 		   SET name = ?, icon = ?, description = ?, highlights = ?, directive = ?,
 		       mode = ?, unconscious = ?, recommended_apps = ?,
@@ -310,19 +353,36 @@ func (s *Store) UpdateAgentTemplate(userID int64, id string, t AgentTemplate) er
 		t.SortOrder, id, userID,
 	)
 	if err != nil {
-		return err
+		return 0, false, err
 	}
 	if changed, _ := result.RowsAffected(); changed == 0 {
-		return sql.ErrNoRows
+		return 0, false, sql.ErrNoRows
 	}
-	return nil
+	t.ID, t.Source = id, "user"
+	version, created, err = recordAgentTemplateVersion(tx, t, userID)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return 0, false, errAgentTemplateVersionConflict
+		}
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return version, created, nil
 }
 
-// DeleteAgentTemplate removes a user-owned row. For builtin/app rows,
-// the caller should use HideAgentTemplate instead — those rows stay
-// in the table so other users / fresh logins still see them.
+// DeleteAgentTemplate removes a user-owned row with its versions. Agents
+// linked to it are unlinked and keep their current settings. For
+// builtin/app rows, the caller should use HideAgentTemplate instead —
+// those rows stay in the table so other users / fresh logins still see them.
 func (s *Store) DeleteAgentTemplate(userID int64, id string) error {
-	result, err := s.dbExec(
+	tx, err := s.dbBegin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(
 		`DELETE FROM agent_templates WHERE id = ? AND user_id = ?`,
 		id, userID,
 	)
@@ -332,7 +392,15 @@ func (s *Store) DeleteAgentTemplate(userID int64, id string) error {
 	if changed, _ := result.RowsAffected(); changed == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	for _, q := range []string{
+		`DELETE FROM agent_template_versions WHERE template_id = ?`,
+		`DELETE FROM agent_template_links WHERE template_id = ?`,
+	} {
+		if _, err := tx.Exec(q, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // HideAgentTemplate adds the template to the user's hide list. No-op
@@ -404,7 +472,7 @@ func scanAgentTemplate(r rowScanner) (AgentTemplate, error) {
 	if err := r.Scan(
 		&t.ID, &uid, &t.Source, &t.SourceRef, &t.Name, &t.Icon,
 		&t.Description, &highlightsJSON, &t.Directive, &t.Mode, &unc, &appsJSON,
-		&reqJSON, &t.SortOrder, &createdAt, &updatedAt,
+		&reqJSON, &t.SortOrder, &createdAt, &updatedAt, &t.Version,
 	); err != nil {
 		return t, err
 	}
@@ -688,6 +756,25 @@ func (s *Server) handleCreateAgentTemplate(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, t)
 }
 
+// agentTemplateDetail is one template with its saved versions and the
+// agents linked to it that the user can see.
+type agentTemplateDetail struct {
+	*AgentTemplate
+	Versions []AgentTemplateVersion  `json:"versions"`
+	Agents   []agentTemplateFollower `json:"agents"`
+}
+
+func (s *Server) agentTemplateDetail(userID int64, t *AgentTemplate) (agentTemplateDetail, error) {
+	s.resolveTemplateLogos(t)
+	detail := agentTemplateDetail{AgentTemplate: t}
+	var err error
+	if detail.Versions, err = s.store.listAgentTemplateVersions(t.ID); err != nil {
+		return detail, err
+	}
+	detail.Agents, err = s.store.agentTemplateFollowers(userID, t.ID)
+	return detail, err
+}
+
 // GET /agent-templates/:id   — handleAgentTemplateByID dispatches by method.
 func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
@@ -711,6 +798,25 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, map[string]string{"status": "unhidden"})
 		return
 	}
+	// /agent-templates/:id/versions/:n returns one saved version's content.
+	if before, after, ok := strings.Cut(path, "/versions/"); ok {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		version, err := strconv.Atoi(after)
+		if _, getErr := s.store.GetAgentTemplate(userID, before); getErr != nil || err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		body, err := s.store.agentTemplateVersionBody(before, version)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"template_id": before, "version": version, "content": body})
+		return
+	}
 	id := path
 	switch r.Method {
 	case http.MethodGet:
@@ -719,8 +825,12 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		s.resolveTemplateLogos(t)
-		writeJSON(w, t)
+		detail, err := s.agentTemplateDetail(userID, t)
+		if err != nil {
+			http.Error(w, "template versions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, detail)
 	case http.MethodPut:
 		current, err := s.store.GetAgentTemplate(userID, id)
 		if err != nil {
@@ -731,7 +841,12 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "builtin and app templates are read-only", http.StatusForbidden)
 			return
 		}
-		var body AgentTemplate
+		// expected_version, when sent, must be the latest version: an edit
+		// based on an older one is refused instead of silently replacing it.
+		var body struct {
+			AgentTemplate
+			ExpectedVersion int `json:"expected_version"`
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -740,23 +855,37 @@ func (s *Server) handleAgentTemplateByID(w http.ResponseWriter, r *http.Request)
 		if body.Mode == "" {
 			body.Mode = "learn"
 		}
-		if err := validateWritableAgentTemplate(body); err != nil {
+		if err := validateWritableAgentTemplate(body.AgentTemplate); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := s.store.UpdateAgentTemplate(userID, id, body); err != nil {
+		_, created, err := s.store.UpdateAgentTemplate(userID, id, body.AgentTemplate, body.ExpectedVersion)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, errAgentTemplateVersionConflict) {
+				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
 			http.Error(w, "update: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		t, _ := s.store.GetAgentTemplate(userID, id)
-		if t != nil {
-			s.resolveTemplateLogos(t)
+		if created {
+			s.requestAgentTemplateRollout()
 		}
-		writeJSON(w, t)
+		t, err := s.store.GetAgentTemplate(userID, id)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		detail, err := s.agentTemplateDetail(userID, t)
+		if err != nil {
+			http.Error(w, "template versions: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, detail)
 	case http.MethodDelete:
 		if err := s.store.DeleteAgentTemplate(userID, id); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
