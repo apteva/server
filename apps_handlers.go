@@ -1576,13 +1576,14 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	receipt := struct {
-		Status      string `json:"status"`
-		AppName     string `json:"app_name"`
-		DisplayName string `json:"display_name"`
-		InstallID   int64  `json:"install_id"`
-		AppID       int64  `json:"app_id"`
-		ProjectID   string `json:"project_id"`
-		Version     string `json:"version"`
+		Status      string   `json:"status"`
+		AppName     string   `json:"app_name"`
+		DisplayName string   `json:"display_name"`
+		InstallID   int64    `json:"install_id"`
+		AppID       int64    `json:"app_id"`
+		ProjectID   string   `json:"project_id"`
+		Version     string   `json:"version"`
+		Warnings    []string `json:"warnings,omitempty"`
 	}{Status: "uninstalled"}
 	err = s.store.dbQueryRowContext(r.Context(), `
 		SELECT ai.id, ai.app_id, a.name,
@@ -1610,11 +1611,10 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "app install does not belong to requested project", http.StatusNotFound)
 		return
 	}
-	// Reverse-dependency check: refuse if uninstalling this app would
-	// orphan another running install whose manifest hard-requires it.
-	// Operators can override with ?force=1 (CLI / scripted uninstalls);
-	// the dashboard never sets force, so the check is the user-facing
-	// safety net.
+	// Reverse-dependency check: refuse if another running or pending install
+	// that hard-requires this app is bound to this install. Operators can
+	// override with ?force=1 (CLI / scripted uninstalls); the dashboard never
+	// sets force, so the check is the user-facing safety net.
 	force := r.URL.Query().Get("force") == "1"
 	if !force {
 		blockers, err := s.dependentsBlockingUninstall(installID)
@@ -1643,6 +1643,12 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	warnings, err := s.uninstallLeavesDependentsWithoutApp(installID)
+	if err != nil {
+		http.Error(w, "dependency check failed", http.StatusInternalServerError)
+		return
+	}
+	receipt.Warnings = warnings
 	// Capture assigned skill identities before the transaction removes their
 	// catalog rows. Memory cleanup runs only after commit.
 	var sweepProjectID string
@@ -1715,7 +1721,11 @@ func (s *Server) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	// check and the database transaction has committed.
 	s.detachUninstalledAppTools(detachPlan)
 	s.installedApps.Remove(installID)
+	s.refreshInstallationDefaults()
 	s.RemountStaticApps()
+	for _, warning := range warnings {
+		log.Printf("[APPS] uninstalled install=%d: %s", installID, warning)
+	}
 	if s.localApps != nil {
 		if err := s.localApps.Stop(installID); err != nil {
 			log.Printf("[APPS] uninstall committed but process stop failed install=%d: %v", installID, err)

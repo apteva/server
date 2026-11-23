@@ -499,6 +499,15 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		tail = strippedPath
 		pathInstallID = installID
 	}
+	// MCP clients get this route's own errors as JSON-RPC. The app itself is
+	// served through clientWriter, so its responses are never rewritten.
+	clientWriter := w
+	mcpPost := tail == "/mcp" && r.Method == http.MethodPost
+	if mcpPost {
+		routeErrors := newAppMCPRouteErrors(w, r)
+		defer routeErrors.finish()
+		w = routeErrors
+	}
 	// Project-aware dispatch. /api/apps/<name>/...?project_id=<X>
 	// must route to the install of <name> in project X (or the
 	// global install if no project-X install exists). Without this,
@@ -740,7 +749,14 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	if !requestIsProtocolUpgrade(r) && !strings.HasPrefix(tail, "/ui/") && tail != "/health" && !strings.HasPrefix(tail, "/runtime/") && tail != "/capacity" && !strings.HasPrefix(tail, "/capacity/") {
 		proxy.Transport = &automaticTransport{server: s, target: fmt.Sprintf("app:%d", entry.InstallID), operation: admissionOperation(r, tail), caller: fmt.Sprintf("user:%d:%s", getUserID(r), effectiveProjectID)}
-		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) { writeAdmissionError(w, err) }
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			if mcpPost {
+				routeErrors := newAppMCPRouteErrors(w, r)
+				defer routeErrors.finish()
+				w = routeErrors
+			}
+			writeAdmissionError(w, err)
+		}
 	}
 	publicRoute := appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r))
 	var requestPrincipal *sdk.TrustedPrincipal
@@ -813,7 +829,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	configureAppClientIP(proxy, r, entry.Token)
-	s.serveObservedWebsocketProxy(proxy, w, r, websocketProxyMetadata{Proxy: "app", App: entry.AppName, InstallID: entry.InstallID})
+	s.serveObservedWebsocketProxy(proxy, clientWriter, r, websocketProxyMetadata{Proxy: "app", App: entry.AppName, InstallID: entry.InstallID})
 }
 
 func appProxyRouteIsNoAuth(entry *InstalledApp, path, method string) bool {

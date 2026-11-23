@@ -287,13 +287,19 @@ func (s *Server) loadRegistryNameMap() (map[string]string, error) {
 	return out, nil
 }
 
-// dependentsBlockingUninstall returns the human-facing names of every
-// running install whose manifest hard-requires the install referenced
-// by `installID`. Empty list (and nil err) means the uninstall is
-// safe. Optional dependents don't block — they degrade silently when
-// the dep goes away.
-func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) {
-	// First, find the name of the app we're trying to uninstall.
+// requiredAppDependent is a running or pending install whose manifest
+// hard-requires the app being uninstalled.
+type requiredAppDependent struct {
+	name      string
+	projectID string
+	binding   any
+	bound     bool
+}
+
+// requiredAppDependents lists the other running or pending installs whose
+// manifest hard-requires the app of installID, with their binding for it.
+// Optional dependents are left out: they degrade when the app goes away.
+func (s *Server) requiredAppDependents(installID int64) ([]requiredAppDependent, error) {
 	var targetName string
 	err := s.store.dbQueryRow(
 		`SELECT a.name FROM apps a JOIN app_installs i ON i.app_id = a.id WHERE i.id = ?`,
@@ -304,10 +310,9 @@ func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) 
 	}
 	target := normalizeAppName(targetName)
 
-	// Walk every other running install's manifest looking for a hard
-	// requires.apps entry that names the target.
 	rows, err := s.store.dbQuery(
-		`SELECT a.name, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json)
+		`SELECT a.name, COALESCE(NULLIF(i.manifest_json, ''), a.manifest_json),
+		        COALESCE(i.integration_bindings, '{}'), COALESCE(i.project_id, '')
 		 FROM apps a JOIN app_installs i ON i.app_id = a.id
 		 WHERE i.id != ? AND i.status IN ('running', 'pending')`,
 		installID,
@@ -316,27 +321,90 @@ func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) 
 		return nil, err
 	}
 	defer rows.Close()
-	var blockers []string
+	var out []requiredAppDependent
 	for rows.Next() {
-		var name, manifestJSON string
-		if err := rows.Scan(&name, &manifestJSON); err != nil {
+		var name, manifestJSON, bindingsJSON, projectID string
+		if err := rows.Scan(&name, &manifestJSON, &bindingsJSON, &projectID); err != nil {
 			continue
 		}
 		var m sdk.Manifest
 		if err := json.Unmarshal([]byte(manifestJSON), &m); err != nil {
 			continue
 		}
+		var bindings map[string]any
+		_ = json.Unmarshal([]byte(bindingsJSON), &bindings)
 		for _, dep := range m.Requires.Apps {
-			if dep.Optional {
+			if dep.Optional || normalizeAppName(dep.Name) != target {
 				continue
 			}
-			if normalizeAppName(dep.Name) == target {
-				blockers = append(blockers, name)
-				break
-			}
+			raw := bindings[dep.Name]
+			out = append(out, requiredAppDependent{name: name, projectID: projectID, binding: raw, bound: appBindingIsSet(raw)})
+			break
+		}
+	}
+	return out, rows.Err()
+}
+
+// dependentsBlockingUninstall returns the names of running or pending installs
+// whose required-app binding points at installID, including multi-install
+// `ids` lists. App-to-app calls resolve only through these bindings, so an
+// install nothing is bound to can go without breaking a dependent. Empty list
+// (and nil err) means the uninstall is safe.
+func (s *Server) dependentsBlockingUninstall(installID int64) ([]string, error) {
+	dependents, err := s.requiredAppDependents(installID)
+	if err != nil {
+		return nil, err
+	}
+	var blockers []string
+	for _, dependent := range dependents {
+		if appBindingContains(dependent.binding, installID) {
+			blockers = append(blockers, dependent.name)
 		}
 	}
 	return blockers, nil
+}
+
+// uninstallLeavesDependentsWithoutApp returns a warning for each unbound
+// dependent that could use installID and has no other running install of the
+// app to bind to. Startup reconciliation binds such a dependent by name, so
+// after this uninstall it would have nothing to bind. These do not block.
+func (s *Server) uninstallLeavesDependentsWithoutApp(installID int64) ([]string, error) {
+	var appID int64
+	var appName, targetProject string
+	if err := s.store.dbQueryRow(
+		`SELECT i.app_id, a.name, COALESCE(i.project_id, '') FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.id = ?`,
+		installID,
+	).Scan(&appID, &appName, &targetProject); err != nil {
+		return nil, err
+	}
+	dependents, err := s.requiredAppDependents(installID)
+	if err != nil {
+		return nil, err
+	}
+	var warnings []string
+	for _, dependent := range dependents {
+		if dependent.bound {
+			continue
+		}
+		// A project dependent can use its own project's installs and global
+		// ones; a global dependent can use any.
+		if dependent.projectID != "" && targetProject != "" && targetProject != dependent.projectID {
+			continue
+		}
+		var others int
+		if err := s.store.dbQueryRow(
+			`SELECT COUNT(*) FROM app_installs
+			 WHERE app_id = ? AND id != ? AND status = 'running'
+			   AND (? = '' OR COALESCE(project_id, '') IN (?, ''))`,
+			appID, installID, dependent.projectID, dependent.projectID,
+		).Scan(&others); err != nil {
+			return nil, err
+		}
+		if others == 0 {
+			warnings = append(warnings, fmt.Sprintf("%s requires %s and has no other running installation to use", dependent.name, appName))
+		}
+	}
+	return warnings, nil
 }
 
 // writeJSONStatus is writeJSON + an explicit HTTP status. Used by

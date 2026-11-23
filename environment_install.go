@@ -275,6 +275,7 @@ func (s *Server) deleteEnvironmentInstall(installID int64) {
 		s.installedApps.Remove(installID)
 	}
 	_, _ = s.store.dbExec(`DELETE FROM app_installs WHERE id=?`, installID)
+	s.refreshInstallationDefaults()
 	// Drop the apps row only if no other install references it.
 	if appID != 0 && appSource == "environment" {
 		var n int
