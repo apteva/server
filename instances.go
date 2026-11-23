@@ -1834,6 +1834,14 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		// resolved to its /mcp/<id> URL and appended to the agent's
 		// config.json mcp_servers list so core attaches it at boot.
 		BoundConnectionIDs []int64 `json:"bound_connection_ids,omitempty"`
+		// TemplateID links the agent to a template version. Omitted
+		// directive, mode and background memory come from that version.
+		// The agent follows the template's latest version by default when
+		// the template is the caller's own, and stays pinned for built-in
+		// templates; template_version pins and follow_template overrides.
+		TemplateID      string `json:"template_id,omitempty"`
+		TemplateVersion *int   `json:"template_version,omitempty"`
+		FollowTemplate  *bool  `json:"follow_template,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1889,6 +1897,26 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if len(body.IdempotencyKey) > 256 || strings.ContainsAny(body.IdempotencyKey, "\r\n\x00") {
 		http.Error(w, "idempotency_key must be at most 256 bytes and contain no control separators", http.StatusBadRequest)
 		return
+	}
+	// "empty" is the wizard's "Start from scratch" entry, not a definition.
+	var templateSelection *agentTemplateSelection
+	if templateID := strings.TrimSpace(body.TemplateID); templateID != "" && templateID != "empty" {
+		selection, err := s.resolveAgentTemplateSelection(userID, templateID, body.TemplateVersion, body.FollowTemplate)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		templateSelection = selection
+		if strings.TrimSpace(body.Directive) == "" {
+			body.Directive = selection.Body.Directive
+		}
+		if body.Mode == "" {
+			body.Mode = selection.Body.Mode
+		}
+		if body.Unconscious == nil {
+			unconscious := selection.Body.Unconscious
+			body.Unconscious = &unconscious
+		}
 	}
 	if body.Directive == "" {
 		body.Directive = "Idle. Waiting for configuration via directive."
@@ -1987,6 +2015,16 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inst.Icon, inst.IconColor = body.Icon, body.IconColor
+	// The link's base is what the template version sets, so instructions
+	// edited before creation already count as local changes.
+	if templateSelection != nil {
+		if err := s.store.linkAgentToTemplate(inst.ID, templateSelection.Template.ID, templateSelection.Version,
+			templateSelection.Follow, templateSelection.Body.Directive, s.agentModeAllowedFor(userID, templateSelection.Body.Mode)); err != nil {
+			_ = s.store.DeleteAgent(userID, inst.ID)
+			http.Error(w, "link agent to template", http.StatusInternalServerError)
+			return
+		}
+	}
 
 	// Write the operator's effective app selection before startup. App
 	// attachments are part of the creation contract: fail and remove the
