@@ -363,16 +363,33 @@ func (s *Server) storedAppMCPCapabilityRevision(installID int64) (string, bool) 
 	return revision, true
 }
 
-// registerAppMCPAfterActivation refreshes the bridge only after the new
-// sidecar has passed health checks and become the active registry entry. A
-// changed live tool contract or activation revision invalidates Core's
-// tools/list cache, so reconcile only enabled, bound agents that are currently
-// running. A process restart is reserved for the failure fallback.
+// registerAppMCPAfterActivation refreshes the bridge and reconciles bound
+// agents in one step. Activation paths that still have a previous runtime to
+// retire call refreshAppMCPBridgeAfterActivation instead and reconcile after
+// the handoff, so the old runtime is not kept alive while agents update.
 func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSurfaceSnapshot) error {
+	reconcileAgents, err := s.refreshAppMCPBridgeAfterActivation(installID, before)
+	if err != nil {
+		return err
+	}
+	return reconcileAgents()
+}
+
+// refreshAppMCPBridgeAfterActivation refreshes the bridge only after the new
+// sidecar has passed health checks and become the active registry entry, and
+// returns the agent reconcile for the caller to run. A changed live tool
+// contract or activation revision invalidates Core's tools/list cache, so the
+// reconcile updates enabled, bound agents that are currently running. When the
+// bridge appears (an app enabled again, or one that gained tools), stopped
+// bound agents also get the entry back in their saved configuration. Each
+// bridge revision is reconciled once, however many activation paths register
+// it. A process restart is reserved for the failure fallback.
+func (s *Server) refreshAppMCPBridgeAfterActivation(installID int64, before appMCPSurfaceSnapshot) (func() error, error) {
+	noop := func() error { return nil }
 	previousRevision, hadBridge := s.storedAppMCPCapabilityRevision(installID)
 	after := s.snapshotAppMCPSurface(installID)
 	if err := s.registerAppMCPWithSurface(installID, after); err != nil {
-		return err
+		return noop, err
 	}
 	currentRevision, hasBridge := s.storedAppMCPCapabilityRevision(installID)
 	// The live before/after comparison is preferred. The stored content
@@ -382,15 +399,32 @@ func (s *Server) registerAppMCPAfterActivation(installID int64, before appMCPSur
 		before, after, previousRevision, currentRevision, hadBridge, hasBridge,
 	)
 	if !changed {
-		return nil
+		return noop, nil
 	}
-	return s.reconcileBoundRunningAgentsForAppMCPChange(
-		installID,
-		func(ctx context.Context, agentID int64) error {
-			return s.reconcileRunningAgentAppMCP(ctx, agentID, installID)
-		},
-		s.updateAgentCore,
-	)
+	if !hasBridge {
+		s.appMCPReconciledRevisions.Delete(installID)
+	} else {
+		done, seen := s.appMCPReconciledRevisions.Swap(installID, currentRevision)
+		if hadBridge && seen && done == currentRevision {
+			// Another registration of this activation already reconciled
+			// the bound agents. A stale pre-upgrade snapshot must not send
+			// them through a second round of reconciles or restarts.
+			return noop, nil
+		}
+	}
+	return func() error {
+		err := s.reconcileBoundRunningAgentsForAppMCPChange(
+			installID,
+			func(ctx context.Context, agentID int64) error {
+				return s.reconcileRunningAgentAppMCP(ctx, agentID, installID)
+			},
+			s.updateAgentCore,
+		)
+		if !hadBridge && hasBridge {
+			err = errors.Join(err, s.attachAppMCPToStoppedBoundAgents(installID))
+		}
+		return err
+	}, nil
 }
 
 func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
@@ -398,23 +432,8 @@ func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
 	reconcile func(context.Context, int64) error,
 	restartFallback func(context.Context, int64) error,
 ) error {
-	rows, err := s.store.dbQuery(
-		`SELECT agent_id FROM app_agent_bindings WHERE install_id=? AND enabled=1 ORDER BY agent_id`,
-		installID,
-	)
+	agentIDs, err := s.boundAppAgentIDs(installID)
 	if err != nil {
-		return fmt.Errorf("list bound agents for install %d: %w", installID, err)
-	}
-	defer rows.Close()
-	var agentIDs []int64
-	for rows.Next() {
-		var agentID int64
-		if err := rows.Scan(&agentID); err != nil {
-			return err
-		}
-		agentIDs = append(agentIDs, agentID)
-	}
-	if err := rows.Err(); err != nil {
 		return err
 	}
 	var reconcileErrs []error
@@ -427,6 +446,16 @@ func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
 		cancel()
 		if err == nil {
 			log.Printf("[APPS-MCP] reconciled bound agent=%d live after install=%d capability change", agentID, installID)
+			continue
+		}
+		var applyErr *coreMCPApplyError
+		if errors.As(err, &applyErr) && len(applyErr.Failed) > 0 && !applyErr.AppFailed {
+			// Core named the connections it could not make and this app is
+			// not one of them. A restart cannot repair another app's
+			// connection, so it would only interrupt the agent.
+			log.Printf("[APPS-MCP] live reconcile agent=%d install=%d blocked by other connections (%s); not restarting",
+				agentID, installID, strings.Join(applyErr.Failed, ", "))
+			reconcileErrs = append(reconcileErrs, fmt.Errorf("refresh agent %d after app MCP change: %w", agentID, err))
 			continue
 		}
 		log.Printf("[APPS-MCP] live reconcile agent=%d install=%d failed: %v; restarting agent", agentID, installID, err)
@@ -446,6 +475,7 @@ func (s *Server) reconcileBoundRunningAgentsForAppMCPChange(
 // uninstall + as part of registerAppMCP's no-tools cleanup. Safe to
 // call even when no row exists — the DELETE is a no-op.
 func (s *Server) unregisterAppMCP(installID int64) error {
+	s.appMCPReconciledRevisions.Delete(installID)
 	res, err := s.store.dbExec(
 		`DELETE FROM mcp_servers WHERE upstream_id = ?`,
 		appMCPUpstreamID(installID),

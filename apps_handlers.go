@@ -1881,13 +1881,24 @@ func (s *Server) handleSetInstallStatus(w http.ResponseWriter, r *http.Request) 
 	s.installedApps.Remove(installID)
 	if body.Status == "running" {
 		s.LoadInstalledApps()
-		if err := s.registerAppMCP(installID); err != nil {
+		// Same path as every other activation: bound agents get the app's
+		// tools back, including the ones a disable detached.
+		reconcileAgents, err := s.refreshAppMCPBridgeAfterActivation(installID, appMCPSurfaceSnapshot{})
+		if err != nil {
 			http.Error(w, "register app tools: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if err := reconcileAgents(); err != nil {
+			log.Printf("[APPS] enable install=%d: refresh bound agents: %v", installID, err)
 		}
 	} else if err := s.unregisterAppMCP(installID); err != nil {
 		http.Error(w, "unregister app tools: "+err.Error(), http.StatusInternalServerError)
 		return
+	} else if body.Status == "disabled" {
+		// A disabled app rejects every connection. Left in an agent's
+		// configuration it fails each later update to that agent, so take
+		// it out now; the bindings bring it back on enable.
+		s.detachDisabledAppTools(installID)
 	}
 	writeJSON(w, map[string]string{"status": body.Status})
 }

@@ -927,14 +927,20 @@ func (s *Server) installFromSource(installID int64, m *sdk.Manifest, projectID s
 	s.reconcileAllAppDepBindings()
 	// Bridge the app's manifest tools into the platform's mcp_servers
 	// table so [[list_mcp_servers]] surfaces them and agents can connect.
-	if err := s.registerAppMCPAfterActivation(installID, oldMCPSurface); err != nil {
+	reconcileAgents, err := s.refreshAppMCPBridgeAfterActivation(installID, oldMCPSurface)
+	if err != nil {
 		log.Printf("[APPS] register MCP install=%d: %v", installID, err)
 	}
 	// Blue-green handoff complete: DB now points at NEW's port, the
 	// in-memory registry is refreshed, and the mcp_servers row is
 	// up to date. Anything still parked from the previous version
 	// can be terminated. No-op on fresh installs (nothing pending).
+	// Agents reach the app through the name-keyed proxy, so they already
+	// use NEW; retire OLD before refreshing them, which can take a while.
 	s.localApps.RetireOld(installID, 5*time.Second)
+	if err := reconcileAgents(); err != nil {
+		log.Printf("[APPS] refresh bound agents install=%d: %v", installID, err)
+	}
 	// Reclaim disk: every prior version of this app under
 	// <cacheDir>/<name>/<old-version>/ is dead weight now that NEW
 	// is healthy. We keep the just-installed version + one previous
