@@ -87,9 +87,10 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "setup_apply", Description: "Apply the workspace preset the user agreed to after preview. Uses the same provisioning as the dashboard, reuses existing agents and reports partial failures. Check warnings and agent status; do not claim success when work remains.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Workspace project ID"}, "preset_id": {Type: "string", Description: "Agreed preset ID"}, "interface_level": {Type: "string", Description: "Agreed interface override: personal, business or developer. Saved for onboarding review; does not change existing preferences."}, "description": {Type: "string", Description: "Agreed setup purpose"}}, Required: []string{"project_id", "preset_id", "description"}}},
 		// Agents
 		{Name: "agents_list", Description: "List compact Apteva agent summaries visible to this user. Results are searchable and paginated and default to the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional name/status search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
-		{Name: "agents_get", Description: "Get one Apteva agent with actual attached apps and MCP identities, without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
+		{Name: "agents_get", Description: "Get one Apteva agent with its provider, model, actual attached apps and MCP identities, without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
 		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt. List agents first and reuse a stable idempotency_key. Pass template_id to create it from a saved agent template: omitted directive and mode come from the template, and the agent receives the template's later versions.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions; required unless template_id is given"}, "template_id": {Type: "string", Description: "Agent template to create from (agent_templates_list)"}, "template_version": {Type: "integer", Description: "Pin the agent to this template version instead of following the latest"}, "follow_template": {Type: "boolean", Description: "Receive later template versions; defaults to true for your own templates and false for built-in ones"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "project_id": {Type: "string", Description: "Optional project; defaults to current"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name"}}},
-		{Name: "agents_update", Description: "Update agent metadata, settings or actual capabilities. Use top-level bound_app_install_ids from apps_list to attach app tools, including coordination apps plus domain apps, and bound_connection_ids to attach integration connections; never place attachment IDs in config. Returns verified current capabilities. Does not start a stopped agent.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "config": {Type: "object", Description: "Advanced runtime settings only; attachment selectors belong at the top level"}, "bound_app_install_ids": {Type: "array", Description: "App installation IDs from apps_list. Resolves to real MCP attachments. Defaults to additive add when only app IDs are supplied.", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach or remove; each resolves to the connection's MCP server, created on first attach. Defaults to additive add when supplied without mcp_server_ids.", Items: &toolParam{Type: "integer"}}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "add, remove, or set for the combined app/connection/MCP selection. Defaults to add for app or connection selection; legacy mcp_server_ids defaults to set. Use add to preserve other capabilities"}}, Required: []string{"id"}}},
+		{Name: "agents_update", Description: "Update agent metadata, settings or actual capabilities. Use top-level bound_app_install_ids from apps_list to attach app tools, including coordination apps plus domain apps, and bound_connection_ids to attach integration connections; never place attachment IDs in config. Set the LLM with top-level provider and model from agents_models; the receipt says whether a running agent was restarted. Returns verified current capabilities. Does not start a stopped agent.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "provider": {Type: "string", Description: "Exact provider value from agents_models. Becomes the agent's default provider."}, "model": {Type: "string", Description: "Model id from agents_models for the provider (the agent's current provider when provider is omitted). Must be one of that provider's listed ids. Empty string returns to the provider's default model."}, "config": {Type: "object", Description: "Advanced runtime settings, merged into the saved settings. Attachment selectors, provider and model belong at the top level"}, "bound_app_install_ids": {Type: "array", Description: "App installation IDs from apps_list. Resolves to real MCP attachments. Defaults to additive add when only app IDs are supplied.", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach or remove; each resolves to the connection's MCP server, created on first attach. Defaults to additive add when supplied without mcp_server_ids.", Items: &toolParam{Type: "integer"}}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "add, remove, or set for the combined app/connection/MCP selection. Defaults to add for app or connection selection; legacy mcp_server_ids defaults to set. Use add to preserve other capabilities"}}, Required: []string{"id"}}},
+		{Name: "agents_models", Annotations: readOnly, Description: "List the LLM providers agents in this project can use, with each provider's exact name and its model ids and display names. Use these values for agents_update provider and model.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "provider": {Type: "string", Description: "Optional provider name to list only that provider"}, "query": {Type: "string", Description: "Optional model id or name search"}}}},
 		{Name: "agents_start", Description: "Start a stopped agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_send_event", Description: "Send a work instruction to a running Apteva agent through the server's normal Core event delivery. The target must belong to the trusted current project, or project_id must be supplied explicitly when this gateway has no project context. Pass a stable event_id to opt into idempotent delivery and a lifecycle-tracked execution receipt; tracked and untracked events both default to main when thread_id is omitted.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Target agent ID"}, "message": {Type: "string", Description: "Work instruction to deliver"}, "project_id": {Type: "string", Description: "Target project ID. Required when the gateway has no trusted project context."}, "thread_id": {Type: "string", Description: "Optional target thread ID. Defaults to main."}, "event_id": {Type: "string", Description: "Optional stable idempotency key. Reusing it with the same message returns duplicate=true and the same execution_id without waking another turn."}}, Required: []string{"id", "message"}}},
@@ -170,7 +171,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		if gatewayMonitoringTools[name] {
 			return handleGatewayMonitoringTool(name, args, projectID, serverAPI, store)
 		}
-		if strings.HasPrefix(name, "agents_") || name == "agent_list_activity" {
+		if isGatewayAgentTool(name) {
 			return handleGatewayAgentTool(name, args, projectID, serverAPI, store, selfPath)
 		}
 		if strings.HasPrefix(name, "apps_") {
@@ -1695,8 +1696,17 @@ func parseInstallIDArg(args map[string]any) (int64, error) {
 	return id, nil
 }
 
+// isGatewayAgentTool routes every agents_* and agent_* tool to
+// handleGatewayAgentTool.
+func isGatewayAgentTool(name string) bool {
+	return strings.HasPrefix(name, "agents_") || strings.HasPrefix(name, "agent_")
+}
+
 func handleGatewayAgentTool(name string, args map[string]any, projectID string, serverAPI gatewayAPIClient, store *Store, selfPath string) (any, error) {
 	switch name {
+	case "agents_models":
+		return gatewayAgentModels(args, projectID, serverAPI)
+
 	case "agents_list":
 		pid, _ := args["project_id"].(string)
 		if pid == "" {
@@ -1867,6 +1877,18 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			if err := validateAgentAttachmentSettings(cfg); err != nil {
 				return nil, err
 			}
+			var patch map[string]any
+			if err := json.Unmarshal([]byte(cfg), &patch); err != nil {
+				return nil, fmt.Errorf("config must be a JSON object")
+			}
+			if err := gatewayRejectConfigModelKeys(patch); err != nil {
+				return nil, err
+			}
+		}
+		// Check the provider and model before any write, like attachments.
+		selection, err := gatewayAgentModelSelection(id, args, projectID, serverAPI, store)
+		if err != nil {
+			return nil, err
 		}
 		_, hasMCPIDs := args["mcp_server_ids"]
 		_, hasAppIDs := args["bound_app_install_ids"]
@@ -1919,6 +1941,14 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if hasConfig {
 			configBody["config"] = cfg
 		}
+		if selection != nil {
+			// The dashboard's route: the provider list selects the default and
+			// model_override is checked against that provider's models.
+			configBody["providers"] = []map[string]any{{"name": selection.Provider, "default": true}}
+			if selection.ModelSet {
+				configBody["model_override"] = selection.Model
+			}
+		}
 		if len(configBody) > 0 {
 			var out any
 			if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d/config", id), configBody, &out); err != nil {
@@ -1927,6 +1957,29 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			for _, key := range []string{"directive", "mode", "config"} {
 				if _, ok := configBody[key]; ok {
 					changed = append(changed, key)
+				}
+			}
+			if selection != nil {
+				changed = append(changed, "provider")
+				result["provider"] = selection.Provider
+				if selection.ModelSet {
+					changed = append(changed, "model")
+					result["model"] = selection.Model
+					result["model_checked"] = selection.ModelChecked
+				}
+				if selection.Warning != "" {
+					result["warning"] = selection.Warning
+				}
+				reply := gatewayObject(out)
+				if restarted, ok := reply["restarted"].(bool); ok {
+					result["restarted"] = restarted
+					if reason, _ := reply["restart_error"].(string); reason != "" {
+						result["restart_error"] = reason
+					}
+				} else if selection.AgentStopped {
+					result["applies"] = "on next start"
+				} else {
+					result["applies"] = "now, without a restart"
 				}
 			}
 		}
@@ -1944,7 +1997,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		}
 
 		if len(changed) == 0 {
-			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, config, bound_app_install_ids, bound_connection_ids, or mcp_server_ids")
+			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, provider, model, config, bound_app_install_ids, bound_connection_ids, or mcp_server_ids")
 		}
 		result["changed"] = changed
 		return result, nil

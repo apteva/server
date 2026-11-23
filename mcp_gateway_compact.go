@@ -307,6 +307,13 @@ func compactGatewayAgent(value any, includeDirective bool, args map[string]any) 
 			if json.Unmarshal([]byte(rawConfig), &config) == nil {
 				out["settings"] = readOnlyAgentConfig(config)
 			}
+			// The same names agents_update and agents_models use.
+			if provider := configuredAgentDefaultProvider(rawConfig); provider != "" {
+				out["provider"] = provider
+				if model := configuredAgentModelOverride(rawConfig, provider); model != "" {
+					out["model"] = model
+				}
+			}
 		}
 	}
 	return out

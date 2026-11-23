@@ -25,13 +25,43 @@ type platformGatewayExecuteFunc func(context.Context, int64, string, []byte) ([]
 var projectConversationGatewayTools = map[string]bool{
 	"pages_list": true, "page_get": true, "widgets_list": true, "widget_add": true, "widget_configure": true, "widget_move": true, "widget_remove": true, "page_create": true, "page_update": true,
 	"setup_presets_list": true, "setup_preview": true, "setup_apply": true,
-	"agents_list": true, "agents_get": true, "agents_create": true,
+	"agents_list": true, "agents_get": true, "agents_create": true, "agents_models": true,
 	"agents_update": true, "agents_start": true, "agents_stop": true,
 	"agents_send_event": true, "agents_delete": true, "agent_list_activity": true,
 	"agents_health": true, "agents_threads": true, "agents_usage": true, "agents_tool_usage": true, "agents_errors": true,
 	"apps_list": true, "apps_get": true, "apps_marketplace": true, "apps_install": true,
 	"apps_upgrade": true, "apps_uninstall": true,
 	"list_connections": true, "list_mcp_servers": true, "list_server_tools": true,
+}
+
+// Project-safe tools to name when a model calls a tool that project
+// conversations block.
+var projectConversationToolAlternatives = map[string]string{
+	"list_providers": "agents_models",
+}
+
+const projectConversationBlockedNote = "Not available in project conversations."
+
+// labelProjectConversationTools marks the tools a project conversation
+// refuses. The Helper lists its tools once for every conversation, so the
+// list cannot be filtered per project; the label is how a model knows.
+func labelProjectConversationTools(list []any) {
+	for _, raw := range list {
+		tool, _ := raw.(map[string]any)
+		name, _ := tool["name"].(string)
+		if tool == nil || projectConversationGatewayTools[name] {
+			continue
+		}
+		description, _ := tool["description"].(string)
+		if strings.Contains(description, projectConversationBlockedNote) {
+			continue
+		}
+		note := projectConversationBlockedNote
+		if alternative := projectConversationToolAlternatives[name]; alternative != "" {
+			note += " Use " + alternative + " there."
+		}
+		tool["description"] = strings.TrimSpace(description + " " + note)
+	}
 }
 
 func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +206,9 @@ func (s *Server) handlePlatformMCP(w http.ResponseWriter, r *http.Request) {
 					list = filtered
 				}
 				if agent.Kind == "platform_helper" {
+					if projectID == "" {
+						labelProjectConversationTools(list)
+					}
 					list = append(list, helperAppToolDefinitions()...)
 				}
 				result["tools"] = list
@@ -200,6 +233,9 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 	params, _ := rpc["params"].(map[string]any)
 	name, _ := params["name"].(string)
 	if !projectConversationGatewayTools[name] {
+		if alternative := projectConversationToolAlternatives[name]; alternative != "" {
+			return body, fmt.Errorf("tool %q is not available in a project conversation; use %s instead", name, alternative)
+		}
 		return body, fmt.Errorf("tool %q is not available in a project conversation", name)
 	}
 	args, _ := params["arguments"].(map[string]any)
