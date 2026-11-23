@@ -55,7 +55,12 @@ type PollingSubscriptionDispatcher struct {
 	stop    chan struct{}
 	stopped bool
 	wg      sync.WaitGroup
+	// lastExpirySweep throttles removal of expired webhook and polled
+	// subscriptions to once per subscriptionExpirySweepInterval.
+	lastExpirySweep time.Time
 }
+
+const subscriptionExpirySweepInterval = 30 * time.Second
 
 func NewPollingSubscriptionDispatcher(s *Server) *PollingSubscriptionDispatcher {
 	return &PollingSubscriptionDispatcher{
@@ -102,6 +107,16 @@ func (d *PollingSubscriptionDispatcher) loop() {
 }
 
 func (d *PollingSubscriptionDispatcher) tick() {
+	d.mu.Lock()
+	sweep := time.Since(d.lastExpirySweep) >= subscriptionExpirySweepInterval
+	if sweep {
+		d.lastExpirySweep = time.Now()
+	}
+	d.mu.Unlock()
+	if sweep {
+		d.server.retireExpiredSubscriptions()
+	}
+
 	d.mu.Lock()
 	exclude := make([]string, 0, len(d.running))
 	for id := range d.running {
@@ -150,6 +165,10 @@ func (d *PollingSubscriptionDispatcher) clearRunning(id string) {
 
 func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 	now := time.Now().UTC()
+	if subscriptionExpired(sub) {
+		d.server.retireSubscription(sub.UserID, sub.ID, "expired")
+		return nil
+	}
 	var cfg storedWebhookPollConfig
 	if err := json.Unmarshal([]byte(sub.PollConfigJSON), &cfg); err != nil {
 		return d.recordFailure(sub, now, fmt.Errorf("invalid poll config: %w", err), defaultPollIntervalSeconds)
@@ -267,8 +286,17 @@ func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 	state.LastSuccessAt = formatPollTime(now)
 	prunePollState(&state, cfg.MaxSeen)
 
+	prefix := "webhook:" + app.Slug + ":" + cfg.EventName
 	for _, payload := range deliveries {
-		if err := d.server.deliverSubscriptionPayload(sub, "webhook:"+app.Slug+":"+cfg.EventName, payload); err != nil {
+		// Filters see the event as the agent receives it, with the polled
+		// record under "item". Items that do not match stay seen.
+		if payloadJSON, err := json.Marshal(payload); err != nil || !subscriptionPayloadMatches(sub, payloadJSON) {
+			continue
+		}
+		if sub.DeleteOnMatch {
+			return d.deliverOnce(sub, prefix, payload, now, interval)
+		}
+		if err := d.server.deliverSubscriptionPayload(sub, prefix, payload); err != nil {
 			return d.recordFailure(sub, now, fmt.Errorf("deliver event: %w", err), interval)
 		}
 	}
@@ -278,6 +306,27 @@ func (d *PollingSubscriptionDispatcher) run(sub *Subscription) error {
 	if err := d.server.store.UpdatePollSubscriptionSuccess(sub.ID, string(stateJSON), now, nextRun); err != nil {
 		return err
 	}
+	return nil
+}
+
+// deliverOnce delivers a once subscription's first matching event and
+// removes the subscription. A failed delivery leaves it in place, with
+// its poll state unchanged so the event is found again next time.
+func (d *PollingSubscriptionDispatcher) deliverOnce(sub *Subscription, prefix string, payload map[string]any, now time.Time, interval int) error {
+	claimed, err := d.server.store.ClaimSubscriptionDelivery(sub.ID)
+	if err != nil {
+		return d.recordFailure(sub, now, fmt.Errorf("claim delivery: %w", err), interval)
+	}
+	if !claimed {
+		return nil
+	}
+	if err := d.server.deliverSubscriptionPayload(sub, prefix, payload); err != nil {
+		if releaseErr := d.server.store.ReleaseSubscriptionClaim(sub.ID); releaseErr != nil {
+			log.Printf("[SUB-POLL] sub=%s release claim: %v", sub.ID, releaseErr)
+		}
+		return d.recordFailure(sub, now, fmt.Errorf("deliver event: %w", err), interval)
+	}
+	d.server.retireSubscription(sub.UserID, sub.ID, "delivered its one event")
 	return nil
 }
 

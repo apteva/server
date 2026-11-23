@@ -105,6 +105,18 @@ func formatSubscriptionSummaryLine(sub *Subscription) string {
 	if len(sub.Events) > 0 {
 		parts = append(parts, "events: "+strings.Join(sub.Events, ", "))
 	}
+	opts := subscriptionDeliveryOptionsSummary(sub)
+	if filters, ok := opts["filters"]; ok {
+		if b, err := json.Marshal(filters); err == nil {
+			parts = append(parts, "filters: "+string(b))
+		}
+	}
+	if expiresAt, ok := opts["expires_at"].(string); ok {
+		parts = append(parts, "expires: "+expiresAt)
+	}
+	if opts["once"] == true {
+		parts = append(parts, "once")
+	}
 	if sub.ThreadID != "" {
 		parts = append(parts, "thread: "+sub.ThreadID)
 	} else {

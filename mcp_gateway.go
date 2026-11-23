@@ -143,7 +143,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		{Name: "list_server_tools", Description: "Search compact tool summaries from a running MCP server.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Server ID"}, "query": {Type: "string", Description: "Optional tool-name or description search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}, Required: []string{"id"}}},
 		// Subscriptions
 		{Name: "list_subscribable", Description: "List connected integrations and compact event summaries that can be subscribed to.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
-		{Name: "create_subscription", Description: "Subscribe to exact events from list_subscribable. Registration and delivery capabilities remain server-side.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "integer", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "array", Description: "Exact event names from list_subscribable", Items: &toolParam{Type: "string"}}, "thread_id": {Type: "string", Description: "Existing target thread; defaults to main"}, "interval_seconds": {Type: "integer", Description: "Optional poll interval"}, "poll_input": {Type: "object", Description: "Optional input merged into a poll tool call"}}, Required: []string{"connection_id"}}},
+		{Name: "create_subscription", Description: "Subscribe to exact events from list_subscribable. Optional filters, expiry and once limit which events wake you. Registration and delivery capabilities remain server-side.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"connection_id": {Type: "integer", Description: "Connection ID"}, "name": {Type: "string", Description: "Subscription name"}, "events": {Type: "array", Description: "Exact event names from list_subscribable", Items: &toolParam{Type: "string"}}, "thread_id": {Type: "string", Description: "Existing target thread; defaults to main"}, "interval_seconds": {Type: "integer", Description: "Optional poll interval"}, "poll_input": {Type: "object", Description: "Optional input merged into a poll tool call"}, "filters": {Type: "object", Description: "Deliver only events whose fields all match. Keys are field names or dotted paths in the event as delivered (polled records are under item, e.g. item.from). A value matches exactly; an array field matches if any element does. Or use one operator: {\"suffix\":\"@acme.com\"}, {\"prefix\":...} or {\"contains\":...} (text, ignoring case), or {\"in\":[...]}"}, "expires_in_seconds": {Type: "integer", Description: "Remove the subscription after this many seconds (at most a year)"}, "expires_at": {Type: "string", Description: "Remove the subscription at this RFC3339 time; instead of expires_in_seconds"}, "once": {Type: "boolean", Description: "Remove the subscription after it delivers its first matching event"}}, Required: []string{"connection_id"}}},
 		{Name: "list_subscriptions", Description: "List compact active subscription summaries without webhook capability paths.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
 		{Name: "delete_subscription", Description: "Remove a webhook subscription.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "string", Description: "Subscription ID"}}, Required: []string{"id"}}},
 		// Providers
@@ -601,6 +601,10 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				pollInput = v
 			}
 			eventsList := parseCSV(args["events"])
+			deliveryOpts, err := parseSubscriptionDeliveryOptions(args, time.Now().UTC())
+			if err != nil {
+				return nil, err
+			}
 
 			conn, encCreds, err := store.GetConnection(userID, connIDRaw)
 			if err != nil {
@@ -650,17 +654,21 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 					eventsList = []string{event.Name}
 				}
 				cfgJSON, _ := json.Marshal(cfg)
-				sub, err := store.CreatePollSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, event.Description, threadID, conn.ProjectID, eventsList, string(cfgJSON), time.Now().UTC())
+				sub, err := store.CreatePollSubscriptionWithOptions(userID, instanceID, conn.ID, subName, conn.AppSlug, event.Description, threadID, conn.ProjectID, eventsList, string(cfgJSON), time.Now().UTC(), false, deliveryOpts)
 				if err != nil {
 					return nil, fmt.Errorf("create poll subscription: %w", err)
 				}
-				return map[string]any{
+				out := map[string]any{
 					"id":               sub.ID,
 					"delivery":         "poll",
 					"events":           eventsList,
 					"auto_registered":  false,
 					"interval_seconds": cfg.IntervalSeconds,
-				}, nil
+				}
+				for key, value := range subscriptionDeliveryOptionsSummary(sub) {
+					out[key] = value
+				}
+				return out, nil
 			}
 
 			webhookPath := generateToken(16)
@@ -683,7 +691,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 				webhookURL = fmt.Sprintf("http://127.0.0.1:%s/webhooks/%s", serverPort, webhookPath)
 			}
 
-			sub, err := store.CreateSubscription(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID, conn.ProjectID, eventsList)
+			sub, err := store.CreateSubscriptionWithOptions(userID, instanceID, conn.ID, subName, conn.AppSlug, "", webhookPath, "", threadID, conn.ProjectID, eventsList, false, deliveryOpts)
 			if err != nil {
 				return nil, fmt.Errorf("create subscription: %w", err)
 			}
@@ -745,7 +753,7 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			} else {
 			}
 
-			return map[string]any{
+			out := map[string]any{
 				"id":                    sub.ID,
 				"events":                eventsList,
 				"auto_registered":       autoRegistered,
@@ -757,7 +765,11 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 					}
 					return "Complete any provider-specific manual webhook setup in the dashboard."
 				}(),
-			}, nil
+			}
+			for key, value := range subscriptionDeliveryOptionsSummary(sub) {
+				out[key] = value
+			}
+			return out, nil
 
 		case "list_subscriptions":
 			// Scope to the instance's project so agents only see what's
@@ -770,14 +782,18 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 			}
 			items := make([]any, 0, len(subs))
 			for _, sub := range subs {
-				items = append(items, map[string]any{
+				item := map[string]any{
 					"id": sub.ID, "connection_id": sub.ConnectionID, "name": sub.Name,
 					"integration": sub.Slug, "description": gatewayCompactText(sub.Description, gatewayDescriptionSize),
 					"enabled": sub.Enabled, "thread_id": sub.ThreadID, "project_id": sub.ProjectID,
 					"events": sub.Events, "delivery": sub.Delivery, "last_run_at": sub.LastRunAt,
 					"next_run_at": sub.NextRunAt, "failure_count": sub.FailureCount,
 					"last_error": gatewayCompactText(sub.LastError, gatewayDescriptionSize),
-				})
+				}
+				for key, value := range subscriptionDeliveryOptionsSummary(&sub) {
+					item[key] = value
+				}
+				items = append(items, item)
 			}
 			return gatewayPage(items, args, "subscriptions")
 
