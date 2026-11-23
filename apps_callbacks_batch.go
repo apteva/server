@@ -99,8 +99,16 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 			http.Error(w, "target installation does not match app", 403)
 			return nil, false
 		}
-		if !appBindingAllowsInstallation(caller, targetAppName, targetInstallID) && !(caller.manifest.Requires.DynamicAppCalls && isOfficialCaller(&caller.manifest)) {
+		bound := appBindingAllowsInstallation(caller, targetAppName, targetInstallID)
+		if !bound && !(caller.manifest.Requires.DynamicAppCalls && isOfficialCaller(&caller.manifest)) {
 			http.Error(w, "target installation is not bound", 403)
+			return nil, false
+		}
+		// A dynamic caller may pin an unbound installation only in the
+		// project the call runs in, or a global one. Without this, a call
+		// with no project would adopt the target's project below.
+		if !bound && targetMetadata.project != "" && targetMetadata.project != effectiveProjectID {
+			http.Error(w, "target installation is in another project", 403)
 			return nil, false
 		}
 		if targetMetadata.status != "running" {
