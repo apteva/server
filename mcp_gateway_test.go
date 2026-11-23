@@ -55,6 +55,16 @@ func newGatewayAgentAPITestServer(s *Server) *httptest.Server {
 			s.handleInstance(w, r)
 		}
 	}))
+	// The provider and model routes agents_models reads, as main.go routes them.
+	apiMux.HandleFunc("/settings/new-agent-provider", s.authMiddleware(s.handleNewAgentProviderSettings))
+	apiMux.HandleFunc("/connections/runtime", s.authMiddleware(s.handleListRuntimeConnections))
+	apiMux.HandleFunc("/connections/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			s.handleConnectionModels(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
 	root := http.NewServeMux()
 	root.Handle("/api/", http.StripPrefix("/api", apiMux))
 	ts := httptest.NewServer(root)
