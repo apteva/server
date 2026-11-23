@@ -122,7 +122,8 @@ func (s *Server) bootMetaAgents() {
 // surfaces enabled. The apteva-server and channel MCPs are system MCPs
 // injected by AgentManager.Start; the environment MCP is an explicit HTTP
 // MCP entry. Idempotent. Mutates helper.Config in place; the caller persists
-// it (UpdateAgent) and Start merges it into the core's config.
+// it (UpdateAgent). Start merges its MCP entries into the core's config, and
+// syncStoppedPlatformHelperMCPConfig writes its execution control there.
 func (s *Server) ensureEnvironmentMCPOnHelper(helper *Agent) {
 	var cfg map[string]any
 	if helper.Config != "" {
@@ -158,10 +159,7 @@ func (s *Server) ensureEnvironmentMCPOnHelper(helper *Agent) {
 	}
 	cfg["include_apteva_server"] = true
 	cfg["include_channels"] = true
-	cfg["execution_control"] = map[string]any{
-		"mode":        "paused",
-		"breakpoints": []string{"iteration.start"},
-	}
+	cfg["execution_control"] = platformHelperExecutionControl()
 	cfg["mcp_servers"] = cleaned
 	if out, err := json.Marshal(cfg); err == nil {
 		helper.Config = string(out)
@@ -424,26 +422,18 @@ func helperHasRequiredRuntimeConfig(helper *Agent) bool {
 	if cfg == nil {
 		return false
 	}
+	// A Helper saved before it ran in auto mode may have a paused Core, and
+	// nothing releases it. It must restart once so its start writes auto.
 	execControl, _ := cfg["execution_control"].(map[string]any)
 	mode, _ := execControl["mode"].(string)
-	hasIterationStart := false
-	switch breakpoints := execControl["breakpoints"].(type) {
-	case []any:
-		for _, bp := range breakpoints {
-			if s, _ := bp.(string); s == "iteration.start" {
-				hasIterationStart = true
-				break
-			}
-		}
-	case []string:
-		for _, bp := range breakpoints {
-			if bp == "iteration.start" {
-				hasIterationStart = true
-				break
-			}
-		}
-	}
-	return mode == "paused" && hasIterationStart
+	return mode == "auto"
+}
+
+// platformHelperExecutionControl is the Helper's Core execution control.
+// Nothing sends the Helper a run action, so any pause would stop its
+// replies until someone resumed it by hand.
+func platformHelperExecutionControl() map[string]any {
+	return map[string]any{"mode": "auto"}
 }
 
 // ensureMetaAgentRunning makes sure the user's platform_helper
@@ -558,6 +548,10 @@ func (s *Server) syncStoppedPlatformHelperMCPConfig(helper *Agent) error {
 	servers := helperConfiguredMCPServers(helper)
 	return s.writeStoppedConfigAtomic(helper.ID, func(cfg map[string]any) error {
 		cfg["mcp_servers"] = servers
+		// Core keeps its execution control in this file, and Start does not
+		// copy it from the Helper row. Reset it here so a pause saved by an
+		// earlier run cannot outlive a restart.
+		cfg["execution_control"] = platformHelperExecutionControl()
 		return nil
 	})
 }
