@@ -57,6 +57,48 @@ func TestRealCLI(t *testing.T) {
 	}
 }
 
+// TestRealCLIToolsLoadedMidTurn checks that the installed claude reads a
+// tool list that grows while a call is held, and calls the new tool in the
+// same turn, as an agent does after search_tools loads a schema.
+//
+//	CLAUDEPOOL_REAL_CLI=1 go test -run TestRealCLIToolsLoadedMidTurn -v ./claudepool
+func TestRealCLIToolsLoadedMidTurn(t *testing.T) {
+	tp := newRealPool(t, 2*time.Minute)
+	req := Request{
+		Owner: "real-tools", Model: "haiku", System: "You are a terse test assistant.", Tools: []Tool{searchTool},
+		Messages: []Message{user(`Call the search tool once. It makes a tool named lookup available. Then call lookup with q set to "x", and tell me what it returned.`)},
+	}
+	r, err := tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.finish != "tool_calls" || len(r.calls) != 1 || r.calls[0].Name != "search" {
+		t.Fatalf("first reply = %+v", r)
+	}
+
+	req = withResults(req, r.calls, `The lookup tool is now available. Call it with q set to "x".`)
+	req.Tools = []Tool{searchTool, lookupTool}
+	r, err = tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.finish != "tool_calls" || len(r.calls) != 1 || r.calls[0].Name != "lookup" {
+		t.Fatalf("Claude did not call the tool loaded mid-turn: %+v", r)
+	}
+
+	req = withResults(req, r.calls, "PURPLE-42")
+	r, err = tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.text, "PURPLE-42") {
+		t.Fatalf("final reply = %+v", r)
+	}
+	if st := tp.Status(); st.Running != 1 || st.Processes[0].Turns != 3 {
+		t.Fatalf("status = %+v, want one process for the whole turn", st)
+	}
+}
+
 // The tests below hold a tool call for several minutes, past Claude Code's
 // silence limit (300s by default), so they only run when asked:
 //
