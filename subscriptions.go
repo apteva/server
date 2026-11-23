@@ -264,15 +264,16 @@ func (s *Store) CreateAppEventSubscription(userID, instanceID int64, name, slug,
 	notifyAgent := len(notifyAgentOpt) > 0 && notifyAgentOpt[0]
 	return s.CreateAppEventSubscriptionWithFilters(
 		userID, instanceID, name, slug, description, threadID, projectID,
-		events, nil, notifyAgent,
+		events, nil, notifyAgent, 0,
 	)
 }
 
 // CreateAppEventSubscriptionWithFilters persists a user-facing app-event
 // subscription with an optional flat field/value filter. match_json predates
 // public filters and remains the storage representation so this is backwards
-// compatible and requires no schema migration.
-func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, name, slug, description, threadID, projectID string, events []string, filters map[string]any, notifyAgent bool) (*Subscription, error) {
+// compatible and requires no schema migration. A non-zero sourceInstallID
+// limits delivery to events published by that installation of the app.
+func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, name, slug, description, threadID, projectID string, events []string, filters map[string]any, notifyAgent bool, sourceInstallID int64) (*Subscription, error) {
 	filters, matchJSON, err := normalizeSubscriptionFilters(filters)
 	if err != nil {
 		return nil, err
@@ -296,10 +297,10 @@ func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, 
 		`INSERT INTO subscriptions
 				(id, user_id, agent_id, connection_id, name, slug, description,
 				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
-				 source, delivery, notify_agent, match_json)
-			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event', ?, ?)`,
+				 source, delivery, notify_agent, match_json, source_install_id)
+			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event', ?, ?, ?)`,
 		id, userID, instanceID, name, slug, description, webhookPath, threadID,
-		projectID, eventsJSON, boolToInt(notifyAgent), matchJSON,
+		projectID, eventsJSON, boolToInt(notifyAgent), matchJSON, sourceInstallID,
 	)
 	if err != nil {
 		return nil, err
@@ -309,7 +310,7 @@ func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, 
 		Name: name, Slug: slug, Description: description, WebhookPath: webhookPath,
 		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
 		Events: events, Source: "app_event", Delivery: "app_event",
-		MatchJSON: matchJSON, Filters: filters, CreatedAt: time.Now(),
+		MatchJSON: matchJSON, Filters: filters, SourceInstallID: sourceInstallID, CreatedAt: time.Now(),
 	}, nil
 }
 
@@ -1057,6 +1058,9 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		Filters         map[string]any `json:"filters"`
 		IntervalSeconds int            `json:"interval_seconds"`
 		PollInput       map[string]any `json:"poll_input"`
+		// SourceInstallID limits an app_event subscription to events
+		// published by one installation of the app named in the slug.
+		SourceInstallID int64 `json:"source_install_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1086,16 +1090,28 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if body.SourceInstallID < 0 {
+			http.Error(w, "source_install_id must be positive", http.StatusBadRequest)
+			return
+		}
+		if body.SourceInstallID > 0 {
+			projectID, ok := s.appEventSubscriptionSourceProject(w, r, userID, body.Slug, body.ProjectID, body.SourceInstallID)
+			if !ok {
+				return
+			}
+			body.ProjectID = projectID
+		}
 		sub, err := s.store.CreateAppEventSubscriptionWithFilters(
 			userID, body.AgentID, body.Name, body.Slug, body.Description,
 			body.ThreadID, body.ProjectID, events, filters, body.NotifyAgent,
+			body.SourceInstallID,
 		)
 		if err != nil {
 			http.Error(w, "failed to create: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v filters=%d agent=%d project=%q",
-			sub.ID, body.Slug, events, len(filters), body.AgentID, body.ProjectID)
+		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v filters=%d agent=%d project=%q source_install=%d",
+			sub.ID, body.Slug, events, len(filters), body.AgentID, body.ProjectID, body.SourceInstallID)
 		if s.appEventDispatcher != nil {
 			if err := s.appEventDispatcher.Reconcile(); err != nil {
 				log.Printf("[SUB-CREATE] dispatcher reconcile after create: %v", err)

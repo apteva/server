@@ -41,7 +41,7 @@ func TestAppEventSubscriptionFiltersPersistAndAreReturned(t *testing.T) {
 	sub, err := s.store.CreateAppEventSubscriptionWithFilters(
 		userID, 42, "Makecademy leads", "crm:contact.activity.added", "",
 		"main", "project-a", []string{"contact.activity.added"},
-		map[string]any{"list_ids": 2, "activity_event": "lead_captured"}, false,
+		map[string]any{"list_ids": 2, "activity_event": "lead_captured"}, false, 0,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestAppEventSubscriptionTestReportsFilteredWithoutRunningAgent(t *testing.T
 	userID := ensureTestAdmin(t, s)
 	sub, err := s.store.CreateAppEventSubscriptionWithFilters(
 		userID, 999, "List two", "crm:contact.activity.added", "", "main",
-		"project-a", []string{"contact.activity.added"}, map[string]any{"list_ids": 2}, false,
+		"project-a", []string{"contact.activity.added"}, map[string]any{"list_ids": 2}, false, 0,
 	)
 	if err != nil {
 		t.Fatal(err)

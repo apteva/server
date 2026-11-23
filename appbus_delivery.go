@@ -14,7 +14,9 @@ import (
 
 // dispatchAppEventToSubscribers delivers a published AppBus event to apps that
 // declare a manifest subscription for the source app. Subscriptions are derived
-// from installed manifests, so there is no subscription table to maintain.
+// from installed manifests, so there is no subscription table to maintain. A
+// subscriber bound to particular installations of the source app receives
+// only their events (subscriberAcceptsEventSource).
 func (s *Server) dispatchAppEventToSubscribers(ev AppEvent) {
 	if s == nil || s.installedApps == nil {
 		return
@@ -30,6 +32,9 @@ func (s *Server) dispatchAppEventToSubscribers(ev AppEvent) {
 			continue
 		}
 		if !manifestSubscribesToEvent(inst.Manifest, ev.App, ev.Topic) {
+			continue
+		}
+		if !s.subscriberAcceptsEventSource(inst.InstallID, ev) {
 			continue
 		}
 		go s.deliverAppEvent(inst, ev)

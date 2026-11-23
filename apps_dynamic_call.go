@@ -153,6 +153,13 @@ func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName, dele
 		}
 		return 0, "app not reachable: " + targetAppName + " (no install in " + scope + ")", false
 	}
+	// Without a project, findInstalledApp falls back to any default install,
+	// including one scoped to some project. A dynamic caller has no binding
+	// that chose that install, so it may only reach a global one, the same
+	// rule resolveDynamicIntegration applies to connections.
+	if callerProject == "" && installProjectID(s, id) != "" {
+		return 0, "app not reachable: " + targetAppName + " (calls without a project reach only global installs)", false
+	}
 	debugLogf("[APPS-CALL] dynamic caller=%s caller_install=%d project=%s target=%s target_install=%d",
 		callerMan.Name, callerInstallID, callerProject, targetAppName, id)
 	return id, "", true

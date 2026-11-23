@@ -132,7 +132,7 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET /api/app-events/<app>?project_id=<x>&since=<seq>
+// GET /api/app-events/<app>?project_id=<x>&since=<seq>[&source_install_id=<id>]
 func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 	app := strings.TrimPrefix(r.URL.Path, "/app-events/")
 	app = strings.TrimSuffix(app, "/")
@@ -183,12 +183,28 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("since"); v != "" {
 		since, _ = strconv.ParseUint(v, 10, 64)
 	}
+	// source_install_id keeps the stream to one publishing installation
+	// (the event's install_id) when an app has several in the project.
+	var sourceInstallID int64
+	if v := strings.TrimSpace(r.URL.Query().Get("source_install_id")); v != "" {
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "source_install_id must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		sourceInstallID = parsed
+	}
+	fromSource := func(ev AppEvent) bool {
+		return sourceInstallID == 0 || ev.InstallID == sourceInstallID
+	}
 
 	ch, replay, cancel := s.appBus.Subscribe(app, projectID, since)
 	defer cancel()
 
 	for _, ev := range replay {
-		writeAppEventSSE(w, ev)
+		if fromSource(ev) {
+			writeAppEventSSE(w, ev)
+		}
 	}
 	flusher.Flush()
 
@@ -207,6 +223,9 @@ func (s *Server) handleAppEventStream(w http.ResponseWriter, r *http.Request) {
 		case ev, ok := <-ch:
 			if !ok {
 				return
+			}
+			if !fromSource(ev) {
+				continue
 			}
 			writeAppEventSSE(w, ev)
 			flusher.Flush()
