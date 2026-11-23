@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -216,6 +217,28 @@ func installationMCPName(app, key string, id int64) string {
 		return app
 	}
 	return fmt.Sprintf("%s_install_%d", app, id)
+}
+
+// refreshInstallationDefaults reloads which installation each scope routes to.
+// Call it after deleting an installation. Remove only drops the live entry, so
+// a scope still naming the deleted default would route to nothing instead of
+// falling back to the global installation. Remove must keep that scope as is:
+// an installation that is only stopped still blocks the fallback.
+func (s *Server) refreshInstallationDefaults() {
+	registry := s.installedApps
+	if registry == nil {
+		return
+	}
+	registry.loadMu.Lock()
+	defer registry.loadMu.Unlock()
+	defaults, err := s.loadInstallationDefaults()
+	if err != nil {
+		log.Printf("[APPS] refresh installation defaults: %v", err)
+		return
+	}
+	registry.mu.Lock()
+	registry.defaults = defaults
+	registry.mu.Unlock()
 }
 
 // Load defaults from every status. A stopped project default must not route to
