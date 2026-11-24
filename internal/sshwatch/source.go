@@ -262,8 +262,14 @@ func (b *limitedBuffer) String() string {
 }
 
 // FileSource tails a syslog file (/var/log/auth.log, /var/log/secure). Its
-// cursor is "<dev>:<inode>:<offset>"; after rotation it finishes the rotated
-// file (found by inode) before continuing with the new one.
+// cursor is "<dev>:<inode>:<offset>:<head>"; after rotation it finishes the
+// rotated file (found by inode) before continuing with the new one.
+//
+// Filesystems reuse the inode numbers of deleted files (ext4 hands one back
+// at once), so device and inode alone can take a new file for the one the
+// cursor was saved in, and skip its first <offset> bytes. <head> fingerprints
+// the file's first bytes; a file whose head differs is a different file.
+// Cursors saved without it ("<dev>:<inode>:<offset>") still resume by inode.
 type FileSource struct {
 	Path     string
 	Poll     time.Duration
@@ -286,18 +292,74 @@ type tailFile struct {
 	off      int64
 	pending  []byte
 	cutoff   time.Time
+	head     string // fingerprint of the first headLen bytes, once read
+	headLen  int64
 }
 
-func parseFileCursor(c string) (dev, ino uint64, off int64, ok bool) {
+// fileHeadBytes is how much of a file's start its fingerprint covers. Log
+// files are append-only, so bytes before the cursor never change.
+const fileHeadBytes = 64
+
+func parseFileCursor(c string) (dev, ino uint64, off int64, head string, ok bool) {
 	parts := strings.Split(c, ":")
-	if len(parts) != 3 {
-		return 0, 0, 0, false
+	if len(parts) != 3 && len(parts) != 4 {
+		return 0, 0, 0, "", false
 	}
 	var err1, err2, err3 error
 	dev, err1 = strconv.ParseUint(parts[0], 10, 64)
 	ino, err2 = strconv.ParseUint(parts[1], 10, 64)
 	off, err3 = strconv.ParseInt(parts[2], 10, 64)
-	return dev, ino, off, err1 == nil && err2 == nil && err3 == nil && off >= 0
+	if len(parts) == 4 {
+		head = parts[3]
+		if _, _, ok := parseFileHead(head); !ok {
+			return 0, 0, 0, "", false
+		}
+	}
+	return dev, ino, off, head, err1 == nil && err2 == nil && err3 == nil && off >= 0
+}
+
+// parseFileHead splits "<n>-<hex>" into the byte count it covers and its
+// digest.
+func parseFileHead(head string) (int64, string, bool) {
+	n, digest, found := strings.Cut(head, "-")
+	length, err := strconv.ParseInt(n, 10, 64)
+	if !found || err != nil || length < 0 || length > fileHeadBytes || len(digest) != 16 {
+		return 0, "", false
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return 0, "", false
+	}
+	return length, digest, true
+}
+
+// readFileHead fingerprints the first n bytes of f as "<n>-<hex>".
+func readFileHead(f *os.File, n int64) (string, error) {
+	buf := make([]byte, n)
+	if _, err := f.ReadAt(buf, 0); err != nil && !(errors.Is(err, io.EOF) && n == 0) {
+		return "", err
+	}
+	sum := sha256.Sum256(buf)
+	return fmt.Sprintf("%d-%s", n, hex.EncodeToString(sum[:8])), nil
+}
+
+// sameFile reports whether the file at path is the one a cursor with this
+// head was saved in: its first bytes must match. A cursor without a head
+// (saved by an older version) cannot tell and is trusted.
+func sameFile(path, head string) bool {
+	if head == "" {
+		return true
+	}
+	n, _, ok := parseFileHead(head)
+	if !ok {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	got, err := readFileHead(f, n)
+	return err == nil && got == head
 }
 
 func (s *FileSource) open(path string, off int64, cutoff time.Time) (*tailFile, error) {
@@ -322,7 +384,7 @@ func (s *FileSource) open(path string, off int64, cutoff time.Time) (*tailFile, 
 	return &tailFile{f: f, dev: dev, ino: ino, off: off, cutoff: cutoff}, nil
 }
 
-func (s *FileSource) findRotated(dev, ino uint64) string {
+func (s *FileSource) findRotated(dev, ino uint64, head string) string {
 	candidates := []string{s.Path + ".1", s.Path + ".0"}
 	if matches, _ := filepath.Glob(s.Path + "-*"); len(matches) > 0 {
 		candidates = append(candidates, matches...)
@@ -332,7 +394,7 @@ func (s *FileSource) findRotated(dev, ino uint64) string {
 		if err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		if d, i, ok := fileIdentity(fi); ok && d == dev && i == ino {
+		if d, i, ok := fileIdentity(fi); ok && d == dev && i == ino && sameFile(c, head) {
 			return c
 		}
 	}
@@ -363,7 +425,7 @@ func (s *FileSource) Run(ctx context.Context, cursor string, sink Sink) error {
 		if err := startFresh(backfillCutoff); err != nil {
 			return err
 		}
-	} else if dev, ino, off, ok := parseFileCursor(cursor); !ok {
+	} else if dev, ino, off, head, ok := parseFileCursor(cursor); !ok {
 		if err := sink.Gap(ctx, Gap{Reason: "log file cursor is malformed", To: s.now(), Cursor: cursor}); err != nil {
 			return err
 		}
@@ -376,12 +438,13 @@ func (s *FileSource) Run(ctx context.Context, cursor string, sink Sink) error {
 			return err
 		}
 		cdev, cino, _ := fileIdentity(fi)
+		match := cdev == dev && cino == ino
 		switch {
-		case cdev == dev && cino == ino && fi.Size() >= off:
+		case match && fi.Size() >= off && sameFile(s.Path, head):
 			if cur, err = s.open(s.Path, off, time.Time{}); err != nil {
 				return err
 			}
-		case cdev == dev && cino == ino:
+		case match && fi.Size() < off:
 			if err := sink.Gap(ctx, Gap{Reason: "log file was truncated", To: s.now(), Cursor: cursor}); err != nil {
 				return err
 			}
@@ -389,7 +452,9 @@ func (s *FileSource) Run(ctx context.Context, cursor string, sink Sink) error {
 				return err
 			}
 		default:
-			if rotated := s.findRotated(dev, ino); rotated != "" {
+			// Includes a new file that reused the cursor's inode: its head
+			// differs, and the file the cursor was in is gone.
+			if rotated := s.findRotated(dev, ino, head); rotated != "" {
 				old, err := s.open(rotated, off, time.Time{})
 				if err != nil {
 					return err
@@ -433,7 +498,7 @@ func (s *FileSource) Run(ctx context.Context, cursor string, sink Sink) error {
 				if _, err := cur.f.Seek(0, io.SeekStart); err != nil {
 					return err
 				}
-				cur.off, cur.pending = 0, nil
+				cur.off, cur.pending, cur.head = 0, nil, ""
 				continue
 			}
 		}
@@ -446,7 +511,23 @@ func (s *FileSource) Run(ctx context.Context, cursor string, sink Sink) error {
 	}
 }
 
+// cursor is the resume point after everything t has read so far.
 func (s *FileSource) cursor(t *tailFile) string {
+	n := min(t.off, fileHeadBytes)
+	if t.head == "" || t.headLen < n {
+		head, err := readFileHead(t.f, n)
+		if err != nil {
+			// Unreadable head: fall back to identity alone.
+			return legacyFileCursor(t)
+		}
+		t.head, t.headLen = head, n
+	}
+	return legacyFileCursor(t) + ":" + t.head
+}
+
+// legacyFileCursor is "<dev>:<inode>:<offset>", the cursor form before head
+// fingerprints. Event keys stay on it so they don't change.
+func legacyFileCursor(t *tailFile) string {
 	return fmt.Sprintf("%d:%d:%d", t.dev, t.ino, t.off)
 }
 
@@ -505,6 +586,6 @@ func (s *FileSource) emit(ctx context.Context, t *tailFile, raw []byte, sink Sin
 	l.Cursor = cursor
 	// Inode numbers are reused; the content digest keeps a recycled inode
 	// from colliding with an old file's event IDs.
-	l.Key = cursor + ":" + hex.EncodeToString(sum[:8])
+	l.Key = legacyFileCursor(t) + ":" + hex.EncodeToString(sum[:8])
 	return sink.Line(ctx, l)
 }

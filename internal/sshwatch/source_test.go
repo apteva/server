@@ -152,6 +152,53 @@ func TestFileSourceRotationAndTruncation(t *testing.T) {
 	}
 }
 
+// A new log file can reuse the inode of the deleted one its cursor was saved
+// in (ext4 hands a freed inode straight back). Rewriting the file in place
+// with same-length content reproduces that on any filesystem: same device and
+// inode, size == offset, different bytes. It must report a gap and read the
+// new file, not resume at the old offset and skip it.
+func TestFileSourceInodeReuse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.log")
+	src := &FileSource{Path: path, Poll: 10 * time.Millisecond, Backfill: 365 * 24 * time.Hour}
+	old := authLine("2026-11-16T10:00:00Z", "Failed password for root from 192.0.2.1 port 1 ssh2")
+	if err := os.WriteFile(path, []byte(old), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cursor := lastCursor(runSource(t, src, "", 1, 0))
+	if strings.Count(cursor, ":") != 3 {
+		t.Fatalf("cursor %q has no head fingerprint", cursor)
+	}
+
+	// Legacy cursors (no fingerprint) still resume by inode.
+	legacy := cursor[:strings.LastIndex(cursor, ":")]
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	f.WriteString(authLine("2026-11-16T10:00:01Z", "Failed password for root from 192.0.2.2 port 2 ssh2"))
+	f.Close()
+	resumed := runSource(t, src, legacy, 1, 0)
+	if got := resumed.sshMessages(); len(got) != 1 || !strings.Contains(got[0], "192.0.2.2") {
+		t.Fatalf("legacy cursor resume %q", got)
+	}
+	if err := os.WriteFile(path, []byte(old), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same inode and size, different content.
+	reused := authLine("2026-11-16T11:00:00Z", "Failed password for root from 192.0.2.5 port 5 ssh2")
+	if len(reused) != len(old) {
+		t.Fatalf("test lines must be the same length")
+	}
+	if err := os.WriteFile(path, []byte(reused), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := runSource(t, src, cursor, 1, 1)
+	if got := s.sshMessages(); len(got) != 1 || !strings.Contains(got[0], "192.0.2.5") {
+		t.Fatalf("after inode reuse %q", got)
+	}
+	if _, gaps := s.snapshot(); !strings.Contains(gaps[0].Reason, "rotated") {
+		t.Fatalf("gaps %+v", gaps)
+	}
+}
+
 // fakeJournalctl is a shell stand-in for journalctl; real journald is never used.
 func fakeJournalctl(t *testing.T) (binary, argsLog string) {
 	t.Helper()
