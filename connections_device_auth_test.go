@@ -249,3 +249,23 @@ func TestConnectionOpenAICodexNeedsRefresh(t *testing.T) {
 		t.Fatal("did not expect refresh for later expiry")
 	}
 }
+
+func TestBuildOpenAICodexResponsesPayload_DropsTemperature(t *testing.T) {
+	payload := buildOpenAICodexResponsesPayload(map[string]any{
+		"model":       "gpt-5.6-terra",
+		"temperature": 0,
+		"messages": []any{
+			map[string]any{"role": "system", "content": "Be brief."},
+			map[string]any{"role": "user", "content": "Reply ok"},
+		},
+	})
+	if _, ok := payload["temperature"]; ok {
+		t.Fatalf("temperature must not be sent to Codex: %#v", payload)
+	}
+	if payload["model"] != "gpt-5.6-terra" || payload["instructions"] != "Be brief." {
+		t.Fatalf("model/instructions lost: %#v", payload)
+	}
+	if items, ok := payload["input"].([]any); !ok || len(items) != 1 {
+		t.Fatalf("input=%#v", payload["input"])
+	}
+}
