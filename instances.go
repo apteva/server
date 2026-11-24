@@ -1059,6 +1059,7 @@ func buildCoreProviderConfigs(pool []ProviderInfo, configuredDefault string) []m
 		if len(provider.BuiltinTools) > 0 {
 			entry["builtin_tools"] = provider.BuiltinTools
 		}
+		withClaudeSubscriptionCapabilities(entry)
 		providers = append(providers, entry)
 	}
 	return providers
@@ -1080,6 +1081,7 @@ func applyAgentModelOverride(providers []map[string]any, providerName, model str
 			"medium": model,
 			"small":  model,
 		}
+		withClaudeSubscriptionCapabilities(provider)
 		return
 	}
 }
@@ -1222,6 +1224,7 @@ func hydrateCoreProviderConfigs(pool []ProviderInfo, configuredDefault string, r
 				provider[field] = value
 			}
 		}
+		withClaudeSubscriptionCapabilities(provider)
 	}
 	if err := validateProviderModelMaps(pool, providers); err != nil {
 		return nil, "", err
