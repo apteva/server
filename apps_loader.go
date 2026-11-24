@@ -77,6 +77,9 @@ type InstalledApp struct {
 	Permissions     []sdk.Permission
 	Token           string // platform-issued APTEVA_APP_TOKEN for callbacks
 	localPID        int    // owner of the published route for an unmanaged local sidecar
+	// Private installations are reachable only by install id, for the apps
+	// allowed to call them. Name lookups and listings skip them.
+	Private bool
 }
 
 func NewInstalledAppsRegistry() *InstalledAppsRegistry {
@@ -142,7 +145,7 @@ func (r *InstalledAppsRegistry) GetByNameAndProject(name, projectID string) *Ins
 	}
 	var globalMatch *InstalledApp
 	for _, e := range r.entries {
-		if e.AppName != name {
+		if e.AppName != name || e.Private {
 			continue
 		}
 		if e.ProjectID == projectID {
@@ -162,14 +165,45 @@ func (r *InstalledAppsRegistry) GetByNameAndProjectExact(name, projectID string)
 		return r.entries[id]
 	}
 	for _, e := range r.entries {
-		if e.AppName == name && e.ProjectID == projectID {
+		if e.AppName == name && e.ProjectID == projectID && !e.Private {
 			return e
 		}
 	}
 	return nil
 }
 
+// List returns every mounted install except private ones. Event delivery,
+// panels, the runtime catalog and tool lookups by name all read this list,
+// so a private installation never shows up there. Use Get for one install.
 func (r *InstalledAppsRegistry) List() []*InstalledApp {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*InstalledApp, 0, len(r.entries))
+	for _, e := range r.entries {
+		if !e.Private {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// ListForProject returns installs visible to a given project — its
+// own installs plus globals. Private installs are never included.
+func (r *InstalledAppsRegistry) ListForProject(projectID string) []*InstalledApp {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := []*InstalledApp{}
+	for _, e := range r.entries {
+		if (e.ProjectID == "" || e.ProjectID == projectID) && !e.Private {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// ListAll includes private installations. Only security and lifecycle views
+// that must account for every mounted install use it.
+func (r *InstalledAppsRegistry) ListAll() []*InstalledApp {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]*InstalledApp, 0, len(r.entries))
@@ -179,25 +213,13 @@ func (r *InstalledAppsRegistry) List() []*InstalledApp {
 	return out
 }
 
-// ListForProject returns installs visible to a given project — its
-// own installs plus globals.
-func (r *InstalledAppsRegistry) ListForProject(projectID string) []*InstalledApp {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := []*InstalledApp{}
-	for _, e := range r.entries {
-		if e.ProjectID == "" || e.ProjectID == projectID {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
 func (r *InstalledAppsRegistry) Add(e *InstalledApp) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.entries[e.InstallID] = e
-	r.byName[e.AppName] = e
+	if !e.Private {
+		r.byName[e.AppName] = e
+	}
 }
 
 func (r *InstalledAppsRegistry) Remove(installID int64) {
@@ -224,7 +246,7 @@ func (r *InstalledAppsRegistry) removeLocked(installID int64) {
 		// Keep the legacy name index coherent when another project/global
 		// install with the same app name remains mounted.
 		for _, candidate := range r.entries {
-			if candidate.AppName == e.AppName {
+			if candidate.AppName == e.AppName && !candidate.Private {
 				r.byName[e.AppName] = candidate
 				if candidate.ProjectID == "" {
 					break
@@ -339,6 +361,7 @@ func (s *Server) LoadInstalledAppsContext(parent context.Context) {
 			Permissions: perms,
 			Token:       token,
 			localPID:    localPID,
+			Private:     record.private,
 		}
 		if strings.HasPrefix(sidecarOverride, "static://") {
 			entry.StaticDir = strings.TrimPrefix(sidecarOverride, "static://")
@@ -654,6 +677,15 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 	if s.isOwnedComponent(entry.InstallID) {
 		http.Error(w, "owned components are callable only through their owner", http.StatusForbidden)
 		return
+	}
+	// A private installation serves its allowed apps through app calls. Here
+	// only its public routes (provider webhooks) and its own credential pass.
+	if entry.Private {
+		ownCredential, _ := strconv.ParseInt(r.Header.Get("X-Apteva-App-Install-ID"), 10, 64)
+		if ownCredential != entry.InstallID && !appProxyRouteIsNoAuth(entry, tail, corsRequestedMethod(r)) {
+			http.Error(w, "private installation: reachable only by the apps allowed to call it", http.StatusForbidden)
+			return
+		}
 	}
 	effectiveProjectID := entry.ProjectID
 	if effectiveProjectID == "" {
