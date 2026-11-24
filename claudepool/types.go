@@ -29,8 +29,10 @@ import (
 
 // Message is one conversation entry in provider-neutral form.
 type Message struct {
-	Role       string     `json:"role"` // "user", "assistant" or "tool"
-	Text       string     `json:"text,omitempty"`
+	Role string `json:"role"` // "user", "assistant" or "tool"
+	Text string `json:"text,omitempty"`
+	// Images follow the text, in a user message or a tool result.
+	Images     []Image    `json:"images,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant
 	ToolCallID string     `json:"tool_call_id,omitempty"` // tool
 	IsError    bool       `json:"is_error,omitempty"`     // tool

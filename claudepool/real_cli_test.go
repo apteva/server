@@ -1,6 +1,8 @@
 package claudepool
 
 import (
+	"encoding/base64"
+	"image/color"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,6 +56,67 @@ func TestRealCLI(t *testing.T) {
 	}
 	if st := pool.Status(); st.Running != 1 || st.Processes[0].Turns != 3 {
 		t.Fatalf("status = %+v", st)
+	}
+}
+
+// TestRealCLIImages checks that the installed claude sees images: one
+// attached to a user message, one in a held tool call's result, and both in
+// a fresh session seeded from the history.
+//
+//	CLAUDEPOOL_REAL_CLI=1 go test -run TestRealCLIImages -v ./claudepool
+func TestRealCLIImages(t *testing.T) {
+	tp := newRealPool(t, 2*time.Minute)
+	solid := func(c color.Color) Image {
+		return Image{MediaType: "image/png", Data: base64.StdEncoding.EncodeToString(solidPNG(t, 64, 64, c))}
+	}
+	red, blue := solid(color.RGBA{220, 20, 20, 255}), solid(color.RGBA{20, 40, 220, 255})
+	req := Request{
+		Owner: "real-images", Model: "haiku", System: "You are a terse test assistant.", Tools: []Tool{lookupTool},
+		Messages: []Message{{Role: "user", Text: "Reply with one word: the colour that fills this image.", Images: []Image{red}}},
+	}
+	r, err := tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ToLower(r.text), "red") {
+		t.Fatalf("attached image: %q", r.text)
+	}
+
+	req.Messages = append(req.Messages, assistant(r.text),
+		user(`Call the lookup tool with q set to "x". It returns an image. Then reply with one word: the colour that fills that image.`))
+	r, err = tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.finish != "tool_calls" || len(r.calls) != 1 || r.calls[0].Name != "lookup" {
+		t.Fatalf("tool turn = %+v", r)
+	}
+	req.Messages = append(req.Messages,
+		Message{Role: "assistant", ToolCalls: r.calls},
+		Message{Role: "tool", ToolCallID: r.calls[0].ID, Text: "Here is the image.", Images: []Image{blue}})
+	r, err = tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ToLower(r.text), "blue") {
+		t.Fatalf("image in a tool result: %q", r.text)
+	}
+
+	// Another owner has no session for this history: a fresh one is seeded
+	// with it, images included.
+	req.Owner = "real-images-reseed"
+	req.Messages = append(req.Messages, assistant(r.text),
+		user("Name the colours that filled the two images in this conversation, in order, as two words."))
+	r, err = tp.run(t, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ToLower(r.text)
+	if first, second := strings.Index(text, "red"), strings.Index(text, "blue"); first < 0 || second < first {
+		t.Fatalf("reseeded images: %q", r.text)
+	}
+	if st := tp.Status(); st.Sessions != 2 {
+		t.Fatalf("sessions = %d, want the reseed in its own", st.Sessions)
 	}
 }
 

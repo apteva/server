@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,12 +27,14 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -320,35 +323,80 @@ type claudeChatRequest struct {
 
 var claudeModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._\-\[\]]{0,99}$`)
 
-// claudeContentText flattens OpenAI message content to text. Images are not
-// passed to Claude yet.
-func claudeContentText(raw json.RawMessage) string {
+// claudeContent splits OpenAI message content into its text and its images,
+// which the pool sends to Claude after the text. Images come as data URIs
+// or as http(s) links, which the pool fetches when it sends them; anything
+// it cannot pass on is named in the text.
+func claudeContent(raw json.RawMessage) (string, []claudepool.Image) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return ""
+		return "", nil
 	}
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		return text
+		return text, nil
 	}
 	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type     string          `json:"type"`
+		Text     string          `json:"text"`
+		ImageURL json.RawMessage `json:"image_url"`
 	}
 	if json.Unmarshal(raw, &parts) != nil {
-		return ""
+		return "", nil
 	}
 	var out []string
+	var images []claudepool.Image
 	for _, part := range parts {
 		switch part.Type {
 		case "text", "input_text":
 			out = append(out, part.Text)
 		case "image_url", "input_image":
-			out = append(out, "[An image was attached here, but this provider cannot show images to the model.]")
+			image, note := claudeImage(part.ImageURL)
+			if note != "" {
+				out = append(out, note)
+				continue
+			}
+			images = append(images, image)
 		case "input_audio", "audio_url":
 			out = append(out, "[An audio clip was attached here, but this provider cannot pass audio to the model.]")
 		}
 	}
-	return strings.Join(out, "\n")
+	return strings.Join(out, "\n"), images
+}
+
+// claudeImage reads an OpenAI image part's image_url: an object with a url
+// (chat completions) or the URL itself (responses).
+func claudeImage(raw json.RawMessage) (claudepool.Image, string) {
+	var link string
+	if json.Unmarshal(raw, &link) != nil {
+		var object struct {
+			URL string `json:"url"`
+		}
+		_ = json.Unmarshal(raw, &object)
+		link = object.URL
+	}
+	link = strings.TrimSpace(link)
+	switch {
+	case strings.HasPrefix(link, "data:"):
+		header, payload, ok := strings.Cut(strings.TrimPrefix(link, "data:"), ",")
+		if !ok {
+			break
+		}
+		params := strings.Split(header, ";")
+		image := claudepool.Image{MediaType: strings.ToLower(strings.TrimSpace(params[0]))}
+		if slices.Contains(params[1:], "base64") {
+			image.Data = payload
+			return image, ""
+		}
+		decoded, err := url.PathUnescape(payload)
+		if err != nil {
+			break
+		}
+		image.Data = base64.StdEncoding.EncodeToString([]byte(decoded))
+		return image, ""
+	case strings.HasPrefix(link, "https://") || strings.HasPrefix(link, "http://"):
+		return claudepool.Image{URL: link}, ""
+	}
+	return claudepool.Image{}, "[An image was attached here, but its address could not be read.]"
 }
 
 func (req claudeChatRequest) toPool(owner, label string) (claudepool.Request, error) {
@@ -356,24 +404,25 @@ func (req claudeChatRequest) toPool(owner, label string) (claudepool.Request, er
 	var system []string
 	leading := true
 	for _, msg := range req.Messages {
-		text := claudeContentText(msg.Content)
+		text, images := claudeContent(msg.Content)
 		switch msg.Role {
 		case "system", "developer":
 			if leading {
 				system = append(system, text)
 				continue
 			}
-			out.Messages = append(out.Messages, claudepool.Message{Role: "user", Text: "[system]\n" + text})
+			out.Messages = append(out.Messages, claudepool.Message{Role: "user", Text: "[system]\n" + text, Images: images})
 		case "user":
-			out.Messages = append(out.Messages, claudepool.Message{Role: "user", Text: text})
+			out.Messages = append(out.Messages, claudepool.Message{Role: "user", Text: text, Images: images})
 		case "assistant":
+			// Claude's own replies carry no images.
 			m := claudepool.Message{Role: "assistant", Text: text}
 			for _, call := range msg.ToolCalls {
 				m.ToolCalls = append(m.ToolCalls, claudepool.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
 			}
 			out.Messages = append(out.Messages, m)
 		case "tool":
-			out.Messages = append(out.Messages, claudepool.Message{Role: "tool", ToolCallID: msg.ToolCallID, Text: text})
+			out.Messages = append(out.Messages, claudepool.Message{Role: "tool", ToolCallID: msg.ToolCallID, Text: text, Images: images})
 		default:
 			return out, fmt.Errorf("unsupported message role %q", msg.Role)
 		}
