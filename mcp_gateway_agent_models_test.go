@@ -18,9 +18,11 @@ type fakeModelsAPI struct {
 	t        *testing.T
 	project  string
 	restart  map[string]any
+	extra    int // extra claude-subscription models, to exceed one page
 	mu       sync.Mutex
 	requests []string
 	writes   []map[string]any
+	creates  []map[string]any
 }
 
 func (f *fakeModelsAPI) handler(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +45,27 @@ func (f *fakeModelsAPI) handler(w http.ResponseWriter, r *http.Request) {
 			{"id": 10, "app_name": "OpenAI (second key)", "provider_key": "openai", "role": "llm"},
 		})
 	case r.URL.Path == "/connections/153/models":
-		writeJSON(w, []map[string]any{{"id": "opus", "name": "Claude Opus", "context_size": 200000}, {"id": "sonnet", "name": "Claude Sonnet"}, {"id": "haiku", "name": "Claude Haiku"}})
+		models := []map[string]any{{"id": "opus", "name": "Claude Opus", "context_size": 200000}, {"id": "sonnet", "name": "Claude Sonnet"}, {"id": "haiku", "name": "Claude Haiku"}}
+		for i := 0; i < f.extra; i++ {
+			models = append(models, map[string]any{"id": fmt.Sprintf("extra-%03d", i)})
+		}
+		writeJSON(w, models)
+	case r.Method == http.MethodPost && r.URL.Path == "/agents":
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.creates = append(f.creates, body)
+		f.mu.Unlock()
+		if body["idempotency_key"] == "existing" {
+			writeJSON(w, map[string]any{"id": 40, "name": "Existing", "status": "running", "project_id": "p1", "created": false, "idempotent_replay": true})
+			return
+		}
+		// Like the server route, the reply leaves out an empty project_id.
+		reply := map[string]any{"id": 41, "name": body["name"], "status": "stopped"}
+		if pid, _ := body["project_id"].(string); pid != "" {
+			reply["project_id"] = pid
+		}
+		writeJSON(w, reply)
 	case r.URL.Path == "/connections/9/models":
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 	case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/config"):
@@ -339,6 +361,30 @@ func TestGatewayAgentModelsAgainstServerRoutes(t *testing.T) {
 	}
 	if row := got.(map[string]any); row["provider"] != "google" || row["model"] != "gemini-3.7-flash" {
 		t.Fatalf("agents_get: %v", row)
+	}
+
+	// agents_create runs the same checks and saves the same config shape.
+	if _, err := handleGatewayAgentTool("agents_create", map[string]any{"name": "Excluded", "directive": "Help.", "start": false, "provider": "google", "model": "gemini-2.5-flash-image"}, "p1", client, s.store, ""); err == nil || !strings.Contains(err.Error(), "is not offered") {
+		t.Fatalf("create with excluded model: %v", err)
+	}
+	if count := s.store.CountProjectAgents("p1", false); count != 1 {
+		t.Fatalf("rejected create left %d agents in p1, want 1", count)
+	}
+	created, err := handleGatewayAgentTool("agents_create", map[string]any{"name": "Flash", "directive": "Help.", "start": false, "provider": "google", "model": "gemini-3.7-flash"}, "p1", client, s.store, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := created.(map[string]any)
+	if receipt["project_id"] != "p1" || receipt["scope"] != "project" || receipt["model_checked"] != true {
+		t.Fatalf("create receipt: %v", receipt)
+	}
+	createdID, _ := parseIntArg(receipt["id"])
+	fresh, err := s.store.GetAgentByID(createdID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ProjectID != "p1" || configuredAgentDefaultProvider(fresh.Config) != "google" || configuredAgentModelOverride(fresh.Config, "google") != "gemini-3.7-flash" {
+		t.Fatalf("created agent: project=%q config=%s", fresh.ProjectID, fresh.Config)
 	}
 }
 

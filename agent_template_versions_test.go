@@ -466,7 +466,7 @@ func TestGatewayAgentTemplateTools(t *testing.T) {
 	if id == "" || created.(map[string]any)["version"] != 1 {
 		t.Fatalf("created=%v", created)
 	}
-	agentResult, err := handleGatewayAgentTool("agents_create", map[string]any{"name": "Triage bot", "template_id": id, "start": false}, "", client, s.store, "/tmp/apteva-server")
+	agentResult, err := handleGatewayAgentTool("agents_create", map[string]any{"name": "Triage bot", "template_id": id, "start": false, "global": true}, "", client, s.store, "/tmp/apteva-server")
 	if err != nil {
 		t.Fatal(err)
 	}
