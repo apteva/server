@@ -36,6 +36,10 @@ const (
 	threadActivityMaxLimit     = 200
 	threadPurposeRunes         = 200
 	threadOpenStepMaxAge       = time.Hour // an older unmatched start is treated as lost
+	// threadRetryWindow bounds how far apart two llm.start events of one turn
+	// can be. Core retries a failed request within the same iteration; a later
+	// start, or one from another iteration, is a new turn.
+	threadRetryWindow = 10 * time.Minute
 	threadMessageTextBytes     = 4 << 10
 )
 
@@ -86,15 +90,91 @@ func (s *Server) threadAccess(p telemetryPrincipal, agentID int64) threadAccess 
 // threadPurpose is the first non-empty line of the directive, without agent
 // control blocks, cut to threadPurposeRunes.
 func threadPurpose(directive string) string {
+	inComment := false
 	for _, line := range strings.Split(withoutAgentControls(directive), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			if r := []rune(line); len(r) > threadPurposeRunes {
-				return string(r[:threadPurposeRunes]) + "…"
+		line = strings.TrimSpace(line)
+		if inComment {
+			if strings.Contains(line, "-->") {
+				inComment = false
 			}
-			return line
+			continue
 		}
+		if strings.HasPrefix(line, "<!--") {
+			inComment = !strings.Contains(line, "-->")
+			continue
+		}
+		line = purposeLine(line)
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > threadPurposeRunes {
+			return string(r[:threadPurposeRunes]) + "…"
+		}
+		return line
 	}
 	return ""
+}
+
+// purposeLine returns the readable text of a directive line, or "" for lines
+// that say nothing about the work: blanks, markdown headings, rules, fences
+// and a bare label such as "Role:". List and quote markers are removed.
+func purposeLine(line string) string {
+	if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+		return ""
+	}
+	if strings.Trim(line, "-*_= ") == "" {
+		return "" // a rule or underline
+	}
+	for {
+		trimmed := strings.TrimLeft(line, ">")
+		if t := strings.TrimLeft(trimmed, " "); len(t) > 1 && strings.ContainsRune("-*+", rune(t[0])) && t[1] == ' ' {
+			trimmed = t[2:]
+		} else if i := strings.IndexAny(t, ".)"); i > 0 && i <= 3 && i+1 < len(t) && t[i+1] == ' ' && strings.Trim(t[:i], "0123456789") == "" {
+			trimmed = t[i+2:]
+		}
+		trimmed = strings.TrimSpace(trimmed)
+		if trimmed == line {
+			break
+		}
+		line = trimmed
+	}
+	emphasized := strings.Trim(line, "*_") != line
+	line = strings.TrimSpace(strings.Trim(line, "*_"))
+	if line == "" || !strings.Contains(line, " ") && (strings.HasSuffix(line, ":") || emphasized) {
+		return "" // "Role:", "**Role**" and the like
+	}
+	return line
+}
+
+// threadToolPayloadBytes caps tool arguments and results in activity content.
+// Core already limits what it logs; this keeps the server's answer bounded
+// whatever Core sends.
+const threadToolPayloadBytes = 4 << 10
+
+// cleanToolArguments drops platform-internal keys (every key starting with
+// "_": _reason, which has its own field, and the _apteva_* routing fields)
+// from a tool call's JSON arguments and caps the result. Arguments that do not
+// parse as a JSON object (cut short by Core) are withheld rather than shown
+// with those keys: the result is "" and truncated is true.
+func cleanToolArguments(raw string, wasTruncated bool) (string, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return "", wasTruncated
+	}
+	var args map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &args) != nil {
+		return "", true
+	}
+	for key := range args {
+		if strings.HasPrefix(key, "_") {
+			delete(args, key)
+		}
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		return "", true
+	}
+	out, cut := cutText(string(encoded), threadToolPayloadBytes)
+	return out, cut || wasTruncated
 }
 
 func threadTime(raw string) time.Time {
@@ -237,6 +317,8 @@ func (e threadEventRow) num(key string) int64 {
 		if f, err := v.Float64(); err == nil {
 			return int64(f)
 		}
+	case float64:
+		return int64(v)
 	}
 	return 0
 }
@@ -312,7 +394,7 @@ func openThreadStep(events []threadEventRow, startedAt, now time.Time) *sdk.Thre
 	closed := map[string]bool{}
 	// model: 0 = no model event yet, 1 = newest is a start (collecting the
 	// retries that began the same turn), 2 = settled.
-	model, modelSince := 0, time.Time{}
+	model, modelSince, modelStart := 0, time.Time{}, threadEventRow{}
 	settleModel := func() {
 		if model == 1 {
 			consider(sdk.ThreadCurrentStep{Kind: "model", Since: modelSince})
@@ -327,8 +409,13 @@ walk:
 		case "llm.done", "llm.error", "llm.cancelled":
 			settleModel()
 		case "llm.start":
-			if model < 2 {
-				model, modelSince = 1, e.at
+			switch {
+			case model == 0:
+				model, modelSince, modelStart = 1, e.at, e
+			case model == 1 && isModelRetry(e, modelStart):
+				modelSince, modelStart = e.at, e // an earlier attempt of the same turn
+			case model == 1:
+				settleModel() // an older turn that never logged its end
 			}
 		case "tool.result":
 			closed[e.toolKey()] = true
@@ -400,7 +487,7 @@ func (s *Server) applyThreadTelemetry(ctx context.Context, agentID int64, thread
 		if threads, err = s.addEndedThreads(ctx, tx, agentID, threads, live, access, includeEnded, now); err != nil {
 			return threads, err
 		}
-		if err = addSpawnLinks(ctx, tx, agentID, threads); err != nil {
+		if err = addSpawnLinks(ctx, tx, agentID, threads, access); err != nil {
 			return threads, err
 		}
 	}
@@ -433,12 +520,15 @@ func (s *Server) addEndedThreads(ctx context.Context, tx *sql.Tx, agentID int64,
 	if window <= 0 {
 		return threads, nil
 	}
-	since := now.Add(-window).Format(time.RFC3339Nano)
-	done, err := queryThreadEvents(ctx, tx, `SELECT `+threadEventColumns+` FROM telemetry WHERE agent_id=? AND type='thread.done' AND julianday(time)>=julianday(?) ORDER BY rowid DESC LIMIT 200`, agentID, since)
+	// Times are stored as RFC 3339 UTC text, so a plain comparison uses the
+	// (agent_id, type, time) index. The text has a variable fraction, which can
+	// misorder values within one second; starting a second early covers that.
+	since := now.Add(-window - time.Second).UTC().Format(time.RFC3339)
+	done, err := queryThreadEvents(ctx, tx, `SELECT `+threadEventColumns+` FROM telemetry WHERE agent_id=? AND type='thread.done' AND time>=? ORDER BY rowid DESC LIMIT 200`, agentID, since)
 	if err != nil || len(done) == 0 {
 		return threads, err
 	}
-	finished, err := queryThreadEvents(ctx, tx, `SELECT `+threadEventColumns+` FROM telemetry WHERE agent_id=? AND type='worker.finished' AND julianday(time)>=julianday(?) ORDER BY rowid DESC LIMIT 500`, agentID, since)
+	finished, err := queryThreadEvents(ctx, tx, `SELECT `+threadEventColumns+` FROM telemetry WHERE agent_id=? AND type='worker.finished' AND time>=? ORDER BY rowid DESC LIMIT 500`, agentID, since)
 	if err != nil {
 		return threads, err
 	}
@@ -487,22 +577,52 @@ func (s *Server) addEndedThreads(ctx context.Context, tx *sql.Tx, agentID int64,
 	return append(threads, ended...), nil
 }
 
-// addSpawnLinks fills SpawnedBy and, for ended threads, StartedAt from each
-// thread's newest worker.created/thread.spawn events.
-func addSpawnLinks(ctx context.Context, tx *sql.Tx, agentID int64, threads []sdk.ObservedThread) error {
+// addSpawnLinks fills SpawnedBy and, for ended threads, StartedAt and (with
+// content access) Purpose from each listed thread's newest
+// worker.created/thread.spawn events. It reads only the listed threads, through
+// the (agent_id, thread_id) index, instead of the agent's whole spawn history.
+func addSpawnLinks(ctx context.Context, tx *sql.Tx, agentID int64, threads []sdk.ObservedThread, access threadAccess) error {
 	want := map[string][]int{}
+	var ids []any
 	for i, t := range threads {
-		if t.ID != "main" {
-			want[t.ID] = append(want[t.ID], i)
+		if t.ID == "main" {
+			continue
 		}
+		if _, seen := want[t.ID]; !seen {
+			ids = append(ids, t.ID)
+		}
+		want[t.ID] = append(want[t.ID], i)
 	}
-	if len(want) == 0 {
+	if len(ids) == 0 {
 		return nil
 	}
-	events, err := queryThreadEvents(ctx, tx, `SELECT `+threadEventColumns+` FROM telemetry WHERE agent_id=? AND type IN ('worker.created','thread.spawn') ORDER BY rowid DESC LIMIT 5000`, agentID)
-	if err != nil {
-		return err
+	spawnTypes := []string{"worker.created", "thread.spawn"}
+	for start := 0; start < len(ids); start += 200 {
+		chunk := ids[start:min(start+200, len(ids))]
+		args := append([]any{agentID}, chunk...)
+		args = append(args, anyStrings(spawnTypes)...)
+		// The newest incarnation of each thread is all that is used; each
+		// thread logs one event of each type per incarnation, so a few per
+		// thread is enough.
+		args = append(args, len(chunk)*8)
+		events, err := queryThreadEvents(ctx, tx, `SELECT `+threadEventColumns+` FROM telemetry WHERE agent_id=? AND thread_id IN (`+placeholders(len(chunk))+`) AND +type IN (`+placeholders(len(spawnTypes))+`) ORDER BY rowid DESC LIMIT ?`, args...)
+		if err != nil {
+			return err
+		}
+		applySpawnEvents(threads, want, events, access)
 	}
+	return nil
+}
+
+func anyStrings(values []string) []any {
+	out := make([]any, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+	return out
+}
+
+func applySpawnEvents(threads []sdk.ObservedThread, want map[string][]int, events []threadEventRow, access threadAccess) {
 	done := map[string]map[string]bool{}
 	for _, e := range events {
 		indexes, ok := want[e.thread]
@@ -532,36 +652,55 @@ func addSpawnLinks(ctx context.Context, tx *sql.Tx, agentID int64, threads []sdk
 				if t.StartedAt.IsZero() {
 					t.StartedAt = e.at
 				}
+				if access.content && t.Purpose == "" {
+					// Core no longer lists an ended thread; its spawn event
+					// still carries the directive.
+					t.Purpose = threadPurpose(e.str("directive"))
+				}
 			}
 		}
 	}
-	return nil
 }
 
-// observeAgentThreads builds the topology thread list.
-func (s *Server) observeAgentThreads(ctx context.Context, agentID int64, port int, key string, agent *Agent, access threadAccess, includeEnded time.Duration) ([]sdk.ObservedThread, bool) {
-	var threads []sdk.ObservedThread
+// Core's answer and the telemetry detail each get their own time limit, so a
+// slow Core cannot use up the time the telemetry queries need.
+const threadCoreTimeout = 3 * time.Second
+
+// threadTelemetryTimeout is a variable so tests can force a partial list.
+var threadTelemetryTimeout = 3 * time.Second
+
+// observeAgentThreads builds the topology thread list. partial is true when
+// the telemetry detail could not be added in time: the threads are listed
+// with Core's state only, and current steps, spawn links, last activity and
+// ended threads are missing.
+func (s *Server) observeAgentThreads(ctx context.Context, agentID int64, port int, key string, agent *Agent, access threadAccess, includeEnded time.Duration) (threads []sdk.ObservedThread, ok bool, partial bool) {
 	paused := false
 	if port > 0 {
-		rows, isPaused, ok := fetchCoreThreads(ctx, port, key)
-		if !ok {
-			return nil, false
+		coreCtx, cancel := context.WithTimeout(ctx, threadCoreTimeout)
+		rows, isPaused, fetched := fetchCoreThreads(coreCtx, port, key)
+		cancel()
+		if !fetched {
+			return nil, false, false
 		}
 		paused = isPaused
 		threads = liveObservedThreads(rows, access)
 	} else if agent != nil {
-		saved, ok := savedObservedThreads(agent.Config, access)
-		if !ok {
-			return nil, false
+		saved, savedOK := savedObservedThreads(agent.Config, access)
+		if !savedOK {
+			return nil, false, false
 		}
 		threads = saved
 	} else {
-		return nil, false
+		return nil, false, false
 	}
 	if s.store != nil {
-		if enriched, err := s.applyThreadTelemetry(ctx, agentID, threads, paused, access, includeEnded); err == nil {
+		telemetryCtx, cancel := context.WithTimeout(ctx, threadTelemetryTimeout)
+		enriched, err := s.applyThreadTelemetry(telemetryCtx, agentID, threads, paused, access, includeEnded)
+		cancel()
+		if err == nil {
 			threads = enriched
 		} else {
+			partial = true
 			// Without telemetry nothing is known to be open.
 			for i := range threads {
 				switch {
@@ -578,7 +717,7 @@ func (s *Server) observeAgentThreads(ctx context.Context, agentID int64, port in
 			}
 		}
 	}
-	return threads, true
+	return threads, true, partial
 }
 
 func parseIncludeEnded(raw string) (time.Duration, error) {
@@ -607,7 +746,11 @@ func threadActivityFingerprint(agentID int64, threadID, projection string) strin
 }
 
 var threadStartTypes = []string{"llm.start", "tool.call", "thread.message", "thread.done"}
-var threadFollowTypes = []string{"llm.start", "llm.done", "llm.error", "llm.cancelled", "tool.result", "tool.arguments", "worker.finished"}
+// threadFollowTypes are read after a page's starts to close them. thread.done
+// and the incarnation starts (thread.spawn, worker.created) close steps a
+// thread left open when it ended or was started again.
+var threadFollowTypes = []string{"llm.start", "llm.done", "llm.error", "llm.cancelled", "tool.result", "tool.arguments", "worker.finished",
+	"thread.done", "thread.spawn", "worker.created"}
 
 func (s *Server) handleThreadActivity(w http.ResponseWriter, r *http.Request, p telemetryPrincipal, path string) {
 	w.Header().Set("X-Apteva-Thread-Activity", "1")
@@ -810,6 +953,20 @@ func threadStepStatusForOutcome(outcome string) string {
 // events that follow them (oldest first). A model turn belongs to its last
 // llm.start, so a retry chain split across pages is shown once. Steps come
 // back newest first with the rowid of each step's start.
+// isModelRetry reports whether start continues the turn begun by open: the
+// same Core iteration (when both carry one) and within threadRetryWindow.
+func isModelRetry(open, start threadEventRow) bool {
+	if open.row == 0 || start.at.Sub(open.at) > threadRetryWindow || start.at.Before(open.at) {
+		return false
+	}
+	_, aok := open.data["iteration"]
+	_, bok := start.data["iteration"]
+	if aok && bok {
+		return open.num("iteration") == start.num("iteration")
+	}
+	return true
+}
+
 func buildThreadSteps(starts, follow []threadEventRow, childBySpan map[string]string, content bool, now time.Time) ([]sdk.ThreadStep, []int64) {
 	onPage := map[int64]bool{}
 	byRow := map[int64]threadEventRow{}
@@ -834,21 +991,57 @@ func buildThreadSteps(starts, follow []threadEventRow, childBySpan map[string]st
 	var steps []*built
 	openModel := map[string]*built{}         // thread -> open turn (nil step = an older page's turn)
 	openModelSince := map[string]time.Time{} // first start of the open retry chain
+	openModelStart := map[string]threadEventRow{} // newest llm.start of the open turn
 	openTools := map[string]*built{}
 	arguments := map[string]threadEventRow{}
+	// endStep closes a step that never logged its own end. timed records the
+	// end time and duration (the thread ended then); otherwise the true end
+	// is unknown and only the status changes.
+	endStep := func(b *built, at time.Time, status string, timed bool) {
+		if b == nil || b.step.Status != "running" {
+			return
+		}
+		b.step.Status = status
+		if timed {
+			b.step.EndedAt = at
+			b.step.DurationMS = at.Sub(b.step.StartedAt).Milliseconds()
+		}
+	}
+	// closeThread ends everything a thread still has open.
+	closeThread := func(thread string, at time.Time, status string, timed bool) {
+		if b, open := openModel[thread]; open {
+			endStep(b, at, status, timed)
+			delete(openModel, thread)
+			delete(openModelSince, thread)
+			delete(openModelStart, thread)
+		}
+		for key, b := range openTools {
+			if strings.HasPrefix(key, thread+"\x00") {
+				endStep(b, at, status, timed)
+				delete(openTools, key)
+			}
+		}
+	}
 	text := func(v string, max int) (string, bool) { return cutText(v, max) }
 	for _, row := range rows {
 		e := byRow[row]
 		switch e.kind {
 		case "llm.start":
 			since := e.at
-			if _, open := openModel[e.thread]; open {
-				// A retry: the earlier start is superseded by this one.
-				since = openModelSince[e.thread]
-				if prev := openModel[e.thread]; prev != nil {
-					prev.keep = false
+			if prev, open := openModel[e.thread]; open {
+				if isModelRetry(openModelStart[e.thread], e) {
+					// A retry: the earlier start is superseded by this one.
+					since = openModelSince[e.thread]
+					if prev != nil {
+						prev.keep = false
+					}
+				} else {
+					// The earlier turn never logged its end (Core stopped,
+					// or the request was lost): it is not part of this one.
+					endStep(prev, e.at, "unknown", false)
 				}
 			}
+			openModelStart[e.thread] = e
 			var b *built
 			if onPage[row] {
 				b = &built{row: row, keep: true, step: sdk.ThreadStep{Kind: "model", ThreadID: e.thread, StartedAt: since, Status: "running",
@@ -859,6 +1052,7 @@ func buildThreadSteps(starts, follow []threadEventRow, childBySpan map[string]st
 		case "llm.done", "llm.error", "llm.cancelled":
 			b, open := openModel[e.thread]
 			delete(openModel, e.thread)
+			delete(openModelStart, e.thread)
 			if !open || b == nil {
 				continue
 			}
@@ -913,8 +1107,9 @@ func buildThreadSteps(starts, follow []threadEventRow, childBySpan map[string]st
 			if content {
 				truncated, _ := e.flag("result_truncated")
 				previewTruncated, _ := e.flag("result_preview_truncated")
-				b.step.Result = e.str("result")
-				b.step.ResultTruncated = truncated || previewTruncated
+				var cut bool
+				b.step.Result, cut = cutText(e.str("result"), threadToolPayloadBytes)
+				b.step.ResultTruncated = truncated || previewTruncated || cut
 				b.step.ResultBytes = e.num("result_original_bytes")
 				if b.step.Status == "failed" {
 					b.step.Error, _ = text(b.step.Result, 1000)
@@ -933,7 +1128,12 @@ func buildThreadSteps(starts, follow []threadEventRow, childBySpan map[string]st
 				b.step.Text, b.step.TextTruncated = text(e.str("message"), threadMessageTextBytes)
 			}
 			steps = append(steps, b)
+		case "thread.spawn", "worker.created":
+			// A new incarnation: whatever the previous one left open was lost.
+			closeThread(e.thread, e.at, "unknown", false)
 		case "thread.done":
+			// A thread that calls done mid-turn never logs that turn's end.
+			closeThread(e.thread, e.at, "ended", true)
 			if !onPage[row] {
 				continue
 			}
@@ -956,8 +1156,8 @@ func buildThreadSteps(starts, follow []threadEventRow, childBySpan map[string]st
 		}
 		if b.step.Kind == "tool" && content {
 			if args, ok := arguments[b.step.ThreadID+"\x00"+b.step.CallID]; ok && b.step.CallID != "" {
-				b.step.Arguments = args.str("json")
-				b.step.ArgumentsTruncated, _ = args.flag("truncated")
+				truncated, _ := args.flag("truncated")
+				b.step.Arguments, b.step.ArgumentsTruncated = cleanToolArguments(args.str("json"), truncated)
 			}
 		}
 		if b.step.Status == "running" && now.Sub(b.step.StartedAt) > threadOpenStepMaxAge {

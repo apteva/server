@@ -1,16 +1,17 @@
 package main
 
 import (
-	"context"
 	sdk "github.com/apteva/app-sdk"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func (s *Server) handleTelemetryTopology(w http.ResponseWriter, r *http.Request, p telemetryPrincipal, path string) {
+	// Mark every answer, errors included, so the SDK can tell a missing
+	// agent (marked 404) from a server without this route (unmarked 404).
+	w.Header().Set("X-Apteva-Thread-Activity", "1")
 	if !p.agents {
 		http.Error(w, "missing agent inspection permission", 403)
 		return
@@ -43,17 +44,16 @@ func (s *Server) handleTelemetryTopology(w http.ResponseWriter, r *http.Request,
 		port = s.agents.GetPort(id)
 		key = s.agents.GetCoreAPIKey(id)
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
 	// Core's live list (or a stopped agent's saved config) gives the tree;
 	// stored telemetry adds what each thread is doing, per the caller's tier.
 	var savedAgent *Agent
 	if port <= 0 && e == nil {
 		savedAgent = agent
 	}
-	if threads, ok := s.observeAgentThreads(ctx, id, port, key, savedAgent, s.threadAccess(p, id), includeEnded); ok {
+	if threads, ok, partial := s.observeAgentThreads(r.Context(), id, port, key, savedAgent, s.threadAccess(p, id), includeEnded); ok {
 		out.ThreadsAvailable = true
 		out.Threads = threads
+		out.Partial = partial
 	}
 	// Reuse actual live/saved MCP configuration; include only identities and
 	// explicit tool filters. A missing tool filter is unknown, not "all tools".
