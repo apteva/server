@@ -352,7 +352,7 @@ func (s *Server) projectTelemetryEvent(ev TelemetryEvent, a telemetryAgent, proj
 			safe["target_agent_id"] = id
 		}
 	}
-	for _, key := range []string{"parent_thread_id", "target_thread_id", "call_id", "tool_call_id", "proxy_connection_id", "trace_id", "execution_id", "parent_execution_id", "request_id", "tool_span_id"} {
+	for _, key := range []string{"parent_thread_id", "target_thread_id", "call_id", "tool_call_id", "proxy_connection_id", "trace_id", "execution_id", "parent_execution_id", "request_id", "tool_span_id", "parent_tool_span_id", "parent_id", "old_id", "new_id"} {
 		if id, ok := raw[key].(string); ok && telemetryIdentifier(id) {
 			safe[key] = id
 		}
@@ -368,6 +368,16 @@ func (s *Server) projectTelemetryEvent(ev TelemetryEvent, a telemetryAgent, proj
 	}
 	if status, ok := raw["status"].(string); ok && runtimeContains([]string{"running", "queued", "waiting", "done", "succeeded", "failed", "stopped", "canceled", "cancelled", "error"}, status) {
 		safe["status"] = status
+	}
+	if outcome, ok := raw["outcome"].(string); ok && threadOutcome(outcome) != "" {
+		safe["outcome"] = outcome
+	}
+	if strings.HasPrefix(ev.Type, "llm.") {
+		for _, key := range []string{"model", "provider"} {
+			if id, ok := raw[key].(string); ok && telemetryIdentifier(id) {
+				safe[key] = id
+			}
+		}
 	}
 	out.Data, _ = json.Marshal(safe)
 	return out
@@ -522,6 +532,10 @@ func (s *Server) handleTelemetryRead(w http.ResponseWriter, r *http.Request, ins
 		}
 		if strings.HasPrefix(suffix, "/agents/") && strings.HasSuffix(suffix, "/topology") {
 			s.handleTelemetryTopology(w, r, p, suffix)
+			return
+		}
+		if strings.HasPrefix(suffix, "/agents/") && strings.HasSuffix(suffix, "/activity") {
+			s.handleThreadActivity(w, r, p, suffix)
 			return
 		}
 		http.NotFound(w, r)
