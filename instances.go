@@ -2895,6 +2895,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		var patch map[string]any
 		// validateAgentAttachmentSettings already validated the incoming object.
 		_ = json.Unmarshal([]byte(body.Config), &patch)
+		if err := checkServerToolsPatch(saved, patch); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		for key, value := range patch {
 			saved[key] = value
 		}

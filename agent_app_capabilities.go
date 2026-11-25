@@ -221,7 +221,13 @@ func gatewayAgentCapabilities(agentID int64, api gatewayAPIClient, store *Store)
 		}
 		servers = append(servers, safe)
 	}
-	return map[string]any{"mcp_servers": servers, "apps": apps, "mcp_server_ids": actualIDs, "count": len(servers)}, nil
+	out := map[string]any{"mcp_servers": servers, "apps": apps, "mcp_server_ids": actualIDs, "count": len(servers)}
+	if platformMCPAttached(agent) {
+		// The Apteva Server tools the agent may use, which the attachment
+		// itself does not show.
+		out["apteva_server_tools"] = agentServerTools(agent)
+	}
+	return out, nil
 }
 
 func sameGatewayCapabilityEndpoint(actual, expected *url.URL, source string) bool {

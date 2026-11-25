@@ -1465,6 +1465,13 @@ func main() {
 			return
 		}
 
+		// /instances/:id/server-tools — which Apteva Server tools the agent
+		// may use.
+		if path == agentIDPart+"/server-tools" {
+			s.handleAgentServerTools(w, r, agentID)
+			return
+		}
+
 		// /instances/:id/template — the template the agent follows or is
 		// pinned to; /template/save makes a new template from the agent.
 		if path == agentIDPart+"/template" {
