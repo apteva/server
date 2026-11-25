@@ -1618,6 +1618,24 @@ func addSerializedQueryValue(q neturl.Values, key string, value any, mode string
 		addQueryValue(q, key, value)
 		return nil
 	}
+	// TikTok's Marketing API reads arrays and objects in GET queries as
+	// JSON text: fields=["campaign_id"], filtering={"status":"ENABLE"}.
+	// A string is taken as already encoded.
+	if mode == "json" {
+		if value == nil {
+			return nil
+		}
+		if text, ok := value.(string); ok {
+			q.Add(key, text)
+			return nil
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("JSON query field %s: %w", key, err)
+		}
+		q.Add(key, string(encoded))
+		return nil
+	}
 	if mode != "csv" {
 		return fmt.Errorf("unsupported query serialization for %s", key)
 	}
@@ -1798,13 +1816,14 @@ func refreshOAuthAccessToken(app *AppTemplate, credentials map[string]string, pa
 	// Accept either JSON or form-encoded responses (matching exchangeOAuthCode).
 	out := make(map[string]string)
 	if strings.Contains(resp.Header.Get("Content-Type"), "json") || (len(body) > 0 && body[0] == '{') {
-		var raw map[string]any
-		if err := json.Unmarshal(body, &raw); err != nil {
+		raw, err := decodeOAuthTokenJSON(body)
+		if err != nil {
 			return fmt.Errorf("json decode: %w", err)
 		}
-		for k, v := range raw {
-			out[k] = fmt.Sprint(v)
+		if err := checkOAuthTokenError(cfg, raw); err != nil {
+			return err
 		}
+		out = flattenOAuthTokenResponse(raw)
 	} else {
 		values, err := neturl.ParseQuery(string(body))
 		if err != nil {
@@ -2563,7 +2582,7 @@ func executeIntegrationToolOnce(app *AppTemplate, tool *AppToolDef, credentials 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, withoutURLQuery(err)
 	}
 	defer resp.Body.Close()
 
@@ -3939,4 +3958,24 @@ func (s *Server) handleCreateScopedMCP(w http.ResponseWriter, r *http.Request) {
 		"allowed_tools": body.AllowedTools,
 		"url":           authorizeMCPURL(fmt.Sprintf("http://127.0.0.1:%s/mcp/%d", serverPort, row.ID), s.instanceSecret),
 	})
+}
+
+// withoutURLQuery drops the query string from a transport error's URL.
+// Go's *url.Error quotes the whole request URL, and a catalog path can
+// carry a credential in its query: TikTok's advertiser list sends the app
+// secret as ?secret={{credential.client_secret}}. The error reaches the
+// tool result, which the agent reads.
+func withoutURLQuery(err error) error {
+	var urlErr *neturl.Error
+	if !errors.As(err, &urlErr) {
+		return err
+	}
+	if parsed, parseErr := neturl.Parse(urlErr.URL); parseErr == nil {
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		urlErr.URL = parsed.String()
+	} else if i := strings.IndexAny(urlErr.URL, "?#"); i >= 0 {
+		urlErr.URL = urlErr.URL[:i]
+	}
+	return err
 }
