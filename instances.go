@@ -46,6 +46,7 @@ type runningAgent struct {
 	diagMu              sync.Mutex
 	lastProc            string            // latest /proc snapshot captured while the child was alive
 	providerEnv         map[string]string // fingerprint of the provider credentials this core started with; nil when adopted
+	stderr              *coreStderr       // copies the core's stderr file into the server log
 	credentialsAt       time.Time         // last comparison of providerEnv with the saved credentials (runtimeMu)
 	credentialsStale    bool
 }
@@ -152,7 +153,9 @@ type AgentManager struct {
 	internalMCPSecret    string
 	AuthorizeMCPConfig   func(*Agent, map[string]any) error
 	mu                   sync.RWMutex
-	processes            map[int64]*runningAgent // instanceID → running process + port
+	processes            map[int64]*runningAgent    // instanceID → running process + port
+	coreExits            map[int64]coreExit         // how each agent's last core started here ended
+	startErrors          map[int64]*AgentStartError // each agent's last failed start, cleared by a successful one
 	coreStatusClientOnce sync.Once
 	coreStatusClient     *http.Client
 	dataDir              string
@@ -812,22 +815,33 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	}
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	stderrW, stderrR, err := createCoreStderr(coreStderrPath(im.dataDir, inst.ID))
+	if err != nil {
+		ic.Stop()
+		return fmt.Errorf("create core stderr file: %w", err)
+	}
+	cmd.Stderr = stderrW
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	releaseResources, resourceErr := configureProcessResources(cmd, processResourceOwner{"agent", itoa64(inst.ID)}, processResources)
 	if resourceErr != nil {
+		stderrW.Close()
+		stderrR.Close()
 		ic.Stop()
 		return resourceErr
 	}
 	log.Printf("[SPAWN] exec %s --headless dir=%s port=%d providerEnvKeys=%v", im.coreCmd, dir, port, providerEnvKeys(providerEnv))
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	stderrW.Close() // Core has its own copy
+	if err != nil {
+		stderrR.Close()
 		releaseResources()
 		log.Printf("[SPAWN] exec failed: %v", err)
 		ic.Stop()
 		return fmt.Errorf("failed to start core: %w", err)
 	}
 	log.Printf("[SPAWN] core started agent=%d pid=%d port=%d", inst.ID, cmd.Process.Pid, port)
+	stderr := followCoreStderr(stderrR, nil)
 
 	// Background health check — dial the port every 100ms for 5s so we can
 	// see in logs exactly when (or if) core becomes reachable.
@@ -845,7 +859,7 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		log.Printf("[SPAWN] core agent=%d pid=%d port=%d FAILED to listen within 5s (last check: connection refused)", id, pid, p)
 	}(inst.ID, cmd.Process.Pid, port)
 
-	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{}), providerEnv: providerEnvFingerprint(providerEnv)}
+	ri := &runningAgent{cmd: cmd, port: port, pid: cmd.Process.Pid, coreAPIKey: coreAPIKey, channels: ic, done: make(chan struct{}), providerEnv: providerEnvFingerprint(providerEnv), stderr: stderr}
 	ri.releaseResources = releaseResources
 	if identity, e := readRuntimeProcessIdentity(cmd.Process.Pid); e == nil {
 		ri.resourceIdentity = &identity
@@ -895,12 +909,18 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		close(procDiagStop)
 		procSnapshot := ri.procSnapshot()
 		stateDesc := describeProcessState(cmd.ProcessState)
+		coreErr := ri.stderr.finish()
 		log.Printf("[SPAWN] core EXITED agent=%d pid=%d port=%d lived=%s waitErr=%v %s lastProc={%s}",
 			instID, spawnedPid, spawnedPort, lived, waitErr, stateDesc, procSnapshot)
+		exitCode := -1
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		}
 		im.mu.Lock()
 		if im.processes[instID] == ri {
 			delete(im.processes, instID)
 		}
+		im.recordCoreExitLocked(instID, coreExit{pid: spawnedPid, exitCode: exitCode, stderr: coreErr})
 		im.mu.Unlock()
 		if ri.channels != nil {
 			ri.channels.Stop()
@@ -1379,6 +1399,7 @@ func (im *AgentManager) Reattach(inst *Agent, serverPort string, channelConfigs 
 
 	proc, _ := os.FindProcess(inst.Pid)
 	ri := &runningAgent{cmd: &exec.Cmd{Process: proc}, port: inst.Port, pid: inst.Pid, coreAPIKey: inst.CoreAPIKey, channels: ic, reattached: true}
+	ri.stderr = followAdoptedCoreStderr(coreStderrPath(im.dataDir, inst.ID), inst.Pid)
 	if identity, e := readRuntimeProcessIdentity(inst.Pid); e == nil {
 		ri.resourceIdentity = &identity
 	}
@@ -1756,6 +1777,7 @@ func (s *Server) enrichAgentRuntime(inst *Agent) {
 	inst.TargetCoreVersion = CoreVersion
 	if !s.agents.IsRunning(inst.ID) {
 		inst.Status = "stopped"
+		inst.LastStartError = s.agents.LastStartError(inst.ID)
 		return
 	}
 	inst.Status = "running"
@@ -2202,7 +2224,9 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			if !writeCoreStartExit(w, err) {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 		s.restoreSlackForInstance(inst)
@@ -2699,7 +2723,9 @@ func (s *Server) handleStartInstance(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, inst)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if !writeCoreStartExit(w, err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	s.restoreSlackForInstance(inst)
@@ -2729,7 +2755,9 @@ func (s *Server) handleRestartInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.updateAgentCore(r.Context(), instanceID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if !writeCoreStartExit(w, err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 	writeJSON(w, map[string]string{"status": "restarted"})
@@ -2862,6 +2890,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "directive must be a string", http.StatusBadRequest)
 			return
 		}
+	}
+	if err := checkCoreConfigSettings(rawBody); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	if _, ok := rawBody["computer"]; ok {
 		http.Error(w, "core computer config has been removed; use the Computer app instead", http.StatusGone)
@@ -3449,10 +3481,17 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		// we keep whatever disk already held. main_pace is accepted only
 		// on this stopped-agent path so test/bootstrap callers can preload
 		// an exact first wake; a running Core remains the sole pace owner.
-		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control", "realtime_enabled", "realtime_voice", "realtime_voice_mcp", "main_pace"} {
-			if v, ok := rawBody[k]; ok {
-				cfg[k] = v
+		// Values were checked against Core's types above; null removes one.
+		for _, setting := range coreConfigSettings {
+			v, ok := rawBody[setting.key]
+			if !ok {
+				continue
 			}
+			if v == nil {
+				delete(cfg, setting.key)
+				continue
+			}
+			cfg[setting.key] = v
 		}
 		// Honour the reset envelope on a stopped instance — only
 		// threads can realistically be reset without a running core;
@@ -4358,7 +4397,9 @@ func (s *Server) handleBackgroundMemory(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if _, err := s.startManagedAgent(inst, providerEnv, pool, s.loadChannelConfigs(inst.ID)...); err != nil {
-			http.Error(w, "restart agent: "+err.Error(), http.StatusInternalServerError)
+			if !writeCoreStartExit(w, err) {
+				http.Error(w, "restart agent: "+err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 		_ = s.store.UpdateAgent(inst)
