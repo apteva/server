@@ -146,6 +146,9 @@ func (s *Server) handleAppReadiness(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "valid install_id required", 400)
 		return
 	}
+	if s.hidePrivateInstallFromGateway(w, r, id) {
+		return
+	}
 	if _, ok := s.requireAppInstallAccess(w, r, id, ProjectViewer); !ok {
 		return
 	}

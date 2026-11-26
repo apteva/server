@@ -1197,12 +1197,21 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+	apiMux.HandleFunc("/apps/private", s.authMiddleware(s.handlePrivateInstalls))
+	apiMux.HandleFunc("/apps/private/", s.authMiddleware(s.handlePrivateInstalls))
 	apiMux.HandleFunc("/apps/installs/", s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/apps/installs/")
 		idPart := strings.SplitN(path, "/", 2)[0]
 		installID, err := strconv.ParseInt(idPart, 10, 64)
 		if err != nil || installID <= 0 {
 			http.Error(w, "invalid install id", http.StatusBadRequest)
+			return
+		}
+		if s.hidePrivateInstallFromGateway(w, r, installID) {
+			return
+		}
+		if strings.HasSuffix(path, "/agent-default") && s.isPrivateInstall(installID) {
+			http.Error(w, "a private installation cannot be a default app for agents", http.StatusConflict)
 			return
 		}
 		need := ProjectViewer

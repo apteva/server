@@ -753,7 +753,7 @@ func (s *Server) handleListApps(w http.ResponseWriter, r *http.Request) {
 			COALESCE(i.default_for_new_agents, 0), COALESCE(i.pending_manifest_json,'') != '',
             i.installation_key,i.installation_name,i.is_default,
 			(EXISTS(SELECT 1 FROM app_component_declarations c WHERE c.install_id=i.id AND c.parent_version=i.version) OR EXISTS(SELECT 1 FROM app_installs c WHERE c.owner_install_id=i.id))
-		FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.owner_install_id=0`
+		FROM app_installs i JOIN apps a ON a.id = i.app_id WHERE i.owner_install_id=0 AND i.private=0`
 	if scope != "" && scope != "global" {
 		http.Error(w, "unsupported app scope", http.StatusBadRequest)
 		return
@@ -1174,6 +1174,7 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 	var body struct {
 		ReuseExisting    bool              `json:"reuse_existing,omitempty"`
+		Private          bool              `json:"private,omitempty"`
 		InstallationKey  string            `json:"installation_key"`
 		InstallationName string            `json:"installation_name"`
 		Placement        *runtimePlacement `json:"placement,omitempty"`
@@ -1196,9 +1197,21 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	if body.Private {
+		if requestFromAgentGateway(r) || body.ReuseExisting {
+			http.Error(w, "private installations are created from the dashboard", http.StatusForbidden)
+			return
+		}
+		if _, ok := s.requirePlatformAdmin(w, r); !ok {
+			return
+		}
+	}
 	body.InstallationKey = strings.TrimSpace(body.InstallationKey)
 	if body.InstallationKey == "" {
 		body.InstallationKey = "default"
+		if body.Private {
+			body.InstallationKey = "private"
+		}
 	}
 	if !installationKeyPattern.MatchString(body.InstallationKey) {
 		http.Error(w, "installation key must start with a letter and contain up to 40 lowercase letters, digits or hyphens", 400)
@@ -1428,10 +1441,10 @@ func (s *Server) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	permsJSON, _ := json.Marshal(manifest.Requires.Permissions)
 	res, err := s.insertManifestInstall(userID, installRequestKey, installFingerprint, manifest.Version, components,
 		`INSERT INTO app_installs
-		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings,installation_key,installation_name,runtime_managed,runtime_placement_json,status_message)
-		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?)`,
+		 (app_id, project_id, config_encrypted, status, upgrade_policy, version, manifest_json, source, repo, ref, permissions_json, installed_by, integration_bindings,installation_key,installation_name,runtime_managed,runtime_placement_json,status_message,private)
+		 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?,?,?,?,?)`,
 		appID, body.ProjectID, configEncrypted, upgradePolicy, manifest.Version, string(manifestJSON), source, body.Repo, body.Ref,
-		string(permsJSON), userID, string(bindingsJSON), body.InstallationKey, body.InstallationName, managedIntent, placementJSON, queuedMessage)
+		string(permsJSON), userID, string(bindingsJSON), body.InstallationKey, body.InstallationName, managedIntent, placementJSON, queuedMessage, body.Private)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			http.Error(w, "an installation with this key already exists in this scope", http.StatusConflict)

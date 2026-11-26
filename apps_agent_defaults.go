@@ -84,6 +84,7 @@ func (s *Server) defaultAppInstallIDsForProject(projectID string) ([]int64, erro
 		JOIN apps a ON a.id=i.app_id
 		WHERE i.default_for_new_agents=1
 		  AND i.status='running'
+		  AND i.private=0
 		  AND (COALESCE(i.project_id,'')='' OR i.project_id=?)
 		  AND (
 			EXISTS (SELECT 1 FROM mcp_servers m WHERE m.upstream_id='app:' || i.id)

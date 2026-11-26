@@ -8,6 +8,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,7 +24,9 @@ import (
 // tools; " ;; " separates the model's messages, so "CALL a {} ;; b {}"
 // calls a, then b once a's result is back. A "raw:" name is called without
 // the MCP prefix. "AUTHFAIL" makes the turn fail as a lost login does;
-// anything else is echoed back as "echo: <text>".
+// anything else is echoed back as "echo: <text>". Content blocks are joined
+// with newlines, and images, in user content and in tool results, are shown
+// as ImageMarker.
 // CLAUDEPOOL_FAKE_RESUME_FAIL=1 makes --resume fail as it does for an
 // unknown session.
 //
@@ -223,8 +227,13 @@ func FakeMain(args []string) int {
 		var msg struct {
 			Message struct {
 				Content []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
+					Type   string `json:"type"`
+					Text   string `json:"text"`
+					Source struct {
+						Type      string `json:"type"`
+						MediaType string `json:"media_type"`
+						Data      string `json:"data"`
+					} `json:"source"`
 				} `json:"content"`
 			} `json:"message"`
 		}
@@ -233,6 +242,10 @@ func FakeMain(args []string) int {
 		}
 		var parts []string
 		for _, block := range msg.Message.Content {
+			if block.Type == "image" {
+				parts = append(parts, ImageMarker(block.Source.MediaType, block.Source.Data))
+				continue
+			}
 			parts = append(parts, block.Text)
 		}
 		text := strings.Join(parts, "\n")
@@ -400,20 +413,40 @@ func (m *fakeMCP) call(id, name, args string) string {
 	return callText(a.out, a.err)
 }
 
+// callText renders a tool result: its text items, and an ImageMarker for
+// each image, one per line.
 func callText(resp map[string]any, err error) string {
 	if err != nil {
 		return "CALLFAIL " + err.Error()
 	}
 	result, _ := resp["result"].(map[string]any)
 	content, _ := result["content"].([]any)
-	text := ""
-	if len(content) > 0 {
-		text, _ = content[0].(map[string]any)["text"].(string)
+	var parts []string
+	for _, item := range content {
+		item, _ := item.(map[string]any)
+		switch item["type"] {
+		case "image":
+			mimeType, _ := item["mimeType"].(string)
+			data, _ := item["data"].(string)
+			parts = append(parts, ImageMarker(mimeType, data))
+		default:
+			text, _ := item["text"].(string)
+			parts = append(parts, text)
+		}
 	}
+	text := strings.Join(parts, "\n")
 	if isErr, _ := result["isError"].(bool); isErr {
 		return "ERR " + text
 	}
 	return text
+}
+
+// ImageMarker is how the fake shows an image it received, in user content
+// or a tool result: its media type and the start of the SHA-256 of its
+// base64 data.
+func ImageMarker(mediaType, data string) string {
+	sum := sha256.Sum256([]byte(data))
+	return "[image " + mediaType + " " + hex.EncodeToString(sum[:4]) + "]"
 }
 
 // fakePost sends one MCP request and returns the response, reading an event

@@ -133,6 +133,7 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 		"directive": "Help the CRM team triage and update account work.",
 		"mode":      "cautious",
 		"start":     "false",
+		"global":    true,
 	}, "", client, s.store, "/tmp/apteva-server")
 	if err != nil {
 		t.Fatalf("agents_create returned error: %v", err)
@@ -143,6 +144,9 @@ func TestGatewayAgentCreateToolUsesAgentsAPI(t *testing.T) {
 	}
 	if row["name"] != "CRM Helper" {
 		t.Fatalf("expected created agent name from API response, got %#v", row["name"])
+	}
+	if row["scope"] != "global" || row["project_id"] != "" {
+		t.Fatalf("expected a global receipt, got scope=%#v project_id=%#v", row["scope"], row["project_id"])
 	}
 	for _, forbidden := range []string{"directive", "config", "port", "pid", "user_id"} {
 		if _, leaked := row[forbidden]; leaked {
@@ -474,6 +478,7 @@ func TestGatewayAgentUpdateAndStopToolsUseAgentsAPI(t *testing.T) {
 		"name":      "CRM Helper",
 		"directive": "Help the CRM team triage and update account work.",
 		"start":     "false",
+		"global":    true,
 	}, "", client, s.store, "/tmp/apteva-server")
 	if err != nil {
 		t.Fatalf("agents_create returned error: %v", err)

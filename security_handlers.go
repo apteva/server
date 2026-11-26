@@ -526,7 +526,7 @@ func (s *Server) containmentReport(ctx context.Context, userID int64) containmen
 		view.APIKeys = keys
 	}
 	if s.installedApps != nil {
-		for _, app := range s.installedApps.List() {
+		for _, app := range s.installedApps.ListAll() {
 			view.AppInstalls = append(view.AppInstalls, map[string]any{"install_id": app.InstallID, "app": app.AppName,
 				"project_id": app.ProjectID, "has_token": app.Token != ""})
 		}
