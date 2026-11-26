@@ -99,7 +99,9 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 			http.Error(w, "target installation does not match app", 403)
 			return nil, false
 		}
-		bound := appBindingAllowsInstallation(caller, targetAppName, targetInstallID)
+		// Being on a private installation's caller list binds the caller to it.
+		bound := appBindingAllowsInstallation(caller, targetAppName, targetInstallID) ||
+			s.privateAppCallError(installID, targetInstallID) == nil && s.isPrivateInstall(targetInstallID)
 		if !bound && !(caller.manifest.Requires.DynamicAppCalls && isOfficialCaller(&caller.manifest)) {
 			http.Error(w, "target installation is not bound", 403)
 			return nil, false
@@ -150,6 +152,10 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 	}
 	if owner != 0 && owner != installID {
 		http.Error(w, "owned component belongs to another installation", http.StatusForbidden)
+		return nil, false
+	}
+	if err := s.privateAppCallError(installID, targetInstallID); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return nil, false
 	}
 	target := s.installedApps.Get(targetInstallID)

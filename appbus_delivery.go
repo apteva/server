@@ -41,6 +41,27 @@ func (s *Server) dispatchAppEventToSubscribers(ev AppEvent) {
 	}
 }
 
+// dispatchPrivateAppEvent delivers a private installation's event to the
+// allowed callers that subscribe to it, and to nothing else.
+func (s *Server) dispatchPrivateAppEvent(ev AppEvent, callers []int64) {
+	if s == nil || s.installedApps == nil {
+		return
+	}
+	for _, id := range callers {
+		inst := s.installedApps.Get(id)
+		if inst == nil || inst.SidecarURL == "" || inst.InstallID == ev.InstallID {
+			continue
+		}
+		if !appInstallCanReceiveEvent(inst, ev) || !manifestSubscribesToEvent(inst.Manifest, ev.App, ev.Topic) {
+			continue
+		}
+		if !s.subscriberAcceptsEventSource(inst.InstallID, ev) {
+			continue
+		}
+		go s.deliverAppEvent(inst, ev)
+	}
+}
+
 func appInstallCanReceiveEvent(inst *InstalledApp, ev AppEvent) bool {
 	if inst.ProjectID != "" {
 		return ev.ProjectID != "" && inst.ProjectID == ev.ProjectID

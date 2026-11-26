@@ -1067,36 +1067,19 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 	cfg := app.Auth.OAuth2
 	clientID, clientSecret := s.resolveOAuthClient(userID, "", app.Slug, explicitClientID, explicitClientSecret)
 
-	// Same client-id-param override as the authorize step — TikTok wants
-	// "client_key" for the token exchange too, not just the authorize URL.
-	clientIDParam := cfg.ClientIDParamName
-	if clientIDParam == "" {
-		clientIDParam = "client_id"
+	credentialValues := applyCredentialFieldDefaults(app, credentials)
+	tokenURL := resolveTemplate(cfg.TokenURL, credentialValues)
+	var req *http.Request
+	var err error
+	if cfg.TokenRequest != nil {
+		req, err = newOAuthTokenRequest(cfg.TokenRequest, tokenURL,
+			oauthTokenRequestVars(credentialValues, clientID, clientSecret, code, s.localOAuthRedirectURI(), pkceVerifier),
+			clientID, clientSecret)
+	} else {
+		req, err = s.standardOAuthTokenRequest(cfg, tokenURL, code, pkceVerifier, clientID, clientSecret)
 	}
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", code)
-	form.Set("redirect_uri", s.localOAuthRedirectURI())
-	useBasicOnly := cfg.TokenAuthBasicOnly && clientSecret != ""
-	if !useBasicOnly {
-		form.Set(clientIDParam, clientID)
-	}
-	if clientSecret != "" && !useBasicOnly {
-		form.Set("client_secret", clientSecret)
-	}
-	if cfg.PKCE && pkceVerifier != "" {
-		form.Set("code_verifier", pkceVerifier)
-	}
-
-	tokenURL := resolveTemplate(cfg.TokenURL, applyCredentialFieldDefaults(app, credentials))
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	if clientSecret != "" {
-		req.SetBasicAuth(clientID, clientSecret)
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -1113,21 +1096,25 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 	// Accept either JSON or form-encoded responses.
 	out := make(map[string]string)
 	if strings.Contains(resp.Header.Get("Content-Type"), "json") || (len(body) > 0 && body[0] == '{') {
-		var raw map[string]any
-		if err := json.Unmarshal(body, &raw); err != nil {
+		raw, err := decodeOAuthTokenJSON(body)
+		if err != nil {
 			return nil, fmt.Errorf("json decode: %w", err)
+		}
+		// TikTok reports a failed exchange as HTTP 200 with a non-zero
+		// code. Check before unwrapping, which would otherwise fail on the
+		// missing token object and hide the provider's message.
+		if err := checkOAuthTokenError(cfg, raw); err != nil {
+			return nil, err
 		}
 		// Providers that wrap the token object (Instagram returns
 		// {"data":[{...}]}) declare where it lives. Without this the
-		// range below stringifies the wrapper and access_token comes out
-		// empty, failing with the raw body and no hint about nesting.
+		// flattening below stringifies the wrapper and access_token comes
+		// out empty, failing with the raw body and no hint about nesting.
 		unwrapped, err := unwrapTokenResponse(raw, cfg.TokenResponsePath)
 		if err != nil {
 			return nil, fmt.Errorf("%w (body: %s)", err, string(body))
 		}
-		for k, v := range unwrapped {
-			out[k] = fmt.Sprint(v)
-		}
+		out = flattenOAuthTokenResponse(unwrapped)
 	} else {
 		values, err := url.ParseQuery(string(body))
 		if err != nil {
@@ -1157,6 +1144,65 @@ func (s *Server) exchangeOAuthCode(app *AppTemplate, code, pkceVerifier string, 
 	}
 	applyTokenExpiry(out, out, time.Now())
 	return out, nil
+}
+
+// standardOAuthTokenRequest builds the RFC 6749 authorization_code POST.
+func (s *Server) standardOAuthTokenRequest(cfg *OAuthConfig, tokenURL, code, pkceVerifier, clientID, clientSecret string) (*http.Request, error) {
+	// Same client-id-param override as the authorize step — TikTok wants
+	// "client_key" for the token exchange too, not just the authorize URL.
+	clientIDParam := cfg.ClientIDParamName
+	if clientIDParam == "" {
+		clientIDParam = "client_id"
+	}
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", s.localOAuthRedirectURI())
+	useBasicOnly := cfg.TokenAuthBasicOnly && clientSecret != ""
+	if !useBasicOnly {
+		form.Set(clientIDParam, clientID)
+	}
+	if clientSecret != "" && !useBasicOnly {
+		form.Set("client_secret", clientSecret)
+	}
+	if cfg.PKCE && pkceVerifier != "" {
+		form.Set("code_verifier", pkceVerifier)
+	}
+
+	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	if clientSecret != "" {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
+	return req, nil
+}
+
+// oauthTokenRequestVars is what a token_request template can read: the
+// connection's credentials, overlaid with the exchange's own values. Empty
+// values are left out so their placeholders stay unresolved and fail.
+func oauthTokenRequestVars(credentials map[string]string, clientID, clientSecret, code, redirectURI, codeVerifier string) map[string]string {
+	vars := make(map[string]string, len(credentials)+5)
+	for key, value := range credentials {
+		if value != "" {
+			vars[key] = value
+		}
+	}
+	for key, value := range map[string]string{
+		"client_id":     clientID,
+		"client_secret": clientSecret,
+		"code":          code,
+		"redirect_uri":  redirectURI,
+		"code_verifier": codeVerifier,
+	} {
+		if value != "" {
+			vars[key] = value
+		}
+	}
+	return vars
 }
 
 // renderOAuthResult returns a tiny HTML page for the popup. Dashboards can

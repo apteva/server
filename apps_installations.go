@@ -103,9 +103,22 @@ func (s *Store) migrateAppInstallations() error {
 			}
 		}
 	}
+	// Private installations (apps_private.go) are never a default, so name
+	// resolution, dependencies and every is_default=1 lookup skip them.
+	for _, ddl := range []string{
+		`ALTER TABLE app_installs ADD COLUMN private INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE app_installs ADD COLUMN private_callers_json TEXT NOT NULL DEFAULT '[]'`,
+	} {
+		if _, err = tx.Exec(ddl); err != nil && !isRuntimeDuplicateColumn(err) {
+			return err
+		}
+	}
 	for _, ddl := range []string{
 		`CREATE UNIQUE INDEX IF NOT EXISTS app_install_default ON app_installs(app_id,project_id) WHERE is_default=1`,
-		`CREATE TRIGGER IF NOT EXISTS app_install_first_default AFTER INSERT ON app_installs WHEN NOT EXISTS(SELECT 1 FROM app_installs i WHERE i.app_id=NEW.app_id AND i.project_id=NEW.project_id AND i.id!=NEW.id) BEGIN UPDATE app_installs SET is_default=1 WHERE id=NEW.id; END`,
+		`DROP TRIGGER IF EXISTS app_install_first_default`,
+		`CREATE TRIGGER IF NOT EXISTS app_install_first_default_v2 AFTER INSERT ON app_installs WHEN NEW.private=0 AND NOT EXISTS(SELECT 1 FROM app_installs i WHERE i.app_id=NEW.app_id AND i.project_id=NEW.project_id AND i.id!=NEW.id AND i.private=0) BEGIN UPDATE app_installs SET is_default=1 WHERE id=NEW.id; END`,
+		`CREATE TRIGGER IF NOT EXISTS app_install_private_insert_guard BEFORE INSERT ON app_installs WHEN NEW.private=1 AND NEW.is_default=1 BEGIN SELECT RAISE(ABORT,'private installations cannot be the default'); END`,
+		`CREATE TRIGGER IF NOT EXISTS app_install_private_update_guard BEFORE UPDATE OF private,is_default ON app_installs WHEN NEW.private!=OLD.private OR (NEW.private=1 AND NEW.is_default=1) BEGIN SELECT RAISE(ABORT,'private is fixed at install and never the default'); END`,
 	} {
 		if _, err = tx.Exec(ddl); err != nil {
 			return err
@@ -162,6 +175,10 @@ func (s *Server) handleAppInstallation(w http.ResponseWriter, r *http.Request, i
 	}
 	if body.Default != nil && !*body.Default {
 		http.Error(w, "select another installation as default instead", 400)
+		return
+	}
+	if body.Default != nil && s.isPrivateInstall(id) {
+		http.Error(w, "a private installation cannot be the default", 409)
 		return
 	}
 	tx, err := s.store.dbBeginTx(r.Context(), nil)
@@ -244,7 +261,7 @@ func (s *Server) refreshInstallationDefaults() {
 // Load defaults from every status. A stopped project default must not route to
 // a candidate or a global install. A zero records a scope with no default.
 func (s *Server) loadInstallationDefaults() (map[appInstallScope]int64, error) {
-	rows, err := s.store.dbQuery(`SELECT a.name,COALESCE(i.project_id,''),MAX(CASE WHEN i.is_default=1 THEN i.id ELSE 0 END) FROM app_installs i JOIN apps a ON a.id=i.app_id GROUP BY a.name,i.project_id`)
+	rows, err := s.store.dbQuery(`SELECT a.name,COALESCE(i.project_id,''),MAX(CASE WHEN i.is_default=1 THEN i.id ELSE 0 END) FROM app_installs i JOIN apps a ON a.id=i.app_id WHERE i.private=0 GROUP BY a.name,i.project_id`)
 	if err != nil {
 		return nil, err
 	}

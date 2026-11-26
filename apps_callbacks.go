@@ -1462,6 +1462,10 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "target app is not bound: "+targetAppName, http.StatusForbidden)
 		return
 	}
+	if err := s.privateAppCallError(callerInstallID, targetInstallID); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if !s.runtimeCallBoundary(w, callerInstallID, targetAppName, targetInstallID) {
 		return
 	}

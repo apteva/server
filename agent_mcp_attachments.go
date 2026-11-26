@@ -449,6 +449,72 @@ func (s *Server) saveStoppedAgentMCPServers(inst *Agent, servers []map[string]an
 	return s.store.UpdateAgent(inst)
 }
 
+// dropUnlinkedSavedAppMCPs removes app entries from the agent's saved
+// configuration once they no longer link the agent to an enabled app. Start
+// adds that configuration's MCP servers to config.json, which is how a new
+// agent's first apps reach Core, so an app taken off the agent would come back
+// on its next start. It runs after refreshAgentAppMCPConfigs has rebuilt the
+// agent's app links from config.json, and only for an agent whose core has run
+// before: Start wrote the saved apps into config.json then, so config.json is
+// the full record. Until then config.json may exist without them (settings
+// saved before the first start), and the saved configuration is their only
+// copy. Helper keeps its MCP servers in the saved configuration and is left
+// alone.
+func (s *Server) dropUnlinkedSavedAppMCPs(inst *Agent) error {
+	if inst == nil || inst.Kind == "platform_helper" || inst.CoreVersion == "" || strings.TrimSpace(inst.Config) == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(s.agents.instanceDir(inst.ID), "config.json")); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var cfg map[string]any
+	if json.Unmarshal([]byte(inst.Config), &cfg) != nil || cfg == nil {
+		return nil
+	}
+	saved, _ := cfg["mcp_servers"].([]any)
+	kept := make([]any, 0, len(saved))
+	var dropped []string
+	for _, raw := range saved {
+		entry, _ := raw.(map[string]any)
+		installID := appInstallIDFromMCPConfig(entry)
+		if installID <= 0 {
+			kept = append(kept, raw)
+			continue
+		}
+		var linked int
+		if err := s.store.dbQueryRow(
+			`SELECT COUNT(*) FROM app_agent_bindings b JOIN app_installs i ON i.id=b.install_id
+			 WHERE b.install_id=? AND b.agent_id=? AND b.enabled=1 AND i.status<>'disabled'`,
+			installID, inst.ID,
+		).Scan(&linked); err != nil {
+			return fmt.Errorf("check app link for install %d: %w", installID, err)
+		}
+		if linked > 0 {
+			kept = append(kept, raw)
+			continue
+		}
+		name, _ := entry["name"].(string)
+		dropped = append(dropped, fmt.Sprintf("%s(install %d)", name, installID))
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	cfg["mcp_servers"] = kept
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	inst.Config = string(encoded)
+	if err := s.store.UpdateAgent(inst); err != nil {
+		return err
+	}
+	log.Printf("[MCP-ATTACH] dropped saved app entries no longer linked agent=%d apps=%s", inst.ID, strings.Join(dropped, ","))
+	return nil
+}
+
 func (s *Server) appInstallDisabled(installID int64) bool {
 	var status string
 	err := s.store.dbQueryRow(`SELECT status FROM app_installs WHERE id=?`, installID).Scan(&status)
@@ -892,7 +958,7 @@ func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installID
 			       (SELECT COUNT(*) FROM skills sk WHERE sk.install_id=i.id AND sk.enabled=1)
 			FROM app_installs i
 			LEFT JOIN mcp_servers m ON m.upstream_id=?
-			WHERE i.id=? AND i.status='running'`,
+			WHERE i.id=? AND i.status='running' AND i.private=0`,
 			appMCPUpstreamID(installID), installID).Scan(&installProject, &serverID, &skillCount)
 		if err != nil {
 			return nil, nil, fmt.Errorf("app install %d is not running or does not exist", installID)

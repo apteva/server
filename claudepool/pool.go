@@ -53,7 +53,10 @@ type Config struct {
 	// when another conversation needs the slot, and the session is
 	// resumed when the results arrive.
 	ParkTools []string
-	Logf      func(format string, args ...any)
+	// FetchImage fetches an image a message links to, when it is sent to
+	// Claude. By default only public addresses are reached.
+	FetchImage func(ctx context.Context, url string) ([]byte, error)
+	Logf       func(format string, args ...any)
 }
 
 // Pool shares a bounded number of claude processes between conversations.
@@ -287,6 +290,7 @@ func (p *Pool) Run(ctx context.Context, req Request, emit func(Event) error) err
 	if err := p.checkReady(ctx); err != nil {
 		return err
 	}
+	req.Messages = keyImages(req.Messages)
 	sess, err := p.claim(ctx, req)
 	if err != nil {
 		return err
@@ -453,17 +457,19 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	var sendErr error
 	switch {
 	case pl.reseed:
-		sendErr = proc.send(textBlocks([]string{renderTranscript(req.Messages)}))
+		sendErr = proc.send(orContinue(p.blocks(ctx, renderTranscript(req.Messages))))
 	case len(awaiting) > 0:
 		delivered := map[string]bool{}
 		for i, msg := range pl.toolResults {
-			text := msg.Text
-			if i == len(pl.toolResults)-1 && len(pl.userText) > 0 {
+			var content pieces
+			content.addText(msg.Text)
+			content.addImages(msg.Images)
+			if i == len(pl.toolResults)-1 {
 				// Claude is mid-turn; messages that arrived with the
 				// results travel with the last one.
-				text += "\n\n<new_messages>\n" + strings.Join(pl.userText, "\n\n") + "\n</new_messages>"
+				content.addNewMessages(pl.user)
 			}
-			sess.deliver(msg.ToolCallID, toolResult{text: text, isError: msg.IsError})
+			sess.deliver(msg.ToolCallID, toolResult{content: p.blocks(ctx, content), isError: msg.IsError})
 			delivered[msg.ToolCallID] = true
 		}
 		for _, call := range awaiting {
@@ -472,9 +478,15 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 			}
 		}
 	case len(pl.wakeResults) > 0:
-		sendErr = proc.send(textBlocks([]string{wakeText(pl)}))
+		sendErr = proc.send(orContinue(p.blocks(ctx, wakeContent(pl))))
 	default:
-		sendErr = proc.send(textBlocks(pl.userText))
+		var content pieces
+		for _, msg := range pl.user {
+			content.newBlock()
+			content.addText(msg.Text)
+			content.addImages(msg.Images)
+		}
+		sendErr = proc.send(orContinue(p.blocks(ctx, content)))
 	}
 	woke := len(pl.wakeResults) > 0
 	if sendErr != nil {
@@ -502,7 +514,7 @@ func (p *Pool) runTurn(ctx context.Context, sess *session, req Request, emit fun
 	p.mu.Lock()
 	sess.started = true
 	sess.turns++
-	sess.history = append(append([]Message(nil), req.Messages...), reply)
+	sess.history = append(historyOf(req.Messages), reply)
 	sess.parked = nil
 	if finish == "tool_calls" {
 		sess.awaiting = reply.ToolCalls
@@ -627,20 +639,6 @@ func (p *Pool) failTurn(sess *session, proc *process) {
 	sess.failHeld("The turn was interrupted.")
 	proc.close()
 	p.releaseTurn(sess)
-}
-
-func textBlocks(texts []string) []map[string]any {
-	blocks := make([]map[string]any, 0, len(texts))
-	for _, text := range texts {
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		blocks = append(blocks, map[string]any{"type": "text", "text": text})
-	}
-	if len(blocks) == 0 {
-		blocks = append(blocks, map[string]any{"type": "text", "text": "Continue."})
-	}
-	return blocks
 }
 
 // replyIdleTimeout bounds the silence between two stream messages.

@@ -487,7 +487,7 @@ func isAppManagementRoute(first string) bool {
 	switch first {
 	case "execution-backends", "execution-pools":
 		return true
-	case "installs", "callback", "preview", "install", "marketplace":
+	case "installs", "callback", "preview", "install", "marketplace", "private":
 		return true
 	default:
 		return false
