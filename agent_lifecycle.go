@@ -278,7 +278,9 @@ func (s *Server) updateAgentCore(ctx context.Context, agentID int64) error {
 	return nil
 }
 
-func (s *Server) waitForAgentCoreHealthy(ctx context.Context, agentID int64, timeout time.Duration) (coreRuntimeInfo, error) {
+// waitForAgentCoreHealthy waits for the core with this pid to answer, and
+// stops waiting as soon as that core has exited.
+func (s *Server) waitForAgentCoreHealthy(ctx context.Context, agentID int64, pid int, timeout time.Duration) (coreRuntimeInfo, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		select {
@@ -288,6 +290,9 @@ func (s *Server) waitForAgentCoreHealthy(ctx context.Context, agentID int64, tim
 		}
 		if info, ok := s.agents.CoreRuntimeInfo(agentID); ok {
 			return info, nil
+		}
+		if exit, ok := s.agents.CoreExited(agentID, pid); ok {
+			return coreRuntimeInfo{}, &coreStartExitError{agentID: agentID, exitCode: exit.exitCode, stderr: exit.stderr}
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
@@ -311,7 +316,7 @@ func (s *Server) syncAgentRuntime(inst *Agent, timeout time.Duration, requireUpt
 	if inst == nil {
 		return coreRuntimeInfo{}, errors.New("agent is nil")
 	}
-	info, err := s.waitForAgentCoreHealthy(context.Background(), inst.ID, timeout)
+	info, err := s.waitForAgentCoreHealthy(context.Background(), inst.ID, inst.Pid, timeout)
 	if err != nil {
 		return coreRuntimeInfo{}, err
 	}
@@ -386,7 +391,9 @@ func (s *Server) ensureAgentDefaultProvider(inst *Agent, pool []ProviderInfo) (s
 	return effectiveDefault, nil
 }
 
-func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, pool []ProviderInfo, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, pool []ProviderInfo, channelConfigs ...ChannelConfig) (_ coreRuntimeInfo, err error) {
+	agentID := inst.ID
+	defer func() { s.agents.noteStartResult(agentID, err) }()
 	unlockConfig := s.lockAgentConfig(inst.ID)
 	defer unlockConfig()
 	if s.agents.GetPort(inst.ID) != 0 {
@@ -397,7 +404,10 @@ func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, p
 		return coreRuntimeInfo{}, readErr
 	}
 	*inst = *latest
-	err := s.refreshAgentAppMCPConfigs(inst)
+	err = s.refreshAgentAppMCPConfigs(inst)
+	if err == nil {
+		err = s.dropUnlinkedSavedAppMCPs(inst)
+	}
 	if err == nil {
 		err = s.reconcileAgentBehavior(context.Background(), inst, 0)
 	}

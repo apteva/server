@@ -119,6 +119,8 @@ type Agent struct {
 	ProviderUnavailable *coreProviderUnavailable `json:"provider_unavailable,omitempty"`
 	NeedsRestart        bool                     `json:"needs_restart,omitempty"`
 	RestartReason       string                   `json:"restart_reason,omitempty"`
+	// Why the agent's latest start failed, while it stays stopped.
+	LastStartError *AgentStartError `json:"last_start_error,omitempty"`
 }
 
 type Store struct {
