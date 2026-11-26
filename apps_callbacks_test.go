@@ -544,7 +544,7 @@ func TestNormalizeCallbackEventMessageBridgesStructuredAppsToCore(t *testing.T) 
 func TestCallback_Projects_ProjectScopedSingleton(t *testing.T) {
 	s := newTestServer(t)
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-1', 1, 'p1', 'Project one description')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description, color) VALUES ('proj-1', 1, 'p1', 'Project one description', ' #6366F1 ')`)
 	installID := seedInstall(t, s, "media", "proj-1")
 	s.store.db.Exec(`UPDATE app_installs SET installed_by=1 WHERE id=?`, installID)
 
@@ -568,6 +568,9 @@ func TestCallback_Projects_ProjectScopedSingleton(t *testing.T) {
 	if out[0]["description"] != "Project one description" {
 		t.Errorf("got description %v, want project description", out[0]["description"])
 	}
+	if out[0]["color"] != "#6366f1" {
+		t.Errorf("got color %v, want the normalised project colour", out[0]["color"])
+	}
 }
 
 // Global install — every project the install's owner has.
@@ -579,8 +582,8 @@ func TestCallback_Projects_ProjectScopedSingleton(t *testing.T) {
 func TestCallback_Projects_GlobalInstallListsOwnerProjects(t *testing.T) {
 	s := newTestServer(t)
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (1, 'a@b.c', 'x')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-A', 1, 'a', 'alpha context')`)
-	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description) VALUES ('proj-B', 1, 'b', 'beta context')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description, color) VALUES ('proj-A', 1, 'a', 'alpha context', '#10b981')`)
+	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name, description, color) VALUES ('proj-B', 1, 'b', 'beta context', 'red; background:url(x)')`)
 	// Different user's project — must NOT leak.
 	s.store.db.Exec(`INSERT OR IGNORE INTO users (id, email, password_hash) VALUES (2, 'c@d.e', 'x')`)
 	s.store.db.Exec(`INSERT OR IGNORE INTO projects (id, user_id, name) VALUES ('not-mine', 2, 'theirs')`)
@@ -601,10 +604,16 @@ func TestCallback_Projects_GlobalInstallListsOwnerProjects(t *testing.T) {
 	}
 	gotIDs := map[string]bool{}
 	gotDescriptions := map[string]string{}
+	gotColors := map[string]any{}
 	for _, p := range out {
 		id := p["id"].(string)
 		gotIDs[id] = true
 		gotDescriptions[id], _ = p["description"].(string)
+		gotColors[id] = p["color"]
+	}
+	// A stored value that is not a hex colour reaches apps as "".
+	if gotColors["proj-A"] != "#10b981" || gotColors["proj-B"] != "" {
+		t.Errorf("project colours = %v, want proj-A #10b981 and proj-B empty", gotColors)
 	}
 	if !gotIDs["proj-A"] || !gotIDs["proj-B"] {
 		t.Errorf("missing owner projects: got %v", gotIDs)
@@ -1727,5 +1736,16 @@ func TestCallback_AgentList_AnnotatesAttachment(t *testing.T) {
 	}
 	if !attached[bound.ID] || attached[unbound.ID] || attached[disabled.ID] {
 		t.Fatalf("attachment annotation wrong: %v", attached)
+	}
+}
+
+func TestProjectColorHex(t *testing.T) {
+	for raw, want := range map[string]string{
+		"#6366f1": "#6366f1", " #ABC ": "#abc", "": "", "red": "", "#12345": "",
+		"#6366f1;": "", "#ggg": "", "rgb(1,2,3)": "", "6366f1": "",
+	} {
+		if got := projectColorHex(raw); got != want {
+			t.Errorf("projectColorHex(%q) = %q, want %q", raw, got, want)
+		}
 	}
 }
