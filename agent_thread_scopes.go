@@ -81,8 +81,9 @@ func (s *Store) DeleteAgentThreadScope(agentID int64, threadID string) error {
  ON CONFLICT(agent_id,thread_id) DO UPDATE SET epoch=epoch+1`, agentID, strings.TrimSpace(threadID)); err != nil {
 		return err
 	}
-	// The outbox foreign key removes queued retries in the same transaction.
-	if _, err = tx.Exec(`DELETE FROM subscriptions WHERE kind='ephemeral' AND agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID)); err != nil {
+	// Waits and agent subscriptions for the thread go with it. The outbox
+	// foreign key removes queued retries in the same transaction.
+	if _, err = tx.Exec(`DELETE FROM subscriptions WHERE kind IN ('ephemeral','agent') AND agent_id=? AND thread_id=?`, agentID, strings.TrimSpace(threadID)); err != nil {
 		return err
 	}
 	// Core-created threads may have grants without an app-owned scope row.
