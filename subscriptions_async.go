@@ -106,9 +106,12 @@ func subscriptionExpired(sub *Subscription) bool {
 	return err != nil || !time.Now().Before(at)
 }
 
+// subscriptionTerminal reports whether delivering an event of this topic ends
+// the subscription: an async wait's last event, or the one event of a once
+// subscription.
 func subscriptionTerminal(sub *Subscription, topic string) bool {
 	if sub.Kind != "ephemeral" {
-		return false
+		return sub.DeleteOnMatch
 	}
 	if sub.AsyncMode != "stream" {
 		return sub.DeleteOnMatch

@@ -554,6 +554,9 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isAppMCPCall := tail == "/mcp" && r.Method == http.MethodPost
+	// signedAgentID is the agent named by a server-signed app MCP URL; it is
+	// 0 for any other caller.
+	var signedAgentID int64
 	if isAppMCPCall {
 		if r.URL.Query().Get("file_auth") != "" {
 			agentID, err := s.fileReferenceAgent(r)
@@ -561,6 +564,7 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 				writeFileToolFailure(w, r, err)
 				return
 			}
+			signedAgentID = agentID
 			r.Header.Set("X-Apteva-Caller-Agent", strconv.FormatInt(agentID, 10))
 		}
 		// Core carries the active thread as a hidden tools/call argument. Lift
@@ -764,6 +768,21 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		defer releaseFiles()
 	}
+	// An attached agent subscribes to this app's events through a tool the
+	// server adds to the app's MCP and answers itself.
+	listAppEvents := false
+	if isAppMCPCall && signedAgentID > 0 && !rerouted && appEventsSubscribeAvailable(entry) {
+		if req := peekAppEventsMCPRequest(r); req != nil {
+			switch {
+			case req.method == "tools/list" && !req.cursor:
+				listAppEvents = true
+			case req.method == "tools/call" && req.tool == appEventsSubscribeTool:
+				s.handleAppEventsSubscribe(w, req.body, agentAppEventsCall{entry: entry, agentID: signedAgentID,
+					projectID: effectiveProjectID, callerThread: r.Header.Get("X-Apteva-Caller-Thread"), args: req.args})
+				return
+			}
+		}
+	}
 	var asyncReq *appMCPAsyncRequest
 	if tail == "/mcp" && r.Method == http.MethodPost {
 		asyncReq = s.inspectAppMCPAsyncRequest(entry, r, effectiveProjectID)
@@ -850,6 +869,13 @@ func (s *Server) handleAppProxy(w http.ResponseWriter, r *http.Request) {
 			}
 			if grantRoute != nil && grantRoute.listing != nil {
 				if err := grantRoute.rewriteToolList(resp); err != nil {
+					return err
+				}
+			}
+			// After the grant rewrite, so this server-answered tool does not
+			// offer a project parameter it cannot honour.
+			if listAppEvents {
+				if err := appendAppEventsSubscribeTool(entry, resp); err != nil {
 					return err
 				}
 			}

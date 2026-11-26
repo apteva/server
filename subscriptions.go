@@ -278,40 +278,71 @@ func (s *Store) CreateAppEventSubscriptionWithFilters(userID, instanceID int64, 
 	if err != nil {
 		return nil, err
 	}
+	sub, err := s.CreateAppEventSubscriptionWithOptions(appEventSubscriptionSpec{
+		UserID: userID, AgentID: instanceID, Name: name, Slug: slug, Description: description,
+		ThreadID: threadID, ProjectID: projectID, Events: events, NotifyAgent: notifyAgent,
+		SourceInstallID: sourceInstallID, Options: subscriptionDeliveryOptions{MatchJSON: matchJSON},
+	})
+	if sub != nil && len(filters) > 0 {
+		// Callers get the filters as they passed them, as before.
+		sub.Filters = filters
+	}
+	return sub, err
+}
+
+// appEventSubscriptionSpec describes one app-event subscription row. Kind is
+// "user" when empty.
+type appEventSubscriptionSpec struct {
+	UserID, AgentID, SourceInstallID        int64
+	Name, Slug, Description, ThreadID, Kind string
+	ProjectID                               string
+	Events                                  []string
+	NotifyAgent                             bool
+	Options                                 subscriptionDeliveryOptions
+}
+
+// CreateAppEventSubscriptionWithOptions persists an app-event subscription
+// with the delivery options webhook subscriptions have: filters, an expiry,
+// and once (removed after its first delivered event).
+func (s *Store) CreateAppEventSubscriptionWithOptions(spec appEventSubscriptionSpec) (*Subscription, error) {
+	kind := spec.Kind
+	if kind == "" {
+		kind = "user"
+	}
 	id := generateID()
 	webhookPath := internalSubscriptionWebhookPath("app-event")
-	events = compactSubscriptionEvents(events)
+	events := compactSubscriptionEvents(spec.Events)
 	eventsJSON := ""
 	if len(events) > 0 {
 		if b, merr := json.Marshal(events); merr == nil {
 			eventsJSON = string(b)
 		}
 	}
-	// 14 columns / 14 values. agent_id binds instanceID; connection_id
-	// is the literal 0 because app-event subscriptions don't go through
-	// a connection. Pre-fix this had fewer values (agent_id was a
-	// literal 0 and there was no slot for connection_id/events) so the INSERT
-	// errored with "12 values for 13 columns" the moment the dashboard
-	// tried to subscribe to an app event.
-	_, err = s.dbExec(
+	// connection_id is the literal 0 because app-event subscriptions don't go
+	// through a connection.
+	_, err := s.dbExec(
 		`INSERT INTO subscriptions
 				(id, user_id, agent_id, connection_id, name, slug, description,
 				 webhook_path, encrypted_hmac_secret, thread_id, project_id, events,
-				 source, delivery, notify_agent, match_json, source_install_id)
-			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event', ?, ?, ?)`,
-		id, userID, instanceID, name, slug, description, webhookPath, threadID,
-		projectID, eventsJSON, boolToInt(notifyAgent), matchJSON, sourceInstallID,
+				 source, delivery, notify_agent, match_json, source_install_id,
+				 kind, expires_at, delete_on_match)
+			 VALUES (?, ?, ?, 0, ?, ?, ?, ?, '', ?, ?, ?, 'app_event', 'app_event', ?, ?, ?, ?, ?, ?)`,
+		id, spec.UserID, spec.AgentID, spec.Name, spec.Slug, spec.Description, webhookPath, spec.ThreadID,
+		spec.ProjectID, eventsJSON, boolToInt(spec.NotifyAgent), spec.Options.MatchJSON, spec.SourceInstallID,
+		kind, spec.Options.expiresAtValue(), boolToInt(spec.Options.DeleteOnMatch),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Subscription{
-		ID: id, UserID: userID, AgentID: instanceID,
-		Name: name, Slug: slug, Description: description, WebhookPath: webhookPath,
-		Enabled: true, NotifyAgent: notifyAgent, ThreadID: threadID, ProjectID: projectID,
-		Events: events, Source: "app_event", Delivery: "app_event",
-		MatchJSON: matchJSON, Filters: filters, SourceInstallID: sourceInstallID, CreatedAt: time.Now(),
-	}, nil
+	sub := &Subscription{
+		ID: id, UserID: spec.UserID, AgentID: spec.AgentID,
+		Name: spec.Name, Slug: spec.Slug, Description: spec.Description, WebhookPath: webhookPath,
+		Enabled: true, NotifyAgent: spec.NotifyAgent, ThreadID: spec.ThreadID, ProjectID: spec.ProjectID,
+		Events: events, Source: "app_event", Delivery: "app_event", Kind: kind,
+		SourceInstallID: spec.SourceInstallID, CreatedAt: time.Now(),
+	}
+	spec.Options.applyTo(sub)
+	return sub, nil
 }
 
 const (
@@ -1061,6 +1092,11 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 		// SourceInstallID limits an app_event subscription to events
 		// published by one installation of the app named in the slug.
 		SourceInstallID int64 `json:"source_install_id"`
+		// Once and the expiry apply to app_event subscriptions with the
+		// same meaning as for an agent's create_subscription.
+		Once             any    `json:"once"`
+		ExpiresInSeconds any    `json:"expires_in_seconds"`
+		ExpiresAt        string `json:"expires_at"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -1085,7 +1121,11 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 			return
 		}
 		events := compactSubscriptionEvents(body.Events)
-		filters, _, err := normalizeSubscriptionFilters(body.Filters)
+		options := map[string]any{"once": body.Once, "expires_in_seconds": body.ExpiresInSeconds, "expires_at": body.ExpiresAt}
+		if body.Filters != nil {
+			options["filters"] = body.Filters
+		}
+		opts, err := parseSubscriptionDeliveryOptions(options, time.Now().UTC())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1101,17 +1141,17 @@ func (s *Server) handleCreateSubscription(w http.ResponseWriter, r *http.Request
 			}
 			body.ProjectID = projectID
 		}
-		sub, err := s.store.CreateAppEventSubscriptionWithFilters(
-			userID, body.AgentID, body.Name, body.Slug, body.Description,
-			body.ThreadID, body.ProjectID, events, filters, body.NotifyAgent,
-			body.SourceInstallID,
-		)
+		sub, err := s.store.CreateAppEventSubscriptionWithOptions(appEventSubscriptionSpec{
+			UserID: userID, AgentID: body.AgentID, Name: body.Name, Slug: body.Slug, Description: body.Description,
+			ThreadID: body.ThreadID, ProjectID: body.ProjectID, Events: events, NotifyAgent: body.NotifyAgent,
+			SourceInstallID: body.SourceInstallID, Options: opts,
+		})
 		if err != nil {
 			http.Error(w, "failed to create: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v filters=%d agent=%d project=%q source_install=%d",
-			sub.ID, body.Slug, events, len(filters), body.AgentID, body.ProjectID, body.SourceInstallID)
+		log.Printf("[SUB-CREATE] sub=%s source=app_event slug=%q events=%v filters=%d agent=%d project=%q source_install=%d expires=%q once=%v",
+			sub.ID, body.Slug, events, len(sub.Filters), body.AgentID, body.ProjectID, body.SourceInstallID, sub.ExpiresAt, sub.DeleteOnMatch)
 		if s.appEventDispatcher != nil {
 			if err := s.appEventDispatcher.Reconcile(); err != nil {
 				log.Printf("[SUB-CREATE] dispatcher reconcile after create: %v", err)

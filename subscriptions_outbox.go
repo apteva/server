@@ -149,8 +149,21 @@ func (d *AppEventDispatcher) deliverOutbox(id int64, sub *Subscription, ev AppEv
 			return
 		}
 	}
+	if sub.Kind == agentSubscriptionKind {
+		// An agent's own subscription lasts only while the agent keeps the app.
+		attached, err := d.server.store.agentAttachedToInstall(sub.AgentID, sub.SourceInstallID)
+		if err != nil {
+			d.server.store.dbExec("UPDATE app_subscription_outbox SET status='pending',next_attempt=? WHERE id=?", time.Now().Add(time.Second).UnixMilli(), id)
+			return
+		}
+		if !attached {
+			d.server.store.dbExec("DELETE FROM subscriptions WHERE id=? AND kind=?", sub.ID, agentSubscriptionKind)
+			log.Printf("[APP-SUB] sub=%s removed: agent %d no longer has install %d", sub.ID, sub.AgentID, sub.SourceInstallID)
+			return
+		}
+	}
 	ev.deliveryID = fmt.Sprintf("app-subscription-%d", id)
-	if sub.Kind == "ephemeral" && sub.SourceInstallID > 0 {
+	if (sub.Kind == "ephemeral" && sub.SourceInstallID > 0) || sub.Kind == agentSubscriptionKind {
 		var exists bool
 		exists, err = d.server.asyncThreadExists(sub)
 		if err == nil && !exists {
@@ -187,7 +200,7 @@ func (d *AppEventDispatcher) deliverOutbox(id int64, sub *Subscription, ev AppEv
 			if sub.WaitGroupID != "" {
 				_, err = tx.Exec("DELETE FROM subscriptions WHERE kind='ephemeral' AND wait_group_id=?", sub.WaitGroupID)
 			} else {
-				_, err = tx.Exec("DELETE FROM subscriptions WHERE kind='ephemeral' AND id=?", sub.ID)
+				_, err = tx.Exec("DELETE FROM subscriptions WHERE id=?", sub.ID)
 			}
 		}
 		if err == nil {
@@ -206,6 +219,9 @@ func (d *AppEventDispatcher) deliverOutbox(id int64, sub *Subscription, ev AppEv
 	}
 	if subscriptionTerminal(sub, ev.Topic) {
 		d.Reconcile()
+		if sub.Kind != "ephemeral" {
+			d.server.notifySubscriptionChange("Subscription removed (delivered its one event)", sub)
+		}
 	}
 }
 
