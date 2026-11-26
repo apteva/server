@@ -567,6 +567,33 @@ type OAuthConfig struct {
 	// ig_refresh_token. When set, the engine skips its usual
 	// "no refresh_token means we cannot refresh" guard.
 	Refresh *OAuthTokenCall `json:"refresh,omitempty"`
+	// TokenRequest replaces the RFC 6749 form POST of the code exchange
+	// when a provider wants a different request. TikTok's advertiser login
+	// takes a JSON body of exactly {app_id, secret, auth_code}, with no
+	// grant_type, redirect_uri or Basic auth. Its Fields are the whole
+	// body and nothing standard is added, so a provider that has not
+	// opted in keeps the standard exchange.
+	TokenRequest *OAuthTokenRequest `json:"token_request,omitempty"`
+	// TokenError detects a failed token request that arrives as HTTP 2xx,
+	// with the same json_status contract a tool's response_error uses.
+	// TikTok answers a bad or reused auth_code with HTTP 200 and a
+	// non-zero code; without this the failure reads "no access_token"
+	// and hides the provider's own message.
+	TokenError *ResponseErrorDef `json:"token_error,omitempty"`
+}
+
+// OAuthTokenRequest describes a code exchange that is not the standard
+// form POST. Field values are templates resolved against {{client_id}},
+// {{client_secret}}, {{code}}, {{redirect_uri}}, {{code_verifier}} and
+// the connection's credentials. A field whose template cannot be filled
+// fails the exchange rather than sending a literal placeholder.
+type OAuthTokenRequest struct {
+	// BodyFormat is "json" or "form" (the default).
+	BodyFormat string `json:"body_format,omitempty"`
+	// Fields is the complete request body.
+	Fields map[string]string `json:"fields"`
+	// BasicAuth also sends client_id:client_secret as HTTP Basic auth.
+	BasicAuth bool `json:"basic_auth,omitempty"`
 }
 
 // OAuthTokenCall describes a vendor-specific token request that isn't

@@ -76,3 +76,40 @@ func TestPinterestCSVMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryParamSerializationJSON(t *testing.T) {
+	var received url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"code":0}`))
+	}))
+	defer srv.Close()
+	app := &AppTemplate{Slug: "test", BaseURL: srv.URL, Auth: AppAuthConfig{Types: []string{"oauth2"}}}
+	// TikTok's Marketing API reads GET arrays and objects as JSON text.
+	tool := &AppToolDef{Name: "campaign_list", Method: "GET", Path: "/campaign/get/", QueryParamSerialization: map[string]string{
+		"fields": "json", "filtering": "json", "image_ids": "json", "page": "json",
+	}}
+	input := map[string]any{
+		"advertiser_id": "7123456789012345678",
+		"fields":        []any{"campaign_id", "campaign_name"},
+		"filtering":     map[string]any{"primary_status": "STATUS_ALL"},
+		"image_ids":     `["already-encoded"]`,
+		"page":          2,
+	}
+	if _, err := executeIntegrationTool(app, tool, map[string]string{"access_token": "test"}, input, ""); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"advertiser_id": "7123456789012345678",
+		"fields":        `["campaign_id","campaign_name"]`,
+		"filtering":     `{"primary_status":"STATUS_ALL"}`,
+		"image_ids":     `["already-encoded"]`,
+		"page":          "2",
+	}
+	for key, value := range want {
+		if got := received[key]; len(got) != 1 || got[0] != value {
+			t.Errorf("%s = %v, want [%s]", key, got, value)
+		}
+	}
+}
