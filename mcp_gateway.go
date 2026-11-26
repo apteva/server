@@ -1960,6 +1960,9 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			if err := validateAgentAttachmentSettings(cfg); err != nil {
 				return nil, err
 			}
+			if err := validateAgentToolLoadingConfig(cfg); err != nil {
+				return nil, err
+			}
 			var patch map[string]any
 			if err := json.Unmarshal([]byte(cfg), &patch); err != nil {
 				return nil, fmt.Errorf("config must be a JSON object")
