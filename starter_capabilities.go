@@ -125,7 +125,7 @@ func (s *Server) checkPlatformToolGrant(agent *Agent, body []byte) error {
 			return fmt.Errorf("management-enabled agents must be configured by the operator")
 		}
 	}
-	for _, key := range []string{"capabilities", "include_apteva_server", "platform_mcp_tools", "mcp_servers", "_mcp_server_ids"} {
+	for _, key := range []string{"capabilities", "include_apteva_server", "platform_mcp_tools", "apteva_server_tools", "mcp_servers", "_mcp_server_ids"} {
 		if _, ok := args[key]; ok {
 			return fmt.Errorf("management grants must be configured by the operator")
 		}
@@ -140,6 +140,9 @@ func (s *Server) checkPlatformToolGrant(agent *Agent, body []byte) error {
 			return err
 		}
 		if err := validateAgentAttachmentSettings(string(encoded)); err != nil {
+			return err
+		}
+		if err := validateAgentToolLoadingConfig(string(encoded)); err != nil {
 			return err
 		}
 		for _, key := range []string{"include_apteva_server", "platform_mcp_tools", "capabilities", "_mcp_server_ids"} {

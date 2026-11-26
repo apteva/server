@@ -612,6 +612,8 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
+	restoreAutomaticToolLoading(inst.ID, config, inst.Config)
+
 	// Core owns directive evolution; the server stores only the authored base
 	// and compiles private controls at this Core boundary.
 	if _, hasDirective := config["directive"]; !hasDirective {
@@ -1960,6 +1962,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if body.Config == "" {
 		body.Config = "{}"
 	}
+	if err := validateAgentToolLoadingConfig(body.Config); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Omitted means "use the project's creation defaults". A present array,
 	// including [], is an exact operator selection and therefore an opt-out.
@@ -2867,6 +2873,14 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Core reads automatic_tool_loading only as a top-level key, never from
+	// the saved config string, so send it to Core in that shape.
+	if value, sent, err := automaticToolLoadingUpdate(rawBody, body.Config); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else if sent {
+		rawBody[automaticToolLoadingKey] = value
+	}
 	for _, field := range []string{"bound_app_install_ids", "bound_connection_ids", "mcp_server_ids", "mcp_action"} {
 		if _, exists := rawBody[field]; exists {
 			http.Error(w, "use /agents/:id/mcp-servers for attachment selectors", http.StatusBadRequest)
@@ -2929,6 +2943,10 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		var patch map[string]any
 		// validateAgentAttachmentSettings already validated the incoming object.
 		_ = json.Unmarshal([]byte(body.Config), &patch)
+		if err := checkServerToolsPatch(saved, patch); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		for key, value := range patch {
 			saved[key] = value
 		}
@@ -3489,6 +3507,15 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			cfg[setting.key] = v
 		}
+		// automatic_tool_loading was checked by automaticToolLoadingUpdate
+		// above; Core reads it only as a top-level config key.
+		if v, ok := rawBody[automaticToolLoadingKey]; ok {
+			if v == nil {
+				delete(cfg, automaticToolLoadingKey)
+			} else {
+				cfg[automaticToolLoadingKey] = v
+			}
+		}
 		// Honour the reset envelope on a stopped instance — only
 		// threads can realistically be reset without a running core;
 		// history lives in session.jsonl which we leave alone.
@@ -3976,6 +4003,9 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			"realtime_enabled":   config["realtime_enabled"],
 			"realtime_voice":     config["realtime_voice"],
 			"realtime_voice_mcp": config["realtime_voice_mcp"],
+		}
+		if value, ok := config[automaticToolLoadingKey]; ok {
+			out[automaticToolLoadingKey] = value
 		}
 		if out["mcp_servers"] == nil {
 			out["mcp_servers"] = []any{}
