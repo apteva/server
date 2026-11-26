@@ -609,6 +609,8 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 		}
 	}
 
+	restoreAutomaticToolLoading(inst.ID, config, inst.Config)
+
 	// Core owns directive evolution; the server stores only the authored base
 	// and compiles private controls at this Core boundary.
 	if _, hasDirective := config["directive"]; !hasDirective {
@@ -1936,6 +1938,10 @@ func (s *Server) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	if body.Config == "" {
 		body.Config = "{}"
 	}
+	if err := validateAgentToolLoadingConfig(body.Config); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Omitted means "use the project's creation defaults". A present array,
 	// including [], is an exact operator selection and therefore an opt-out.
@@ -2837,6 +2843,14 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Core reads automatic_tool_loading only as a top-level key, never from
+	// the saved config string, so send it to Core in that shape.
+	if value, sent, err := automaticToolLoadingUpdate(rawBody, body.Config); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else if sent {
+		rawBody[automaticToolLoadingKey] = value
+	}
 	for _, field := range []string{"bound_app_install_ids", "bound_connection_ids", "mcp_server_ids", "mcp_action"} {
 		if _, exists := rawBody[field]; exists {
 			http.Error(w, "use /agents/:id/mcp-servers for attachment selectors", http.StatusBadRequest)
@@ -3449,7 +3463,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		// we keep whatever disk already held. main_pace is accepted only
 		// on this stopped-agent path so test/bootstrap callers can preload
 		// an exact first wake; a running Core remains the sole pace owner.
-		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control", "realtime_enabled", "realtime_voice", "realtime_voice_mcp", "main_pace"} {
+		for _, k := range []string{"mcp_servers", "providers", "threads", "unconscious", "execution_control", "realtime_enabled", "realtime_voice", "realtime_voice_mcp", "main_pace", automaticToolLoadingKey} {
 			if v, ok := rawBody[k]; ok {
 				cfg[k] = v
 			}
@@ -3944,6 +3958,9 @@ func (s *Server) serveStoppedInstanceData(w http.ResponseWriter, inst *Agent, pa
 			"realtime_enabled":   config["realtime_enabled"],
 			"realtime_voice":     config["realtime_voice"],
 			"realtime_voice_mcp": config["realtime_voice_mcp"],
+		}
+		if value, ok := config[automaticToolLoadingKey]; ok {
+			out[automaticToolLoadingKey] = value
 		}
 		if out["mcp_servers"] == nil {
 			out["mcp_servers"] = []any{}
