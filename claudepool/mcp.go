@@ -382,15 +382,27 @@ func (p *Pool) clientHasTool(sess *session, name string) bool {
 	return sess.listed == nil || sess.listed[short]
 }
 
+// toolReply is the MCP result of a held call. Images in its content become
+// MCP image content, which Claude Code passes to the model.
 func toolReply(result toolResult) map[string]any {
-	text := result.text
-	if strings.TrimSpace(text) == "" {
-		text = "(no output)"
+	content := make([]map[string]any, 0, len(result.content))
+	for _, block := range result.content {
+		switch block["type"] {
+		case "text":
+			content = append(content, block)
+		case "image":
+			source, _ := block["source"].(map[string]any)
+			content = append(content, map[string]any{"type": "image", "data": source["data"], "mimeType": source["media_type"]})
+		}
 	}
-	return map[string]any{
-		"content": []map[string]any{{"type": "text", "text": text}},
-		"isError": result.isError,
+	if len(content) == 0 {
+		text := result.text
+		if strings.TrimSpace(text) == "" {
+			text = "(no output)"
+		}
+		content = append(content, map[string]any{"type": "text", "text": text})
 	}
+	return map[string]any{"content": content, "isError": result.isError}
 }
 
 // guessCall finds the pending call a request without a tool use id is
