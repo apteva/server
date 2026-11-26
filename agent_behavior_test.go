@@ -29,8 +29,8 @@ func TestAgentBehaviorComposition(t *testing.T) {
 		if next := compileAgentDirective(directive, mode, defaultAgentProactivity); next != directive {
 			t.Fatal("not idempotent")
 		}
-		if !strings.Contains(directive, "instructions ("+mode+")") || !strings.Contains(directive, "When delegating") {
-			t.Fatal("missing behavior or delegation")
+		if !strings.Contains(directive, "instructions ("+mode+")") || !strings.Contains(directive, "Every worker receives this section automatically") || strings.Contains(directive, "include these applicable behavior rules") {
+			t.Fatal("missing behavior or worker propagation note")
 		}
 	}
 	if clean := withoutAgentControls(directive); clean != base {
@@ -47,13 +47,12 @@ func TestAgentBehaviorComposition(t *testing.T) {
 }
 
 type behaviorTestCore struct {
-	mu          sync.Mutex
-	cfg         map[string]any
-	workers     []map[string]any
-	rejectMain  bool
-	rejectVoice bool
-	puts        int
-	workerPuts  int
+	mu         sync.Mutex
+	cfg        map[string]any
+	workers    []map[string]any
+	rejectMain bool
+	puts       int
+	workerPuts int
 }
 
 func attachBehaviorTestCore(t *testing.T, s *Server, a *Agent) *behaviorTestCore {
@@ -90,25 +89,11 @@ func attachBehaviorTestCore(t *testing.T, s *Server, a *Agent) *behaviorTestCore
 			}
 			writeJSON(w, map[string]any{"status": "updated"})
 		case r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/threads/"):
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if len(body) != 1 || body["directive"] == nil {
-				t.Error("worker update changes fields beyond directive", body)
-			}
-			id := strings.TrimPrefix(r.URL.Path, "/threads/")
-			if id == "voice" && c.rejectVoice {
-				http.Error(w, "restart required", 409)
-				return
-			}
-			for _, worker := range c.workers {
-				if worker["id"] == id {
-					worker["directive"] = body["directive"]
-					c.workerPuts++
-					writeJSON(w, map[string]any{"status": "updated"})
-					return
-				}
-			}
-			http.NotFound(w, r)
+			// Core carries main's policy into workers; the server only
+			// writes main.
+			c.workerPuts++
+			t.Error("server rewrote a worker directive", r.URL.Path)
+			http.Error(w, "unexpected", http.StatusBadRequest)
 		default:
 			http.NotFound(w, r)
 		}
@@ -204,18 +189,17 @@ func TestAgentBehaviorStoppedUpdatesAndValidation(t *testing.T) {
 	}
 }
 
-func TestAgentBehaviorRunningModeAndVoicePending(t *testing.T) {
+func TestAgentBehaviorRunningModeUpdatesMainOnly(t *testing.T) {
 	s := newTestServer(t)
 	a := behaviorAgent(t, s, "autonomous")
 	c := attachBehaviorTestCore(t, s, a)
-	c.rejectVoice = true
 	w := behaviorRequest(t, s, a.ID, map[string]any{"mode": "cautious"})
-	if w.Code != 202 {
+	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	var response map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &response)
-	if response["mode"] != "cautious" || response["behavior_sync"].(map[string]any)["pending"] != true {
+	if response["mode"] != "cautious" || response["behavior_sync"].(map[string]any)["pending"] != false {
 		t.Fatal(response)
 	}
 	a, _ = s.store.GetAgentByID(a.ID)
@@ -223,14 +207,14 @@ func TestAgentBehaviorRunningModeAndVoicePending(t *testing.T) {
 		t.Fatal("mode patch lost evolved directive", a.Directive)
 	}
 	c.mu.Lock()
-	if !strings.Contains(c.workers[1]["directive"].(string), "instructions (cautious)") || c.workers[1]["history"] != "keep" {
+	if !strings.Contains(c.cfg["directive"].(string), "instructions (cautious)") {
+		t.Fatal("main did not receive the policy", c.cfg["directive"])
+	}
+	// Workers keep their text here; Core applies main's policy to them.
+	if c.workerPuts != 0 || c.workers[1]["directive"] != "Research only" || c.workers[2]["directive"] != "Speak concisely" {
 		t.Fatal(c.workers)
 	}
-	if c.workers[2]["directive"] != "Speak concisely" || c.workers[3]["directive"] != "internal memory rules" {
-		t.Fatal("voice/system changed")
-	}
-	c.rejectVoice = false
-	// Evolution after the main update must survive worker retries.
+	// Evolution after the main update must survive a later reconcile.
 	c.cfg["directive"] = c.cfg["directive"].(string) + "\nnew learned instruction"
 	c.mu.Unlock()
 	unlock := s.lockAgentConfig(a.ID)
@@ -244,7 +228,7 @@ func TestAgentBehaviorRunningModeAndVoicePending(t *testing.T) {
 		t.Fatal(state)
 	}
 	if !strings.Contains(a.Directive, "new learned instruction") {
-		t.Fatal("worker retry lost evolution")
+		t.Fatal("reconcile lost evolution")
 	}
 	// Core responses have no mode; the server must still supply its choice.
 	for _, path := range []string{"config", "status"} {

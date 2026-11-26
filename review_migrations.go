@@ -153,5 +153,22 @@ func (s *Store) migrateReviewFixes() error {
 			}
 		}
 	}
+	// Behavior version 5: Core gives workers main's policy section, so the
+	// section no longer tells main to copy it. Edits record the new version.
+	var workerPolicyMigrated int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM server_schema_migrations WHERE version=10`).Scan(&workerPolicyMigrated); err != nil {
+		return err
+	}
+	if workerPolicyMigrated == 0 {
+		for _, q := range []string{
+			`DROP TRIGGER IF EXISTS agent_behavior_update`,
+			`CREATE TRIGGER agent_behavior_update AFTER UPDATE OF directive,mode,proactivity ON agents WHEN NEW.directive IS NOT OLD.directive OR NEW.mode IS NOT OLD.mode OR NEW.proactivity IS NOT OLD.proactivity BEGIN INSERT INTO agent_behavior_state(agent_id,revision,version) VALUES(NEW.id,1,5) ON CONFLICT(agent_id) DO UPDATE SET revision=revision+1,version=5,last_error=''; END`,
+			`INSERT INTO server_schema_migrations(version) VALUES(10)`,
+		} {
+			if _, err := tx.Exec(q); err != nil {
+				return fmt.Errorf("worker policy migration: %w", err)
+			}
+		}
+	}
 	return tx.Commit()
 }

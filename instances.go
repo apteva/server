@@ -618,7 +618,6 @@ func (im *AgentManager) Start(inst *Agent, providerEnv map[string]string, server
 	config["directive"] = compileAgentDirective(directive, inst.Mode, inst.Proactivity)
 	delete(config, "mode")
 	delete(config, "proactivity")
-	applyBehaviorToSavedWorkers(config, inst.Mode, inst.Proactivity)
 
 	// Read default_provider from instance config. The disk metadata branch is
 	// retained for old installations; current servers persist it in the agent
@@ -3259,9 +3258,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	delete(rawBody, "mode")
 	delete(rawBody, "proactivity")
-	if threads, exists := rawBody["threads"]; exists {
-		applyBehaviorToSavedWorkers(map[string]any{"threads": threads}, inst.Mode, inst.Proactivity)
-	}
 	bodyBytes, err = json.Marshal(rawBody)
 	if err != nil {
 		http.Error(w, "encode configuration", 500)
@@ -3390,9 +3386,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 					_, stateErr = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
 				}
 				if stateErr == nil {
-					stateErr = s.applyBehaviorToLiveWorkers(r.Context(), inst)
-				}
-				if stateErr == nil {
 					_, stateErr = s.store.dbExecContext(r.Context(), `UPDATE agent_behavior_state SET applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision)
 				}
 				if stateErr != nil {
@@ -3464,9 +3457,6 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			if t, _ := reset["threads"].(bool); t {
 				delete(cfg, "threads")
 			}
-		}
-		if behaviorChanged {
-			applyBehaviorToSavedWorkers(cfg, inst.Mode, inst.Proactivity)
 		}
 		return nil
 	})

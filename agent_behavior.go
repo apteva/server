@@ -7,18 +7,18 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 )
 
 // behaviorVersion is the compiled-control policy version. Version 4 stores
 // only the operator-authored directive in the server database and compiles
-// private control guidance at the Core boundary.
-const behaviorVersion = 4
+// private control guidance at the Core boundary. Version 5 stops asking main
+// to copy the rules into its workers: Core gives every worker main's section
+// and keeps it current.
+const behaviorVersion = 5
 const behaviorStart = "<!-- apteva:behavior:v1:start -->"
 const behaviorEnd = "<!-- apteva:behavior:end -->"
 
@@ -38,7 +38,7 @@ func agentMode(mode string) string {
 // Only our delimited sections are replaced. Never infer ownership from prose
 // or headings: those may be instructions written by the user or by evolve.
 func withAgentBehavior(directive, mode string, proactivity ...int) string {
-	section := behaviorStart + "\n" + renderAgentControlPolicy(mode, proactivityValue(proactivity)) + "\nWhen delegating, include these applicable behavior rules in each worker's directive. Delegation must not bypass approval requirements.\n" + behaviorEnd
+	section := behaviorStart + "\n" + renderAgentControlPolicy(mode, proactivityValue(proactivity)) + "\nEvery worker receives this section automatically and it is kept current, so do not copy these rules into worker directives. Delegation must not bypass approval requirements.\n" + behaviorEnd
 	// Reuse the first section's position and remove any duplicate sections.
 	first := true
 	out := behaviorSection.ReplaceAllStringFunc(directive, func(string) string {
@@ -138,18 +138,6 @@ func (s *Server) behaviorCoreJSON(ctx context.Context, inst *Agent, method, path
 	return err
 }
 
-func applyBehaviorToSavedWorkers(cfg map[string]any, mode string, proactivity ...int) {
-	threads, _ := cfg["threads"].([]any)
-	for _, entry := range threads {
-		t, ok := entry.(map[string]any)
-		if !ok || t["system"] == true || t["id"] == "main" || t["id"] == "unconscious" {
-			continue
-		}
-		directive, _ := t["directive"].(string)
-		t["directive"] = compileAgentDirective(directive, mode, proactivityValue(proactivity))
-	}
-}
-
 // Caller holds lockAgentConfig. Pending desired state wins over disk; otherwise
 // migrate the latest core-authored directive. This is also used before startup.
 func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port int) (err error) {
@@ -191,7 +179,6 @@ func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port i
 			delete(saved, "mode")
 			delete(saved, "proactivity")
 			saved["directive"] = effectiveDirective
-			applyBehaviorToSavedWorkers(saved, inst.Mode, inst.Proactivity)
 			return nil
 		})
 		if err != nil {
@@ -207,43 +194,9 @@ func (s *Server) reconcileAgentBehavior(ctx context.Context, inst *Agent, port i
 				return err
 			}
 		}
-		if _, err = s.store.dbExec(`UPDATE agent_behavior_state SET main_revision=? WHERE agent_id=? AND revision=?`, state.Revision, inst.ID, state.Revision); err != nil {
-			return err
-		}
-		if err = s.applyBehaviorToLiveWorkers(ctx, inst); err != nil {
-			return err
-		}
 	}
 	_, err = s.store.dbExec(`UPDATE agent_behavior_state SET main_revision=?,applied_revision=?,last_error='' WHERE agent_id=? AND revision=?`, state.Revision, state.Revision, inst.ID, state.Revision)
 	return err
-}
-
-func (s *Server) applyBehaviorToLiveWorkers(ctx context.Context, inst *Agent) error {
-	var threads []map[string]any
-	if err := s.behaviorCoreJSON(ctx, inst, http.MethodGet, "/threads", nil, &threads); err != nil {
-		return err
-	}
-	var failures []string
-	for _, t := range threads {
-		id, _ := t["id"].(string)
-		if id == "" || id == "main" || id == "unconscious" || t["system"] == true {
-			continue
-		}
-		directive, _ := t["directive"].(string)
-		next := compileAgentDirective(directive, inst.Mode, inst.Proactivity)
-		if next == directive {
-			continue
-		}
-		// No tools, history, or restart_realtime changes. Core returns 409 if
-		// an active voice session needs restart; keep it running and retry later.
-		if err := s.behaviorCoreJSON(ctx, inst, http.MethodPut, "/threads/"+url.PathEscape(id), map[string]any{"directive": next}, nil); err != nil {
-			failures = append(failures, err.Error())
-		}
-	}
-	if len(failures) != 0 {
-		return fmt.Errorf("worker behavior pending: %s", strings.Join(failures, "; "))
-	}
-	return nil
 }
 
 func (s *Server) behaviorMetadata(inst *Agent, out map[string]any) {
