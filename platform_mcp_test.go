@@ -40,7 +40,7 @@ func TestPlatformMCPUsesTrustedConversationProject(t *testing.T) {
 		}
 		return []byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[]}}`), nil
 	}
-	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents_create","arguments":{"name":"Worker","project_id":"project-forged","_apteva_caller_thread":"` + threadID + `"}}}`
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents_create","arguments":{"name":"Worker","project_id":"project-forged","global":true,"_apteva_caller_thread":"` + threadID + `"}}}`
 	req := httptest.NewRequest("POST", addQueryParam(platformMCPPath, "mcp_token", platformMCPToken(s.instanceSecret, helper)), strings.NewReader(body))
 	req.RemoteAddr = "127.0.0.1:43210"
 	req.Header.Set("X-Apteva-Caller-Agent", itoa64(helper.ID))
@@ -56,6 +56,10 @@ func TestPlatformMCPUsesTrustedConversationProject(t *testing.T) {
 	args := params["arguments"].(map[string]any)
 	if args["project_id"] != projectID {
 		t.Fatalf("forwarded project_id=%v, want %q", args["project_id"], projectID)
+	}
+	// A project conversation cannot create an agent outside its project.
+	if args["global"] != false {
+		t.Fatalf("forwarded global=%v, want false", args["global"])
 	}
 	if _, leaked := args["_apteva_caller_thread"]; leaked {
 		t.Fatal("hidden caller thread leaked to the gateway")

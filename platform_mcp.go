@@ -253,7 +253,7 @@ func (s *Server) scopeProjectGatewayRequest(body []byte, projectID string) ([]by
 	// The server-owned thread binding always wins over model arguments.
 	args["project_id"] = projectID
 	delete(args, "registry_url")
-	if name == "apps_install" {
+	if name == "apps_install" || name == "agents_create" {
 		args["global"] = false
 	}
 
