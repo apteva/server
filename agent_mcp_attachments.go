@@ -892,7 +892,7 @@ func (s *Server) appMCPConfigsForInstallIDs(userID int64, inst *Agent, installID
 			       (SELECT COUNT(*) FROM skills sk WHERE sk.install_id=i.id AND sk.enabled=1)
 			FROM app_installs i
 			LEFT JOIN mcp_servers m ON m.upstream_id=?
-			WHERE i.id=? AND i.status='running'`,
+			WHERE i.id=? AND i.status='running' AND i.private=0`,
 			appMCPUpstreamID(installID), installID).Scan(&installProject, &serverID, &skillCount)
 		if err != nil {
 			return nil, nil, fmt.Errorf("app install %d is not running or does not exist", installID)

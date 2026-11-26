@@ -236,9 +236,10 @@ func (s *Server) findInstalledApp(name, projectID string) (int64, bool) {
 	// cannot silently redirect dependency calls to a candidate or global app.
 	var installID int64
 	var status string
-	query := `SELECT id,status FROM app_installs WHERE app_id=? AND (project_id=? OR project_id='') ORDER BY (project_id=?) DESC,is_default DESC,id LIMIT 1`
+	// Private installations never satisfy a lookup by name.
+	query := `SELECT id,status FROM app_installs WHERE app_id=? AND private=0 AND (project_id=? OR project_id='') ORDER BY (project_id=?) DESC,is_default DESC,id LIMIT 1`
 	if projectID == "" {
-		err = s.store.dbQueryRow(`SELECT id,status FROM app_installs WHERE app_id=? AND is_default=1 ORDER BY (project_id='') DESC,id LIMIT 1`, appID).Scan(&installID, &status)
+		err = s.store.dbQueryRow(`SELECT id,status FROM app_installs WHERE app_id=? AND private=0 AND is_default=1 ORDER BY (project_id='') DESC,id LIMIT 1`, appID).Scan(&installID, &status)
 	} else {
 		err = s.store.dbQueryRow(query, appID, projectID, projectID).Scan(&installID, &status)
 	}

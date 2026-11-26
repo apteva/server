@@ -107,6 +107,17 @@ func (s *Server) handleAppEventEmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid event_id", 400)
 		return
 	}
+	// A private installation's events go only to the apps allowed to call
+	// it: no agent subscriptions, no dashboard stream, no other apps.
+	if private, callers, err := s.privateInstallCallers(installID); err != nil {
+		http.Error(w, "install not found", http.StatusNotFound)
+		return
+	} else if private {
+		ev := AppEvent{App: appName, ProjectID: resolvedProject, InstallID: installID, Topic: body.Topic, Data: data, Time: time.Now().UTC()}
+		go s.dispatchPrivateAppEvent(ev, callers)
+		writeJSON(w, map[string]any{"ok": true, "seq": 0})
+		return
+	}
 	duplicate, err := s.queueAppSubscriptionsWithID(AppEvent{App: appName, ProjectID: resolvedProject, InstallID: installID, Topic: body.Topic, Data: data, Time: time.Now().UTC()}, body.EventID)
 	if err != nil {
 		if errors.Is(err, errAppEventConflict) {
