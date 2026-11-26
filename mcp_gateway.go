@@ -88,8 +88,8 @@ func runMCPGateway(dbPath string, userID int64, secret []byte) error {
 		// Agents
 		{Name: "agents_list", Description: "List compact Apteva agent summaries visible to this user. Results are searchable and paginated and default to the current project.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "query": {Type: "string", Description: "Optional name/status search"}, "limit": {Type: "integer", Description: "Page size, default 20 and maximum 100"}, "offset": {Type: "integer", Description: "Zero-based page offset"}}}},
 		{Name: "agents_get", Description: "Get one Apteva agent with its provider, model, actual attached apps and MCP identities, and which Apteva Server tools it may use (capabilities.apteva_server_tools), without exposing runtime credentials. Long directives are returned in chunks.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "directive_offset": {Type: "integer", Description: "Byte offset for the directive chunk"}, "directive_limit": {Type: "integer", Description: "Directive bytes to return, maximum 8000"}}, Required: []string{"id"}}},
-		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt with its project. List agents first and reuse a stable idempotency_key. Set its LLM with provider and model from agents_models. Pass template_id to create it from a saved agent template: omitted directive and mode come from the template, and the agent receives the template's later versions.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions; required unless template_id is given"}, "template_id": {Type: "string", Description: "Agent template to create from (agent_templates_list)"}, "template_version": {Type: "integer", Description: "Pin the agent to this template version instead of following the latest"}, "follow_template": {Type: "boolean", Description: "Receive later template versions; defaults to true for your own templates and false for built-in ones"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "project_id": {Type: "string", Description: "Project to create the agent in; defaults to the current project. Required when there is no current project, unless global is true"}, "global": {Type: "boolean", Description: "Create the agent outside every project. Only when explicitly true and intended; it will not appear in any project"}, "provider": {Type: "string", Description: "Exact provider value from agents_models; defaults to the project's provider for new agents"}, "model": {Type: "string", Description: "Model id from agents_models for provider; omit or leave empty for the provider's default model. Requires provider"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings. Provider and model belong at the top level"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name"}}},
-		{Name: "agents_update", Description: "Update agent metadata, settings or actual capabilities. Use top-level bound_app_install_ids from apps_list to attach app tools, including coordination apps plus domain apps, and bound_connection_ids to attach integration connections; never place attachment IDs in config. Set the LLM with top-level provider and model from agents_models; the receipt says whether a running agent was restarted. Set apteva_server_tools to change which Apteva Server tools the agent may use; agents_get shows the current set under capabilities. Returns verified current capabilities. Does not start a stopped agent.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "apteva_server_tools": {Type: "array", Description: `Apteva Server tools the agent may use: tool names such as agents_update or agents_start, or ["all"] to remove the limit. Replaces the current set; include the tools it already has to keep them. Only for an agent with Apteva Server tools attached.`, Items: &toolParam{Type: "string"}}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "provider": {Type: "string", Description: "Exact provider value from agents_models. Becomes the agent's default provider."}, "model": {Type: "string", Description: "Model id from agents_models for the provider (the agent's current provider when provider is omitted). Must be one of that provider's listed ids. Empty string returns to the provider's default model."}, "config": {Type: "object", Description: "Advanced runtime settings, merged into the saved settings. Attachment selectors, provider and model belong at the top level"}, "bound_app_install_ids": {Type: "array", Description: "App installation IDs from apps_list. Resolves to real MCP attachments. Defaults to additive add when only app IDs are supplied.", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach or remove; each resolves to the connection's MCP server, created on first attach. Defaults to additive add when supplied without mcp_server_ids.", Items: &toolParam{Type: "integer"}}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "add, remove, or set for the combined app/connection/MCP selection. Defaults to add for app or connection selection; legacy mcp_server_ids defaults to set. Use add to preserve other capabilities"}}, Required: []string{"id"}}},
+		{Name: "agents_create", Description: "Create an idempotent project agent and return a compact receipt with its project. List agents first and reuse a stable idempotency_key. Set its LLM with provider and model from agents_models. Pass template_id to create it from a saved agent template: omitted directive and mode come from the template, and the agent receives the template's later versions.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"name": {Type: "string", Description: "Agent name"}, "directive": {Type: "string", Description: "Structured agent instructions; required unless template_id is given"}, "template_id": {Type: "string", Description: "Agent template to create from (agent_templates_list)"}, "template_version": {Type: "integer", Description: "Pin the agent to this template version instead of following the latest"}, "follow_template": {Type: "boolean", Description: "Receive later template versions; defaults to true for your own templates and false for built-in ones"}, "idempotency_key": {Type: "string", Description: "Stable key for this logical agent"}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "proactivity": {Type: "integer", Description: "Agent-wide initiative from 0 to 100: how much work the agent starts on its own beyond what it is asked. Defaults to 25. Never grants permissions or skips approvals"}, "project_id": {Type: "string", Description: "Project to create the agent in; defaults to the current project. Required when there is no current project, unless global is true"}, "global": {Type: "boolean", Description: "Create the agent outside every project. Only when explicitly true and intended; it will not appear in any project"}, "provider": {Type: "string", Description: "Exact provider value from agents_models; defaults to the project's provider for new agents"}, "model": {Type: "string", Description: "Model id from agents_models for provider; omit or leave empty for the provider's default model. Requires provider"}, "start": {Type: "boolean", Description: "Start immediately; defaults true"}, "include_channels": {Type: "boolean", Description: "Attach legacy channel MCPs"}, "unconscious": {Type: "boolean", Description: "Enable background memory"}, "config": {Type: "object", Description: "Optional advanced agent settings. Provider, model, mode and proactivity belong at the top level"}, "use_default_apps": {Type: "boolean", Description: "Attach default project apps; defaults true"}, "bound_app_install_ids": {Type: "array", Description: "Exact installed-app selection", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach", Items: &toolParam{Type: "integer"}}}, Required: []string{"name"}}},
+		{Name: "agents_update", Description: "Update agent metadata, settings or actual capabilities. Use top-level bound_app_install_ids from apps_list to attach app tools, including coordination apps plus domain apps, and bound_connection_ids to attach integration connections; never place attachment IDs in config. Set the LLM with top-level provider and model from agents_models; the receipt says whether a running agent was restarted. Set apteva_server_tools to change which Apteva Server tools the agent may use; agents_get shows the current set under capabilities. Returns verified current capabilities. Does not start a stopped agent.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}, "name": {Type: "string", Description: "New display name"}, "apteva_server_tools": {Type: "array", Description: `Apteva Server tools the agent may use: tool names such as agents_update or agents_start, or ["all"] to remove the limit. Replaces the current set; include the tools it already has to keep them. Only for an agent with Apteva Server tools attached.`, Items: &toolParam{Type: "string"}}, "directive": {Type: "string", Description: "Replacement directive"}, "directive_edit_mode": {Type: "string", Description: "section_append, section_replace, section_replace_line, or section_remove_line"}, "directive_section": {Type: "string", Description: "Markdown section name"}, "directive_match": {Type: "string", Description: "Line substring for line edits"}, "directive_content": {Type: "string", Description: "Section or replacement content"}, "directive_edits": {Type: "array", Description: "Ordered directive section edits", Items: &toolParam{Type: "object"}}, "mode": {Type: "string", Description: "autonomous, cautious, or learn"}, "proactivity": {Type: "integer", Description: "Agent-wide initiative from 0 to 100: how much work the agent starts on its own beyond what it is asked. Never grants permissions or skips approvals"}, "provider": {Type: "string", Description: "Exact provider value from agents_models. Becomes the agent's default provider."}, "model": {Type: "string", Description: "Model id from agents_models for the provider (the agent's current provider when provider is omitted). Must be one of that provider's listed ids. Empty string returns to the provider's default model."}, "config": {Type: "object", Description: "Advanced runtime settings, merged into the saved settings. Attachment selectors, provider, model, mode and proactivity belong at the top level"}, "bound_app_install_ids": {Type: "array", Description: "App installation IDs from apps_list. Resolves to real MCP attachments. Defaults to additive add when only app IDs are supplied.", Items: &toolParam{Type: "integer"}}, "bound_connection_ids": {Type: "array", Description: "Integration connection IDs to attach or remove; each resolves to the connection's MCP server, created on first attach. Defaults to additive add when supplied without mcp_server_ids.", Items: &toolParam{Type: "integer"}}, "mcp_server_ids": {Type: "array", Description: "MCP server IDs from list_mcp_servers", Items: &toolParam{Type: "integer"}}, "mcp_action": {Type: "string", Description: "add, remove, or set for the combined app/connection/MCP selection. Defaults to add for app or connection selection; legacy mcp_server_ids defaults to set. Use add to preserve other capabilities"}}, Required: []string{"id"}}},
 		{Name: "agents_models", Annotations: readOnly, Description: "List the LLM providers agents in this project can use, with each provider's exact name and its model ids and display names. Lists stop at 100 models per provider; use query to search the rest. Use these values for agents_create and agents_update provider and model.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"project_id": {Type: "string", Description: "Optional Apteva project ID. Defaults to the current project."}, "provider": {Type: "string", Description: "Optional provider name to list only that provider"}, "query": {Type: "string", Description: "Optional model id or name search"}}}},
 		{Name: "agents_start", Description: "Start a stopped agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
 		{Name: "agents_stop", Description: "Stop a running agent and return a compact status receipt.", InputSchema: toolSchema{Type: "object", Properties: map[string]toolParam{"id": {Type: "integer", Description: "Agent ID"}}, Required: []string{"id"}}},
@@ -1808,6 +1808,9 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			if err := decoder.Decode(&cfg); err != nil || cfg == nil {
 				return nil, fmt.Errorf("config must be a JSON object")
 			}
+			if err := gatewayRejectConfigBehaviorKeys(cfg); err != nil {
+				return nil, err
+			}
 			if err := gatewayRejectConfigModelKeys(cfg); err != nil {
 				return nil, err
 			}
@@ -1856,6 +1859,11 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		}
 		if mode, _ := args["mode"].(string); mode != "" {
 			body["mode"] = mode
+		}
+		if level, ok, err := gatewayProactivityArg(args); err != nil {
+			return nil, err
+		} else if ok {
+			body["proactivity"] = level
 		}
 		if v, ok, err := optionalBoolArg(args["start"]); err != nil {
 			return nil, fmt.Errorf("start must be true or false")
@@ -1963,13 +1971,20 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			if err := validateAgentToolLoadingConfig(cfg); err != nil {
 				return nil, err
 			}
-			var patch map[string]any
-			if err := json.Unmarshal([]byte(cfg), &patch); err != nil {
-				return nil, fmt.Errorf("config must be a JSON object")
+			patch, err := gatewayConfigObject(cfg)
+			if err != nil {
+				return nil, err
 			}
 			if err := gatewayRejectConfigModelKeys(patch); err != nil {
 				return nil, err
 			}
+			if err := gatewayRejectConfigBehaviorKeys(patch); err != nil {
+				return nil, err
+			}
+		}
+		proactivity, hasProactivity, err := gatewayProactivityArg(args)
+		if err != nil {
+			return nil, err
 		}
 		rawServerTools, hasServerTools := args["apteva_server_tools"]
 		if hasServerTools {
@@ -2030,6 +2045,9 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		if mode, _ := args["mode"].(string); strings.TrimSpace(mode) != "" {
 			configBody["mode"] = strings.TrimSpace(mode)
 		}
+		if hasProactivity {
+			configBody["proactivity"] = proactivity
+		}
 		if hasConfig {
 			configBody["config"] = cfg
 		}
@@ -2046,10 +2064,25 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 			if err := serverAPI.do(http.MethodPut, fmt.Sprintf("/agents/%d/config", id), configBody, &out); err != nil {
 				return nil, err
 			}
-			for _, key := range []string{"directive", "mode", "config"} {
+			for _, key := range []string{"directive", "mode", "proactivity", "config"} {
 				if _, ok := configBody[key]; ok {
 					changed = append(changed, key)
 				}
+			}
+			if hasProactivity {
+				// Report the saved value, so a dropped write cannot read as done.
+				saved := proactivity
+				if store != nil {
+					agent, err := store.GetAgentByID(id)
+					if err != nil {
+						return nil, fmt.Errorf("read back proactivity: %w", err)
+					}
+					saved = agent.Proactivity
+				}
+				if saved != proactivity {
+					return nil, fmt.Errorf("proactivity was not saved: the agent still has %d", saved)
+				}
+				result["proactivity"] = saved
 			}
 			if selection != nil {
 				changed = append(changed, "provider")
@@ -2101,7 +2134,7 @@ func handleGatewayAgentTool(name string, args map[string]any, projectID string, 
 		}
 
 		if len(changed) == 0 {
-			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, provider, model, config, bound_app_install_ids, bound_connection_ids, mcp_server_ids, or apteva_server_tools")
+			return nil, fmt.Errorf("nothing to update; pass name, directive, directive edit fields, mode, proactivity, provider, model, config, bound_app_install_ids, bound_connection_ids, mcp_server_ids, or apteva_server_tools")
 		}
 		result["changed"] = changed
 		return result, nil
