@@ -70,6 +70,59 @@ func claudeSubscriptionModels() []ModelInfo {
 	}
 }
 
+// claudeSubscriptionContextWindow is the context window of a Claude Code
+// model: 1M for the "[1m]" variants, 200K for everything else.
+func claudeSubscriptionContextWindow(model string) int {
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(model)), "[1m]") {
+		return 1000000
+	}
+	return 200000
+}
+
+// withClaudeSubscriptionCapabilities gives Core the context window of every
+// model a Claude subscription provider entry can run: the aliases, their 1M
+// variants and the models the entry selects. Core sizes its request budget
+// from these; it cannot tell what the bare aliases are and would otherwise
+// fall back to its 131K default. Windows already present are kept.
+func withClaudeSubscriptionCapabilities(provider map[string]any) {
+	name, _ := provider["name"].(string)
+	if providerKeyFromName(name) != claudeSubscriptionProviderKey {
+		return
+	}
+	caps := map[string]ProviderModelCapabilities{}
+	if raw, ok := provider["model_capabilities"]; ok && raw != nil {
+		if encoded, err := json.Marshal(raw); err == nil {
+			_ = json.Unmarshal(encoded, &caps)
+		}
+	}
+	var ids []string
+	for _, model := range claudeSubscriptionModels() {
+		ids = append(ids, model.ID, model.ID+"[1m]")
+	}
+	switch models := provider["models"].(type) {
+	case map[string]string:
+		for _, id := range models {
+			ids = append(ids, id)
+		}
+	case map[string]any:
+		for _, id := range models {
+			if value, ok := id.(string); ok {
+				ids = append(ids, value)
+			}
+		}
+	}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || caps[id].ContextWindow > 0 {
+			continue
+		}
+		entry := caps[id]
+		entry.ContextWindow = claudeSubscriptionContextWindow(id)
+		caps[id] = entry
+	}
+	provider["model_capabilities"] = caps
+}
+
 // claudeSubscriptionModelList is what Claude Code offers this login (its
 // own model picker), plus any default alias it lists only as a variant.
 func (s *Server) claudeSubscriptionModelList(ctx context.Context, refresh bool) []ModelInfo {

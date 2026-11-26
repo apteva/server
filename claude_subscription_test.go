@@ -839,3 +839,51 @@ func TestClaudeSubscriptionSignInWithACode(t *testing.T) {
 		}
 	}
 }
+
+// Core sizes its request budget from model_capabilities. Without them the
+// bare Claude Code aliases fall back to its 131K default.
+func TestClaudeSubscriptionProviderSendsContextWindows(t *testing.T) {
+	providers := buildCoreProviderConfigs([]ProviderInfo{
+		{Type: claudeSubscriptionProviderKey, ModelLarge: "opus", ModelMedium: "sonnet[1m]", ModelSmall: "claude-haiku-4-5"},
+		{Type: "anthropic", ModelLarge: "claude-opus-4-7", ModelMedium: "claude-sonnet-4-6", ModelSmall: "claude-haiku-4-5"},
+	}, claudeSubscriptionProviderKey)
+	byName := map[string]map[string]any{}
+	for _, provider := range providers {
+		byName[provider["name"].(string)] = provider
+	}
+	sub := byName[claudeSubscriptionProviderKey]
+	if sub == nil {
+		t.Fatalf("claude subscription provider missing: %v", providers)
+	}
+	caps, ok := sub["model_capabilities"].(map[string]ProviderModelCapabilities)
+	if !ok {
+		t.Fatalf("model_capabilities = %T", sub["model_capabilities"])
+	}
+	for id, want := range map[string]int{"opus": 200000, "sonnet": 200000, "haiku": 200000, "opus[1m]": 1000000, "sonnet[1m]": 1000000, "claude-haiku-4-5": 200000} {
+		if got := caps[id].ContextWindow; got != want {
+			t.Fatalf("%s context window = %d, want %d", id, got, want)
+		}
+	}
+	if _, ok := byName["anthropic"]["model_capabilities"]; ok {
+		t.Fatal("other providers gained model capabilities")
+	}
+
+	// An agent's own model is covered too.
+	applyAgentModelOverride(providers, claudeSubscriptionProviderKey, "claude-opus-4-7[1m]")
+	caps = sub["model_capabilities"].(map[string]ProviderModelCapabilities)
+	if got := caps["claude-opus-4-7[1m]"].ContextWindow; got != 1000000 {
+		t.Fatalf("override context window = %d", got)
+	}
+
+	// Entries decoded from JSON keep the windows they already carry.
+	decoded := map[string]any{
+		"name":               claudeSubscriptionProviderKey,
+		"models":             map[string]any{"large": "opus", "medium": "custom-model", "small": "haiku"},
+		"model_capabilities": map[string]any{"opus": map[string]any{"context_window": 123}},
+	}
+	withClaudeSubscriptionCapabilities(decoded)
+	caps = decoded["model_capabilities"].(map[string]ProviderModelCapabilities)
+	if caps["opus"].ContextWindow != 123 || caps["custom-model"].ContextWindow != 200000 {
+		t.Fatalf("decoded capabilities %+v", caps)
+	}
+}
