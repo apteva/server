@@ -105,13 +105,12 @@ func TestAgentProactivityUpdatesAndValidation(t *testing.T) {
 	}
 }
 
-func TestAgentProactivityLiveWorkersAndPendingRetry(t *testing.T) {
+func TestAgentProactivityLiveMainAndPendingRetry(t *testing.T) {
 	s := newTestServer(t)
 	a := behaviorAgent(t, s, "cautious")
 	c := attachBehaviorTestCore(t, s, a)
-	c.rejectVoice = true
 	w := behaviorRequest(t, s, a.ID, map[string]any{"proactivity": 100})
-	if w.Code != 202 {
+	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	var response map[string]any
@@ -120,11 +119,10 @@ func TestAgentProactivityLiveWorkersAndPendingRetry(t *testing.T) {
 		t.Fatal(response)
 	}
 	c.mu.Lock()
-	if c.cfg["proactivity"] != nil || !strings.Contains(c.workers[1]["directive"].(string), "PROACTIVITY: 100/100") || c.workers[1]["history"] != "keep" || c.workers[3]["directive"] != "internal memory rules" {
-		t.Fatal("worker policy/scope mismatch")
+	if c.cfg["proactivity"] != nil || !strings.Contains(c.cfg["directive"].(string), "PROACTIVITY: 100/100") || c.workerPuts != 0 || c.workers[3]["directive"] != "internal memory rules" {
+		t.Fatal("main policy or worker scope mismatch")
 	}
 	c.cfg["directive"] = c.cfg["directive"].(string) + "\nKeep evolved strategy"
-	c.rejectVoice = false
 	c.mu.Unlock()
 	a, _ = s.store.GetAgentByID(a.ID)
 	if err := s.reconcileAgentBehavior(context.Background(), a, s.agents.GetPort(a.ID)); err != nil {

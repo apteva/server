@@ -466,7 +466,7 @@ func TestGatewayAgentTemplateTools(t *testing.T) {
 	if id == "" || created.(map[string]any)["version"] != 1 {
 		t.Fatalf("created=%v", created)
 	}
-	agentResult, err := handleGatewayAgentTool("agents_create", map[string]any{"name": "Triage bot", "template_id": id, "start": false}, "", client, s.store, "/tmp/apteva-server")
+	agentResult, err := handleGatewayAgentTool("agents_create", map[string]any{"name": "Triage bot", "template_id": id, "start": false, "global": true}, "", client, s.store, "/tmp/apteva-server")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,10 +505,18 @@ func TestAgentTemplateRolloutSkipsAgentPinnedAfterListing(t *testing.T) {
 	ensureTestAdmin(t, s)
 	tpl := templateTestCreate(t, s, "Pinned", "Pinned role v1.", "cautious")
 	agent := templateTestMustCreateAgent(t, s, map[string]any{"name": "Pinned agent", "template_id": tpl.ID})
-	templateTestNewVersion(t, s, tpl.ID, "Pinned role v2.", "cautious", 1)
+	// Pin before saving v2: saving starts a background sweep, which would
+	// otherwise move the still-following agent before the test pins it.
 	if _, err := s.store.db.Exec(`UPDATE agent_template_links SET follow_latest=0 WHERE agent_id=?`, agent.ID); err != nil {
 		t.Fatal(err)
 	}
+	templateTestNewVersion(t, s, tpl.ID, "Pinned role v2.", "cautious", 1)
+	s.rolloutAgentTemplatesOnce(context.Background())
+	if got := templateTestAgent(t, s, agent.ID).Directive; got != "Pinned role v1." {
+		t.Fatalf("sweep moved a pinned agent: %q", got)
+	}
+	// A sweep that listed the agent before the pin applies with Rollout set,
+	// and the apply itself must see the pin.
 	outcome, err := s.applyAgentTemplateVersion(context.Background(), agent.ID, 2, agentTemplateApplyOptions{Rollout: true})
 	if err != nil || outcome != agentTemplateUpToDate {
 		t.Fatalf("outcome=%q err=%v", outcome, err)

@@ -16,6 +16,7 @@ package main
 // why none of this is keyed on slug.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -64,6 +65,101 @@ func unwrapTokenResponse(raw map[string]any, path string) (map[string]any, error
 		return nil, fmt.Errorf("token_response_path %q does not address an object", path)
 	}
 	return out, nil
+}
+
+// decodeOAuthTokenJSON decodes a token response with numbers kept exact.
+// Account IDs such as TikTok's advertiser_ids can exceed 2^53, which a
+// float64 would round.
+func decodeOAuthTokenJSON(body []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var raw map[string]any
+	if err := decoder.Decode(&raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// flattenOAuthTokenResponse turns a decoded token object into credential
+// strings. Arrays and objects are stored as JSON, so TikTok's
+// advertiser_ids reads back as ["123","456"] instead of Go's "[123 456]".
+func flattenOAuthTokenResponse(values map[string]any) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		switch value.(type) {
+		case map[string]any, []any:
+			if encoded, err := json.Marshal(value); err == nil {
+				out[key] = string(encoded)
+				continue
+			}
+		}
+		out[key] = fmt.Sprint(value)
+	}
+	return out
+}
+
+// checkOAuthTokenError applies cfg.TokenError to a decoded token response
+// and returns the provider's own code and message when it reports failure.
+func checkOAuthTokenError(cfg *OAuthConfig, raw map[string]any) error {
+	if cfg == nil || cfg.TokenError == nil {
+		return nil
+	}
+	errorData, contractDetail := inspectIntegrationResponseError(cfg.TokenError, raw)
+	if contractDetail != "" {
+		return fmt.Errorf("token_error: %s", contractDetail)
+	}
+	if errorData == nil {
+		return nil
+	}
+	return fmt.Errorf("token endpoint returned error %s: %v",
+		integrationRateLimitCode(errorData["code"]), errorData["message"])
+}
+
+// newOAuthTokenRequest builds the code exchange a TokenRequest declares.
+// vars holds the template values; one that is missing or empty leaves its
+// placeholder unresolved, which fails here instead of reaching the provider.
+func newOAuthTokenRequest(def *OAuthTokenRequest, tokenURL string, vars map[string]string, clientID, clientSecret string) (*http.Request, error) {
+	if len(def.Fields) == 0 {
+		return nil, fmt.Errorf("token_request has no fields")
+	}
+	fields := make(map[string]string, len(def.Fields))
+	for name, template := range def.Fields {
+		value := resolveTemplate(template, vars)
+		if strings.Contains(value, "{{") {
+			return nil, fmt.Errorf("token_request field %q: no value for %s", name, template)
+		}
+		fields[name] = value
+	}
+
+	var body []byte
+	var contentType string
+	switch strings.ToLower(strings.TrimSpace(def.BodyFormat)) {
+	case "json":
+		encoded, err := json.Marshal(fields)
+		if err != nil {
+			return nil, err
+		}
+		body, contentType = encoded, "application/json"
+	case "", "form":
+		form := neturl.Values{}
+		for name, value := range fields {
+			form.Set(name, value)
+		}
+		body, contentType = []byte(form.Encode()), "application/x-www-form-urlencoded"
+	default:
+		return nil, fmt.Errorf("token_request body_format %q is not json or form", def.BodyFormat)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, tokenURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+	if def.BasicAuth && clientSecret != "" {
+		req.SetBasicAuth(clientID, clientSecret)
+	}
+	return req, nil
 }
 
 // runOAuthTokenCall performs a declared follow-up token request and
@@ -140,9 +236,12 @@ func runOAuthTokenCall(
 		return nil, fmt.Errorf("token call %s: http %d: %s", call.URL, resp.StatusCode, string(body))
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(body, &raw); err != nil {
+	raw, err := decodeOAuthTokenJSON(body)
+	if err != nil {
 		return nil, fmt.Errorf("token call json decode: %w", err)
+	}
+	if err := checkOAuthTokenError(cfg, raw); err != nil {
+		return nil, fmt.Errorf("token call %s: %w", call.URL, err)
 	}
 	path := ""
 	if cfg != nil {
@@ -153,10 +252,7 @@ func runOAuthTokenCall(
 		return nil, err
 	}
 
-	out := map[string]string{}
-	for k, v := range unwrapped {
-		out[k] = fmt.Sprint(v)
-	}
+	out := flattenOAuthTokenResponse(unwrapped)
 	if out["access_token"] == "" {
 		return nil, fmt.Errorf("no access_token in token call response: %s", string(body))
 	}

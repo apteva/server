@@ -153,10 +153,18 @@ func gatewayAgentModels(args map[string]any, projectID string, serverAPI gateway
 				models = append(models, model)
 			}
 		}
-		row["models_total"] = len(models)
-		if len(models) > gatewayModelsPerProvider {
+		total := len(models)
+		row["models_total"] = total
+		if total > gatewayModelsPerProvider {
 			models = models[:gatewayModelsPerProvider]
 			row["models_truncated"] = true
+			// A model missing from a truncated list may still exist; the
+			// helper should search for it rather than conclude it is absent.
+			if query == "" {
+				row["models_hint"] = fmt.Sprintf("only the first %d of %d models are listed; pass query with part of a model id or name to search all of them", gatewayModelsPerProvider, total)
+			} else {
+				row["models_hint"] = fmt.Sprintf("only the first %d of %d matching models are listed; use a more specific query", gatewayModelsPerProvider, total)
+			}
 		}
 		if provider.ModelsError == "" {
 			row["models"] = models
@@ -165,7 +173,7 @@ func gatewayAgentModels(args map[string]any, projectID string, serverAPI gateway
 	}
 	out := map[string]any{
 		"providers": rows,
-		"usage":     "Set an agent with agents_update provider=<provider> and model=<model id>. Omit model to keep the agent's model, or pass an empty model to use the provider's default_model.",
+		"usage":     "Pass provider=<provider> and model=<model id> to agents_create, or to agents_update for an existing agent. On agents_update, omit model to keep the agent's model; on either, an empty model uses the provider's default_model.",
 	}
 	if pid != "" {
 		out["project_id"] = pid
@@ -183,10 +191,9 @@ type gatewayModelSelection struct {
 	AgentStopped bool
 }
 
-// gatewayAgentModelSelection reads agents_update's provider and model fields
-// and checks them against the agent's project before anything is written.
-// It returns nil when neither field was sent.
-func gatewayAgentModelSelection(id int64, args map[string]any, projectID string, serverAPI gatewayAPIClient, store *Store) (*gatewayModelSelection, error) {
+// gatewayParseModelSelection reads the provider and model fields shared by
+// agents_create and agents_update. It returns nil when neither was sent.
+func gatewayParseModelSelection(args map[string]any) (*gatewayModelSelection, error) {
 	rawProvider, hasProvider := args["provider"]
 	rawModel, hasModel := args["model"]
 	if !hasProvider && !hasModel {
@@ -208,7 +215,41 @@ func gatewayAgentModelSelection(id int64, args map[string]any, projectID string,
 		selection.Model = strings.TrimSpace(model)
 		selection.ModelSet = true
 	}
+	return selection, nil
+}
 
+// gatewayCheckModelSelection checks the provider against projectID's
+// providers and a named model against that provider's model list.
+func gatewayCheckModelSelection(selection *gatewayModelSelection, projectID string, serverAPI gatewayAPIClient) error {
+	providers, err := gatewayProjectProviders(serverAPI, projectID, selection.Provider, selection.Model != "")
+	if err != nil {
+		return err
+	}
+	if selection.Model == "" {
+		return nil
+	}
+	entry := providers[0]
+	if entry.ModelsError != "" {
+		selection.Warning = fmt.Sprintf("model %q was not checked against the provider's model list: %s", selection.Model, entry.ModelsError)
+		return nil
+	}
+	for _, model := range entry.Models {
+		if model.ID == selection.Model {
+			selection.ModelChecked = true
+			return nil
+		}
+	}
+	return gatewayUnknownModelError(selection.Provider, selection.Model, entry.Models)
+}
+
+// gatewayAgentModelSelection reads agents_update's provider and model fields
+// and checks them against the agent's project before anything is written.
+// It returns nil when neither field was sent.
+func gatewayAgentModelSelection(id int64, args map[string]any, projectID string, serverAPI gatewayAPIClient, store *Store) (*gatewayModelSelection, error) {
+	selection, err := gatewayParseModelSelection(args)
+	if err != nil || selection == nil {
+		return nil, err
+	}
 	pid := projectID
 	sameOwner := true
 	if store != nil {
@@ -232,26 +273,37 @@ func gatewayAgentModelSelection(id int64, args map[string]any, projectID string,
 		selection.Warning = "provider and model were checked by the server's rules only, because the agent belongs to another user"
 		return selection, nil
 	}
-
-	providers, err := gatewayProjectProviders(serverAPI, pid, selection.Provider, selection.Model != "")
-	if err != nil {
+	if err := gatewayCheckModelSelection(selection, pid, serverAPI); err != nil {
 		return nil, err
 	}
-	if selection.Model == "" {
-		return selection, nil
+	return selection, nil
+}
+
+// gatewayCreateModelSelection reads agents_create's provider and model fields
+// and checks them against the project the agent will be created in. The new
+// agent belongs to the caller, so the caller's providers are the ones it runs on.
+func gatewayCreateModelSelection(args map[string]any, projectID string, serverAPI gatewayAPIClient) (*gatewayModelSelection, error) {
+	selection, err := gatewayParseModelSelection(args)
+	if err != nil || selection == nil {
+		return nil, err
 	}
-	entry := providers[0]
-	if entry.ModelsError != "" {
-		selection.Warning = fmt.Sprintf("model %q was not checked against the provider's model list: %s", selection.Model, entry.ModelsError)
-		return selection, nil
+	if selection.Provider == "" {
+		return nil, fmt.Errorf("provider is required with model: call agents_models and pass both provider and model")
 	}
-	for _, model := range entry.Models {
-		if model.ID == selection.Model {
-			selection.ModelChecked = true
-			return selection, nil
-		}
+	if err := gatewayCheckModelSelection(selection, projectID, serverAPI); err != nil {
+		return nil, err
 	}
-	return nil, gatewayUnknownModelError(selection.Provider, selection.Model, entry.Models)
+	return selection, nil
+}
+
+// gatewayApplyCreateModelSelection writes a checked selection into a new
+// agent's config in the shape the config route saves: default_provider picks
+// the provider and model_override pins its model. Start re-checks both.
+func gatewayApplyCreateModelSelection(config map[string]any, selection *gatewayModelSelection) {
+	config["default_provider"] = selection.Provider
+	if selection.Model != "" {
+		config["model_override"] = map[string]any{"provider": selection.Provider, "model": selection.Model}
+	}
 }
 
 func gatewayUnknownModelError(provider, model string, models []gatewayModelChoice) error {
@@ -281,7 +333,7 @@ func gatewayUnknownModelError(provider, model string, models []gatewayModelChoic
 }
 
 // gatewayRejectConfigModelKeys keeps provider and model selection out of the
-// agents_update config patch.
+// config given to agents_create and agents_update.
 func gatewayRejectConfigModelKeys(config map[string]any) error {
 	for _, key := range gatewayConfigModelKeys {
 		if _, exists := config[key]; exists {

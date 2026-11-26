@@ -119,6 +119,8 @@ type Agent struct {
 	ProviderUnavailable *coreProviderUnavailable `json:"provider_unavailable,omitempty"`
 	NeedsRestart        bool                     `json:"needs_restart,omitempty"`
 	RestartReason       string                   `json:"restart_reason,omitempty"`
+	// Why the agent's latest start failed, while it stays stopped.
+	LastStartError *AgentStartError `json:"last_start_error,omitempty"`
 }
 
 type Store struct {
@@ -712,6 +714,8 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_telem_agent_time ON telemetry(agent_id, time);
 		CREATE INDEX IF NOT EXISTS idx_telem_type ON telemetry(type, time);
 		CREATE INDEX IF NOT EXISTS idx_telem_agent_type_time ON telemetry(agent_id, type, time);
+		-- Per-thread reads in rowid order (rowid is the index's last column).
+		CREATE INDEX IF NOT EXISTS idx_telem_agent_thread ON telemetry(agent_id, thread_id);
 
 		CREATE TABLE IF NOT EXISTS agents (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -37,7 +37,7 @@ func TestGatewayAgentToolsSetProactivityAgainstServerRoutes(t *testing.T) {
 	client := gatewayAPIClient{baseURL: ts.URL + "/api", userID: 1, instanceSecret: s.instanceSecret}
 
 	created, err := handleGatewayAgentTool("agents_create", map[string]any{
-		"name": "Planner", "directive": "Plan the week.", "mode": "cautious", "proactivity": "40", "start": false,
+		"name": "Planner", "directive": "Plan the week.", "mode": "cautious", "proactivity": "40", "start": false, "global": true,
 	}, "", client, s.store, "/tmp/apteva-server")
 	if err != nil {
 		t.Fatal(err)

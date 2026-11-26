@@ -2,8 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -478,8 +482,8 @@ func TestClaudeChatRequestToPool(t *testing.T) {
 	if req.System != "one\n\ntwo" || len(req.Messages) != 4 || len(req.Tools) != 1 {
 		t.Fatalf("request = %+v", req)
 	}
-	if !strings.Contains(req.Messages[0].Text, "cannot show images") {
-		t.Fatalf("image placeholder missing: %q", req.Messages[0].Text)
+	if got := req.Messages[0]; got.Text != "look" || len(got.Images) != 1 || got.Images[0].MediaType != "image/png" || got.Images[0].Data != "AA==" {
+		t.Fatalf("user message with an image = %+v", got)
 	}
 	want := []claudepool.Message{
 		{Role: "assistant", ToolCalls: []claudepool.ToolCall{{ID: "c1", Name: "lookup", Arguments: "{}"}}},
@@ -491,6 +495,105 @@ func TestClaudeChatRequestToPool(t *testing.T) {
 		if got.Role != w.Role || got.Text != w.Text || got.ToolCallID != w.ToolCallID || len(got.ToolCalls) != len(w.ToolCalls) {
 			t.Fatalf("message %d = %+v, want %+v", i+1, got, w)
 		}
+	}
+}
+
+func TestClaudeContentReadsImageParts(t *testing.T) {
+	raw := `[
+		{"type":"text","text":"several"},
+		{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,/9j/","detail":"high"}},
+		{"type":"input_image","image_url":"https://images.example/a.png"},
+		{"type":"image_url","image_url":{"url":"data:image/svg+xml,%3Csvg%2F%3E"}},
+		{"type":"image_url","image_url":{"url":"ftp://images.example/b.png"}},
+		{"type":"input_audio","input_audio":{"data":"AA==","format":"wav"}}
+	]`
+	text, images := claudeContent(json.RawMessage(raw))
+	want := []claudepool.Image{
+		{MediaType: "image/jpeg", Data: "/9j/"},
+		{URL: "https://images.example/a.png"},
+		{MediaType: "image/svg+xml", Data: base64.StdEncoding.EncodeToString([]byte("<svg/>"))},
+	}
+	if len(images) != len(want) {
+		t.Fatalf("images = %+v", images)
+	}
+	for i := range want {
+		if images[i].MediaType != want[i].MediaType || images[i].Data != want[i].Data || images[i].URL != want[i].URL {
+			t.Fatalf("image %d = %+v, want %+v", i, images[i], want[i])
+		}
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) != 3 || lines[0] != "several" || !strings.Contains(lines[1], "address could not be read") || !strings.Contains(lines[2], "audio clip") {
+		t.Fatalf("text = %q", text)
+	}
+}
+
+// claudeSubPNG is a small PNG data URI; shade tells images apart.
+func claudeSubPNG(t *testing.T, shade uint8) (string, string) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+3] = shade, 255
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	data := base64.StdEncoding.EncodeToString(buf.Bytes())
+	return "data:image/png;base64," + data, claudetest.ImageMarker("image/png", data)
+}
+
+// Images reach Claude the way core sends them: attached to a user message,
+// and in a tool result, like a screenshot.
+func TestClaudeSubscriptionChatPassesImages(t *testing.T) {
+	f := newClaudeSubFixture(t)
+	photo, photoShown := claudeSubPNG(t, 10)
+	screen, screenShown := claudeSubPNG(t, 20)
+	// A link to this machine is not fetched.
+	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("the image link on a private address was fetched")
+	}))
+	defer local.Close()
+
+	messages := []any{
+		map[string]any{"role": "system", "content": "You are Helper."},
+		map[string]any{"role": "user", "content": []any{
+			map[string]any{"type": "text", "text": "what is this?"},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": photo}},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": local.URL + "/x.png"}},
+		}},
+	}
+	r := f.chat(t, map[string]any{"model": "sonnet", "stream": true, "messages": messages, "tools": []any{claudeSubLookupTool}})
+	if r.status != http.StatusOK || r.errBody != "" {
+		t.Fatalf("first turn: %+v", r)
+	}
+	if !strings.HasPrefix(r.content, "echo: what is this?\n"+photoShown+"\n[An image linked from "+local.URL+"/x.png was attached here, but it could not be fetched") {
+		t.Fatalf("reply = %q", r.content)
+	}
+
+	messages = append(messages,
+		map[string]any{"role": "assistant", "content": r.content},
+		map[string]any{"role": "user", "content": `CALL lookup {"q":"screen"}`},
+	)
+	r = f.chat(t, map[string]any{"model": "sonnet", "stream": true, "messages": messages, "tools": []any{claudeSubLookupTool}})
+	if r.finish != "tool_calls" || len(r.calls) != 1 {
+		t.Fatalf("tool turn: %+v", r)
+	}
+	messages = append(messages,
+		map[string]any{"role": "assistant", "content": "", "tool_calls": []any{map[string]any{
+			"id": r.calls[0]["id"], "type": "function", "function": map[string]any{"name": "lookup", "arguments": r.calls[0]["arguments"]},
+		}}},
+		map[string]any{"role": "tool", "tool_call_id": r.calls[0]["id"], "content": []any{
+			map[string]any{"type": "text", "text": "Screenshot taken."},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": screen, "detail": "high"}},
+		}},
+	)
+	r = f.chat(t, map[string]any{"model": "sonnet", "stream": true, "messages": messages, "tools": []any{claudeSubLookupTool}})
+	if want := "got: Screenshot taken.\n" + screenShown; r.status != http.StatusOK || r.content != want {
+		t.Fatalf("after the screenshot: %q, want %q (%+v)", r.content, want, r)
+	}
+	pool, _ := f.s.claudePool()
+	if st := pool.Status(); st.Sessions != 1 || st.Running != 1 {
+		t.Fatalf("pool = %+v, want the conversation kept in one session", st)
 	}
 }
 
@@ -734,5 +837,53 @@ func TestClaudeSubscriptionSignInWithACode(t *testing.T) {
 		if code, out, _ := call(http.MethodPost, path, `{"code":"x"}`); code != http.StatusForbidden || out["error"] != "single_user_only" {
 			t.Fatalf("%s on a multi-user install: %d %+v", path, code, out)
 		}
+	}
+}
+
+// Core sizes its request budget from model_capabilities. Without them the
+// bare Claude Code aliases fall back to its 131K default.
+func TestClaudeSubscriptionProviderSendsContextWindows(t *testing.T) {
+	providers := buildCoreProviderConfigs([]ProviderInfo{
+		{Type: claudeSubscriptionProviderKey, ModelLarge: "opus", ModelMedium: "sonnet[1m]", ModelSmall: "claude-haiku-4-5"},
+		{Type: "anthropic", ModelLarge: "claude-opus-4-7", ModelMedium: "claude-sonnet-4-6", ModelSmall: "claude-haiku-4-5"},
+	}, claudeSubscriptionProviderKey)
+	byName := map[string]map[string]any{}
+	for _, provider := range providers {
+		byName[provider["name"].(string)] = provider
+	}
+	sub := byName[claudeSubscriptionProviderKey]
+	if sub == nil {
+		t.Fatalf("claude subscription provider missing: %v", providers)
+	}
+	caps, ok := sub["model_capabilities"].(map[string]ProviderModelCapabilities)
+	if !ok {
+		t.Fatalf("model_capabilities = %T", sub["model_capabilities"])
+	}
+	for id, want := range map[string]int{"opus": 200000, "sonnet": 200000, "haiku": 200000, "opus[1m]": 1000000, "sonnet[1m]": 1000000, "claude-haiku-4-5": 200000} {
+		if got := caps[id].ContextWindow; got != want {
+			t.Fatalf("%s context window = %d, want %d", id, got, want)
+		}
+	}
+	if _, ok := byName["anthropic"]["model_capabilities"]; ok {
+		t.Fatal("other providers gained model capabilities")
+	}
+
+	// An agent's own model is covered too.
+	applyAgentModelOverride(providers, claudeSubscriptionProviderKey, "claude-opus-4-7[1m]")
+	caps = sub["model_capabilities"].(map[string]ProviderModelCapabilities)
+	if got := caps["claude-opus-4-7[1m]"].ContextWindow; got != 1000000 {
+		t.Fatalf("override context window = %d", got)
+	}
+
+	// Entries decoded from JSON keep the windows they already carry.
+	decoded := map[string]any{
+		"name":               claudeSubscriptionProviderKey,
+		"models":             map[string]any{"large": "opus", "medium": "custom-model", "small": "haiku"},
+		"model_capabilities": map[string]any{"opus": map[string]any{"context_window": 123}},
+	}
+	withClaudeSubscriptionCapabilities(decoded)
+	caps = decoded["model_capabilities"].(map[string]ProviderModelCapabilities)
+	if caps["opus"].ContextWindow != 123 || caps["custom-model"].ContextWindow != 200000 {
+		t.Fatalf("decoded capabilities %+v", caps)
 	}
 }

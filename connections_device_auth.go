@@ -350,9 +350,8 @@ func buildOpenAICodexResponsesPayload(input map[string]any) map[string]any {
 	payload := map[string]any{
 		"model": model,
 	}
-	if v, ok := input["temperature"]; ok {
-		payload["temperature"] = v
-	}
+	// The ChatGPT Codex backend rejects sampling parameters, so temperature
+	// is accepted from chat-style callers but not forwarded.
 	if v, ok := input["response_format"]; ok {
 		payload["text"] = map[string]any{"format": v}
 	}

@@ -2,7 +2,6 @@ package claudepool
 
 import (
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -123,17 +122,18 @@ func (p *Pool) parkSleeping(sess *session, reason string) bool {
 	return true
 }
 
-// wakeText is what a session resumed after sleeping receives: the results
-// of the calls it slept on, then the messages that came with them, as a
-// held call would have received them.
-func wakeText(pl plan) string {
-	parts := make([]string, 0, len(pl.wakeResults))
-	for _, msg := range pl.wakeResults {
-		parts = append(parts, renderToolResult(msg))
+// wakeContent is what a session resumed after sleeping receives: the
+// results of the calls it slept on, then the messages that came with them,
+// as a held call would have received them.
+func wakeContent(pl plan) pieces {
+	var ps pieces
+	for i, msg := range pl.wakeResults {
+		if i > 0 {
+			ps.addText("\n\n")
+		}
+		ps.addText(renderToolResult(msg))
+		ps.addImages(msg.Images)
 	}
-	text := strings.Join(parts, "\n\n")
-	if len(pl.userText) > 0 {
-		text += "\n\n<new_messages>\n" + strings.Join(pl.userText, "\n\n") + "\n</new_messages>"
-	}
-	return text
+	ps.addNewMessages(pl.user)
+	return ps
 }

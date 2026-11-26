@@ -660,7 +660,7 @@ func TestPlanFor(t *testing.T) {
 	s.awaiting = []ToolCall{{ID: "t1"}}
 	msgs := append(append([]Message(nil), s.history...), Message{Role: "tool", ToolCallID: "t1", Text: "r"}, user("more"))
 	p := s.planFor(msgs)
-	if p.reseed || len(p.toolResults) != 1 || len(p.userText) != 1 {
+	if p.reseed || len(p.toolResults) != 1 || len(p.user) != 1 {
 		t.Fatalf("plan = %+v", p)
 	}
 	// Moving on without tool results needs a fresh session.

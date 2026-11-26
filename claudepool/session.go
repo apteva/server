@@ -60,7 +60,10 @@ type session struct {
 }
 
 type toolResult struct {
-	text    string
+	text string
+	// content, when set, replaces text: stream-json content blocks, which
+	// may hold images (see Pool.blocks).
+	content []map[string]any
 	isError bool
 }
 
@@ -158,8 +161,10 @@ func (s *session) failHeld(text string) {
 type plan struct {
 	toolResults []Message // results for the session's awaiting calls
 	wakeResults []Message // results for the calls a parked session slept on
-	userText    []string  // new user content
-	reseed      bool      // start a fresh Claude session from the history
+	// user is the new user content, including results for calls the
+	// session is not waiting on, written out as text.
+	user   []Message
+	reseed bool // start a fresh Claude session from the history
 }
 
 // matchHistory reports whether history is a prefix of messages.
@@ -177,7 +182,8 @@ func matchHistory(history, messages []Message) bool {
 
 // sameMessage compares two conversation entries. Assistant replies are
 // compared by their tool call ids when they have any, since callers may
-// reformat the text or arguments they store.
+// reformat the text or arguments they store, and tool results by their
+// call id. User messages are compared by text and images.
 func sameMessage(a, b Message) bool {
 	if a.Role != b.Role {
 		return false
@@ -191,7 +197,7 @@ func sameMessage(a, b Message) bool {
 	case "tool":
 		return a.ToolCallID == b.ToolCallID
 	default:
-		return normalize(a.Text) == normalize(b.Text)
+		return normalize(a.Text) == normalize(b.Text) && sameImages(a.Images, b.Images)
 	}
 }
 
@@ -237,7 +243,7 @@ func (s *session) planFor(messages []Message) plan {
 	for ; i < len(suffix); i++ {
 		switch suffix[i].Role {
 		case "user":
-			p.userText = append(p.userText, suffix[i].Text)
+			p.user = append(p.user, suffix[i])
 		case "tool":
 			if s.sleptOn(suffix[i].ToolCallID) {
 				p.wakeResults = append(p.wakeResults, suffix[i])
@@ -245,7 +251,7 @@ func (s *session) planFor(messages []Message) plan {
 			}
 			// Results for calls this session is not waiting on, e.g.
 			// after its process was restarted mid-turn.
-			p.userText = append(p.userText, renderToolResult(suffix[i]))
+			p.user = append(p.user, Message{Role: "user", Text: renderToolResult(suffix[i]), Images: suffix[i].Images})
 		default:
 			return plan{reseed: true}
 		}
@@ -254,43 +260,64 @@ func (s *session) planFor(messages []Message) plan {
 }
 
 // renderTranscript turns a conversation into the first message of a new
-// Claude session.
-func renderTranscript(messages []Message) string {
+// Claude session. Images stay where they were, but only the most recent
+// maxReseedImages are sent again; earlier ones are named in a note.
+func renderTranscript(messages []Message) pieces {
+	var ps pieces
 	if len(messages) == 1 && messages[0].Role == "user" {
-		return messages[0].Text
+		ps.addText(messages[0].Text)
+		ps.addImages(messages[0].Images)
+		return ps
+	}
+	skip := -maxReseedImages
+	for _, msg := range messages {
+		skip += len(msg.Images)
+	}
+	addImages := func(images []Image) {
+		for i := range images {
+			if skip > 0 {
+				skip--
+				ps.addText("\n[An earlier image was here; it is not shown again.]")
+				continue
+			}
+			ps.addImages(images[i : i+1])
+		}
 	}
 	last := len(messages) - 1
 	for last >= 0 && messages[last].Role == "user" {
 		last--
 	}
-	var b strings.Builder
-	b.WriteString("This conversation continues from an earlier session. Here is everything so far:\n\n<conversation>\n")
+	ps.addText("This conversation continues from an earlier session. Here is everything so far:\n\n<conversation>\n")
 	for _, msg := range messages[:last+1] {
 		switch msg.Role {
 		case "user":
-			fmt.Fprintf(&b, "[user]\n%s\n\n", msg.Text)
+			ps.addText("[user]\n" + msg.Text)
+			addImages(msg.Images)
+			ps.addText("\n\n")
 		case "assistant":
 			if strings.TrimSpace(msg.Text) != "" {
-				fmt.Fprintf(&b, "[assistant]\n%s\n\n", msg.Text)
+				ps.addText(fmt.Sprintf("[assistant]\n%s\n\n", msg.Text))
 			}
 			for _, call := range msg.ToolCalls {
-				fmt.Fprintf(&b, "[assistant called tool %s, id %s]\n%s\n\n", call.Name, call.ID, call.Arguments)
+				ps.addText(fmt.Sprintf("[assistant called tool %s, id %s]\n%s\n\n", call.Name, call.ID, call.Arguments))
 			}
 		case "tool":
-			b.WriteString(renderToolResult(msg))
-			b.WriteString("\n\n")
+			ps.addText(renderToolResult(msg))
+			addImages(msg.Images)
+			ps.addText("\n\n")
 		}
 	}
-	b.WriteString("</conversation>\n\n")
+	ps.addText("</conversation>\n\n")
 	if last == len(messages)-1 {
-		b.WriteString("Continue from the last tool results above.")
-		return b.String()
+		ps.addText("Continue from the last tool results above.")
+		return ps
 	}
 	for _, msg := range messages[last+1:] {
-		b.WriteString(msg.Text)
-		b.WriteString("\n\n")
+		ps.addText(msg.Text)
+		addImages(msg.Images)
+		ps.addText("\n\n")
 	}
-	return strings.TrimSpace(b.String())
+	return ps.trimEnd()
 }
 
 func renderToolResult(msg Message) string {

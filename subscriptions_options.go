@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// subscriptionDeliveryOptions narrow when a webhook or polled
+// subscriptionDeliveryOptions narrow when a webhook, polled or app-event
 // subscription wakes its agent: payload filters, an expiry time, and
 // once (the subscription is removed after its first delivered event).
 type subscriptionDeliveryOptions struct {
@@ -129,8 +129,8 @@ type expiredSubscriptionRef struct {
 	ID     string
 }
 
-// ListExpiredSubscriptions returns webhook and polled subscriptions past
-// their expiry. Ephemeral app waits have their own cleanup.
+// ListExpiredSubscriptions returns webhook, polled and app-event
+// subscriptions past their expiry. Ephemeral app waits have their own cleanup.
 func (s *Store) ListExpiredSubscriptions(limit int) ([]expiredSubscriptionRef, error) {
 	rows, err := s.dbQuery(
 		`SELECT user_id, id FROM subscriptions
