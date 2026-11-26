@@ -449,12 +449,20 @@ func validateIntegrationProxyURL(raw string) error {
 	return nil
 }
 
+// integrationTLSHandshakeTimeout is how long an integration call may
+// spend on the TLS handshake.
+const integrationTLSHandshakeTimeout = 30 * time.Second
+
 func newIntegrationHTTPClient(app *AppTemplate, credentials map[string]string, timeout time.Duration) (*http.Client, error) {
 	proxyRaw, proxyEnv, err := integrationProxyURL(app)
 	if err != nil {
 		return nil, err
 	}
 	base := http.DefaultTransport.(*http.Transport).Clone()
+	// Go's default 10 s handshake cap is shorter than some public APIs
+	// need (GDELT routinely takes 10-14 s). The client's own Timeout
+	// still bounds the whole request.
+	base.TLSHandshakeTimeout = integrationTLSHandshakeTimeout
 	if proxyRaw != "" {
 		proxyURL, err := neturl.Parse(proxyRaw)
 		if err != nil {
