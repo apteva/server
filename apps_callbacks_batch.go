@@ -135,6 +135,9 @@ func (s *Server) authorizeAppCallback(w http.ResponseWriter, installID int64, ta
 	if targetInstallID == 0 {
 		id, msg, resolved := s.resolveDynamicTarget(installID, targetAppName, effectiveProjectID)
 		if !resolved {
+			if code := appCallErrorCode(msg); code != "" {
+				w.Header().Set(appCallErrorCodeHeader, code)
+			}
 			http.Error(w, msg, http.StatusForbidden)
 			return nil, false
 		}

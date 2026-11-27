@@ -138,12 +138,22 @@ func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName, dele
 	if err != nil || callerMan == nil {
 		return 0, "app not bound: " + targetAppName, false
 	}
-	if !callerMan.Requires.DynamicAppCalls || !isOfficialCaller(callerMan) {
-		return 0, "app not bound: " + targetAppName, false
-	}
 	callerProject := installProjectID(s, callerInstallID)
 	if callerProject == "" {
 		callerProject = strings.TrimSpace(delegatedProjectID)
+	}
+	if !callerMan.Requires.DynamicAppCalls || !isOfficialCaller(callerMan) {
+		// A caller that declares the target as a dependency is told when the
+		// target simply is not installed, so an optional dependency can be
+		// skipped instead of read as a permissions problem. Other callers
+		// learn nothing about what is installed.
+		if manifestDeclaresApp(callerMan, targetAppName) {
+			if _, installed := s.findInstalledApp(targetAppName, callerProject); !installed {
+				return 0, appNotInstalledPrefix + targetAppName, false
+			}
+			return 0, "app not bound: " + targetAppName + " (installed, but not linked to this app)", false
+		}
+		return 0, "app not bound: " + targetAppName, false
 	}
 	id, ok := s.findInstalledApp(targetAppName, callerProject)
 	if !ok || id == 0 {
@@ -163,4 +173,47 @@ func (s *Server) resolveDynamicTarget(callerInstallID int64, targetAppName, dele
 	debugLogf("[APPS-CALL] dynamic caller=%s caller_install=%d project=%s target=%s target_install=%d",
 		callerMan.Name, callerInstallID, callerProject, targetAppName, id)
 	return id, "", true
+}
+
+// Apps may rely on these: the message prefix of a refused app call and the
+// X-Apteva-Error-Code header sent with it.
+const (
+	appNotInstalledPrefix  = "app not installed: "
+	appCallErrorCodeHeader = "X-Apteva-Error-Code"
+)
+
+// appCallErrorCode maps a refusal message from resolveDynamicTarget to its
+// stable code.
+func appCallErrorCode(message string) string {
+	switch {
+	case strings.HasPrefix(message, appNotInstalledPrefix):
+		return "app_not_installed"
+	case strings.HasPrefix(message, "app not bound: "):
+		return "app_not_bound"
+	case strings.HasPrefix(message, "app not reachable: "):
+		return "app_not_reachable"
+	}
+	return ""
+}
+
+// manifestDeclaresApp reports whether the manifest names the app as a
+// dependency, required or optional.
+func manifestDeclaresApp(m *sdk.Manifest, appName string) bool {
+	target := normalizeAppName(appName)
+	for _, dep := range m.Requires.Apps {
+		if normalizeAppName(dep.Name) == target {
+			return true
+		}
+	}
+	for _, dep := range m.Requires.Integrations {
+		if dep.Kind != "app" {
+			continue
+		}
+		for _, slug := range dep.CompatibleSlugs {
+			if normalizeAppName(slug) == target {
+				return true
+			}
+		}
+	}
+	return false
 }
