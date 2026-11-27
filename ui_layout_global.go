@@ -78,6 +78,7 @@ func (s *Store) PatchUserUILayoutGlobalSurface(userID int64, surface string, val
 		if err := json.Unmarshal(current, &document); err != nil || document == nil {
 			document = map[string]any{}
 		}
+		before := uiLayoutSnapshot(document)
 		global, _ := document["global"].(map[string]any)
 		if global == nil {
 			global = map[string]any{}
@@ -107,6 +108,9 @@ func (s *Store) PatchUserUILayoutGlobalSurface(userID int64, surface string, val
 		}
 		changed, _ := result.RowsAffected()
 		if changed == 1 {
+			s.uiLayoutSaved(before, next, uiLayoutChange{
+				UserID: userID, Scope: "global", Surface: surface, Change: "updated", Revision: revision + 1,
+			})
 			return json.RawMessage(next), revision + 1, nil
 		}
 		if expectedRevision != nil {

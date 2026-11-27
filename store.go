@@ -135,6 +135,8 @@ type Store struct {
 	apiKeyUsage           *apiKeyUsageTracker
 	// Invalidates live app telemetry eligibility after committed agent changes.
 	agentEligibilityRevision atomic.Uint64
+	// Called after a UI layout write that changed the document. Set once at boot.
+	uiLayoutChanged func(uiLayoutChange)
 }
 
 const (
@@ -2218,7 +2220,10 @@ func (s *Store) SetUserUILayout(userID int64, layout json.RawMessage) error {
 	if err := json.Unmarshal([]byte(raw), &object); err != nil || object == nil {
 		return errors.New("ui_layout must be a JSON object")
 	}
-	_, err := s.dbExec(
+	previous, _ := s.GetUserUILayoutWithRevision(userID)
+	var previousObject any
+	_ = json.Unmarshal(previous, &previousObject)
+	if _, err := s.dbExec(
 		`INSERT INTO user_preferences (user_id, ui_layout, ui_layout_revision, updated_at)
 		 VALUES (?, ?, 1, CURRENT_TIMESTAMP)
 		 ON CONFLICT(user_id) DO UPDATE SET
@@ -2226,8 +2231,14 @@ func (s *Store) SetUserUILayout(userID int64, layout json.RawMessage) error {
 			ui_layout_revision = user_preferences.ui_layout_revision + 1,
 			updated_at = CURRENT_TIMESTAMP`,
 		userID, raw,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	_, revision := s.GetUserUILayoutWithRevision(userID)
+	s.uiLayoutSaved(uiLayoutSnapshot(previousObject), uiLayoutSnapshot(object), uiLayoutChange{
+		UserID: userID, Scope: "layout", Change: "updated", Revision: revision,
+	})
+	return nil
 }
 
 var errUILayoutConflict = errors.New("ui layout changed in another session")
@@ -2257,6 +2268,7 @@ func (s *Store) PatchUserUILayoutSurface(userID int64, projectID, surface string
 		if err := json.Unmarshal(current, &document); err != nil || document == nil {
 			document = map[string]any{}
 		}
+		before := uiLayoutSnapshot(document)
 		projects, _ := document["projects"].(map[string]any)
 		if projects == nil {
 			projects = map[string]any{}
@@ -2294,6 +2306,9 @@ func (s *Store) PatchUserUILayoutSurface(userID int64, projectID, surface string
 		}
 		changed, _ := result.RowsAffected()
 		if changed == 1 {
+			s.uiLayoutSaved(before, next, uiLayoutChange{
+				UserID: userID, ProjectID: projectID, Scope: "project", Surface: surface, Change: "updated", Revision: revision + 1,
+			})
 			return json.RawMessage(next), revision + 1, nil
 		}
 		if expectedRevision != nil {

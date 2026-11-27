@@ -117,6 +117,7 @@ func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage,
 		if json.Unmarshal(current, &document) != nil || document == nil {
 			document = map[string]any{}
 		}
+		before := uiLayoutSnapshot(document)
 		var target map[string]any
 		if page.Scope == "global" {
 			target, _ = document["global"].(map[string]any)
@@ -187,6 +188,17 @@ func (s *Store) mutateUIPage(userID int64, projectID string, page workspacePage,
 		}
 		changed, _ := result.RowsAffected()
 		if changed == 1 {
+			change := uiLayoutChange{UserID: userID, ProjectID: projectID, Scope: "project", PageID: page.ID, Change: "updated", Revision: revision + 1}
+			if page.Scope == "global" {
+				change.ProjectID, change.Scope = "", "global"
+			}
+			switch method {
+			case http.MethodPost:
+				change.Change = "created"
+			case http.MethodDelete:
+				change.Change = "deleted"
+			}
+			s.uiLayoutSaved(before, next, change)
 			return json.RawMessage(next), revision + 1, nil
 		}
 		if len(expected) > 0 && expected[0] != nil {
