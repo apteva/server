@@ -196,3 +196,55 @@ func TestIsOfficialCaller_ExtendedViaEnv(t *testing.T) {
 		t.Error("env-set prefixes should fully replace the default")
 	}
 }
+
+func manifestWithAppDep(name, dep string, optional bool) sdk.Manifest {
+	return sdk.Manifest{Name: name, Requires: sdk.Requires{Apps: []sdk.RequiredAppRef{{Name: dep, Optional: optional}}}}
+}
+
+// A declared dependency that is not installed is reported as such, apart from
+// a permissions refusal.
+func TestResolveDynamicTarget_DeclaredDependencyNotInstalled(t *testing.T) {
+	s := newTestServer(t)
+	caller := seedRunningInstall(t, s, "workspaces", "proj-1", manifestWithAppDep("workspaces", "containers", true), nil)
+
+	id, msg, ok := s.resolveDynamicTarget(caller, "containers", "")
+	if ok || id != 0 || msg != "app not installed: containers" {
+		t.Fatalf("got id=%d ok=%v msg=%q, want app not installed", id, ok, msg)
+	}
+	if code := appCallErrorCode(msg); code != "app_not_installed" {
+		t.Fatalf("code = %q", code)
+	}
+
+	// Installed in another project only: still not installed for this caller.
+	seedRunningInstall(t, s, "containers", "proj-2", sdk.Manifest{Name: "containers"}, nil)
+	if _, msg, _ := s.resolveDynamicTarget(caller, "containers", ""); msg != "app not installed: containers" {
+		t.Fatalf("other project's install: msg=%q, want app not installed", msg)
+	}
+}
+
+// Installed but never linked is a binding problem, and says so.
+func TestResolveDynamicTarget_DeclaredDependencyInstalledButUnbound(t *testing.T) {
+	s := newTestServer(t)
+	caller := seedRunningInstall(t, s, "workspaces", "proj-1", manifestWithAppDep("workspaces", "containers", true), nil)
+	seedRunningInstall(t, s, "containers", "proj-1", sdk.Manifest{Name: "containers"}, nil)
+
+	id, msg, ok := s.resolveDynamicTarget(caller, "containers", "")
+	if ok || id != 0 || !strings.HasPrefix(msg, "app not bound: containers") || !strings.Contains(msg, "installed") {
+		t.Fatalf("got id=%d ok=%v msg=%q, want app not bound (installed)", id, ok, msg)
+	}
+	if code := appCallErrorCode(msg); code != "app_not_bound" {
+		t.Fatalf("code = %q", code)
+	}
+}
+
+// A caller that does not declare the app learns nothing about installs.
+func TestResolveDynamicTarget_UndeclaredAppRevealsNothing(t *testing.T) {
+	s := newTestServer(t)
+	caller := seedRunningInstall(t, s, "notes", "proj-1", sdk.Manifest{Name: "notes"}, nil)
+	_, absent, _ := s.resolveDynamicTarget(caller, "containers", "")
+	seedRunningInstall(t, s, "containers", "proj-1", sdk.Manifest{Name: "containers"}, nil)
+	_, present, _ := s.resolveDynamicTarget(caller, "containers", "")
+	if absent != "app not bound: containers" || present != absent {
+		t.Fatalf("absent=%q present=%q, want the same plain refusal", absent, present)
+	}
+}
