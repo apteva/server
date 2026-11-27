@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -465,11 +466,10 @@ func (s *Server) activeAdminCount() int {
 }
 
 // stopUserAgentsForContainment stops running cores owned by a disabled user
-// so a core API key cannot keep acting for them. Best effort.
+// so a core API key cannot keep acting for them, and records each agent as
+// stopped. Without that record the next server start would find the agents
+// still marked running and start them again. Best effort.
 func (s *Server) stopUserAgentsForContainment(userID int64) {
-	if s.agents == nil {
-		return
-	}
 	rows, err := s.store.db.Query(`SELECT id FROM agents WHERE user_id = ?`, userID)
 	if err != nil {
 		return
@@ -483,9 +483,24 @@ func (s *Server) stopUserAgentsForContainment(userID int64) {
 	}
 	rows.Close()
 	for _, id := range ids {
-		s.agents.Stop(id)
+		if s.agents != nil {
+			s.stopAgentWithConfigLock(id)
+		}
+		inst, err := s.store.GetAgentByID(id)
+		if err != nil || strings.EqualFold(inst.Status, "stopped") {
+			continue
+		}
+		inst.Status = "stopped"
+		if err := s.store.UpdateAgent(inst); err != nil {
+			log.Printf("[SECURITY] record stopped agent=%d of disabled user=%d: %v", id, userID, err)
+		}
 	}
 }
+
+// errAgentOwnerDisabled refuses to start an agent whose owner's account is
+// disabled. An agent runs with its owner's providers and connections, so
+// starting it would keep a disabled account acting.
+var errAgentOwnerDisabled = errors.New("the agent owner's account is disabled")
 
 // ─── containment ──────────────────────────────────────────────────────────
 
