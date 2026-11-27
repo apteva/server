@@ -1675,6 +1675,7 @@ func main() {
 	// installs surface in the dashboard's Apps tab.
 	s.installedApps = NewInstalledAppsRegistry()
 	s.appBus = NewAppEventBus()
+	s.store.uiLayoutChanged = s.publishUILayoutChange
 	// Bridge AppEventBus → subscriptions(source='app_event'). Started
 	// here so by the time the HTTP listener accepts requests every
 	// active app-event subscription is already wired to its lane. Reconcile
