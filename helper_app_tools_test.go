@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/apteva/app-sdk"
 )
@@ -19,6 +20,8 @@ type helperBrokerFixture struct {
 	called          int
 	operator        bool
 	lastArgs        map[string]any
+	// When set, answers a tool call in place of the normal result.
+	callReply func(w http.ResponseWriter, id any)
 }
 
 func newHelperBrokerFixture(t *testing.T) *helperBrokerFixture {
@@ -54,6 +57,10 @@ func newHelperBrokerFixture(t *testing.T) *helperBrokerFixture {
 		} else {
 			f.called++
 			f.lastArgs = rpc.Params.Arguments
+			if f.callReply != nil {
+				f.callReply(w, rpc.ID)
+				return
+			}
 			if r.Header.Get("X-Apteva-Caller-Thread") != f.thread || r.Header.Get("X-Apteva-Project-ID") != project {
 				t.Error("lost trusted thread/project")
 			}
@@ -462,5 +469,56 @@ func TestHelperAppToolSearchBoundsNamedTools(t *testing.T) {
 	out := f.searchWith(t, map[string]any{"query": "workspace", "tools": ten})
 	if len(out.Tools) != helperToolDetailLimit || len(out.NotFound) != 0 || len(out.Omitted) != 0 {
 		t.Fatalf("ten named tools not all returned: tools=%d not_found=%v omitted=%v", len(out.Tools), out.NotFound, out.Omitted)
+	}
+}
+
+func helperCallErrorText(t *testing.T, result map[string]any) string {
+	t.Helper()
+	if result["isError"] != true {
+		t.Fatalf("call did not fail: %v", result)
+	}
+	return result["content"].([]any)[0].(map[string]any)["text"].(string)
+}
+
+// The app's own reason for refusing a call reaches the Helper.
+func TestHelperAppToolCallReturnsAppError(t *testing.T) {
+	f := newHelperBrokerFixture(t)
+	ref := f.search(t)
+
+	f.callReply = func(w http.ResponseWriter, id any) {
+		writeJSON(w, map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32602, "message": "ttl_minutes must be between 1 and 480"}})
+	}
+	text := helperCallErrorText(t, f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": map[string]any{"limit": 5}}))
+	if !strings.Contains(text, "app error: ttl_minutes must be between 1 and 480") {
+		t.Fatalf("error text = %q, want the app's message", text)
+	}
+
+	// An HTTP refusal keeps its status and gains the reason.
+	f.callReply = func(w http.ResponseWriter, id any) {
+		http.Error(w, "profile apteva is not configured with an image", http.StatusBadRequest)
+	}
+	text = helperCallErrorText(t, f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": map[string]any{"limit": 5}}))
+	if !strings.Contains(text, "HTTP 400") || !strings.Contains(text, "profile apteva is not configured with an image") {
+		t.Fatalf("error text = %q, want status and reason", text)
+	}
+
+	// A reply with neither result nor error keeps the generic message.
+	f.callReply = func(w http.ResponseWriter, id any) { writeJSON(w, map[string]any{"jsonrpc": "2.0", "id": id}) }
+	text = helperCallErrorText(t, f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": map[string]any{"limit": 5}}))
+	if !strings.Contains(text, "app call failed") {
+		t.Fatalf("error text = %q, want generic failure", text)
+	}
+}
+
+func TestHelperAppErrorTextIsBoundedPlainText(t *testing.T) {
+	got := helperAppErrorText("bad\n\tvalue\x00 here \x1b[31m" + strings.Repeat("é", 600))
+	if strings.ContainsAny(got, "\n\t\x00\x1b") {
+		t.Fatalf("control characters kept: %q", got)
+	}
+	if !strings.HasPrefix(got, "bad value here [31m") || !strings.HasSuffix(got, "…") {
+		t.Fatalf("unexpected text: %q", got)
+	}
+	if len(got) > helperAppErrorLimit+len("…") || !utf8.ValidString(got) {
+		t.Fatalf("len=%d valid=%v, want at most %d bytes of valid text", len(got), utf8.ValidString(got), helperAppErrorLimit)
 	}
 }

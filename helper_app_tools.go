@@ -5,12 +5,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // The broker never adds an app to the Helper's permanent MCP configuration.
@@ -109,9 +112,65 @@ func (s *Server) helperAppRequest(parent *http.Request, agent *Agent, project, t
 	rec := &helperProxyResponse{header: make(http.Header)}
 	s.handleAppProxy(rec, req)
 	if rec.status < 200 || rec.status >= 300 {
-		return nil, fmt.Errorf("app request rejected (HTTP %d)", rec.status)
+		return nil, &helperAppHTTPError{status: rec.status, body: rec.body.String()}
 	}
 	return rec.body.Bytes(), nil
+}
+
+// helperAppHTTPError is an app request the proxy or the app refused. The
+// status is all most callers report; a tool call also passes on the reason.
+type helperAppHTTPError struct {
+	status int
+	body   string
+}
+
+func (e *helperAppHTTPError) Error() string {
+	return fmt.Sprintf("app request rejected (HTTP %d)", e.status)
+}
+
+const helperAppErrorLimit = 500
+
+// helperAppErrorText makes an app's error message safe to hand to the Helper:
+// one line of plain text, at most helperAppErrorLimit bytes.
+func helperAppErrorText(message string) string {
+	message = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(message, ""))), " ")
+	if len(message) <= helperAppErrorLimit {
+		return message
+	}
+	cut := helperAppErrorLimit
+	for cut > 0 && !utf8.RuneStart(message[cut]) {
+		cut--
+	}
+	return message[:cut] + "…"
+}
+
+// helperAppCallError turns a failed app tool call into the error the Helper
+// sees. The app's own reason is kept, so the Helper can tell a wrong argument
+// from a broken app, and the failure is logged.
+func helperAppCallError(app, tool string, install int64, callErr error, reply map[string]any) error {
+	detail, code := "", any(nil)
+	var rejected *helperAppHTTPError
+	if errors.As(callErr, &rejected) {
+		detail, code = helperAppErrorText(rejected.body), rejected.status
+	} else if rpcErr, ok := reply["error"].(map[string]any); ok {
+		message, _ := rpcErr["message"].(string)
+		detail, code = helperAppErrorText(message), rpcErr["code"]
+	}
+	log.Printf("[HELPER-APPS] app tool call failed app=%s tool=%s install=%d code=%v error=%q transport=%v", app, tool, install, code, detail, callErr)
+	switch {
+	case callErr != nil && detail == "":
+		return callErr
+	case callErr != nil:
+		return fmt.Errorf("%v: %s", callErr, detail)
+	case detail == "":
+		return fmt.Errorf("app call failed")
+	}
+	return fmt.Errorf("app error: %s", detail)
 }
 func (s *Server) helperOperatorScope(r *http.Request, agent *Agent, thread, project string) error {
 	if project == "" || thread == "" || thread == "main" {
@@ -459,7 +518,7 @@ func (s *Server) handleHelperAppTool(w http.ResponseWriter, r *http.Request, age
 		}()
 		raw, e := s.helperAppRequest(r, agent, project, thread, candidate.Install, candidate.App, "/mcp", "POST", payload)
 		if e != nil {
-			return fail(e)
+			return fail(helperAppCallError(candidate.App, ref.Tool, candidate.Install, e, nil))
 		}
 		var reply map[string]any
 		if json.Unmarshal(raw, &reply) != nil {
@@ -467,7 +526,7 @@ func (s *Server) handleHelperAppTool(w http.ResponseWriter, r *http.Request, age
 		}
 		result = reply["result"]
 		if result == nil {
-			return fail(fmt.Errorf("app call failed"))
+			return fail(helperAppCallError(candidate.App, ref.Tool, candidate.Install, nil, reply))
 		}
 		if value, ok := result.(map[string]any); ok && value["isError"] != true {
 			status = "success"
