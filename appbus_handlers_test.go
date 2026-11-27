@@ -72,6 +72,12 @@ func seedProject(t *testing.T, s *Server, id string) {
 	); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
+	// CreateProject makes the creator an owner; the stream check needs it.
+	if _, err := s.store.db.Exec(
+		`INSERT OR IGNORE INTO project_members (project_id, user_id, role, added_by) VALUES (?, 1, 'owner', 1)`, id,
+	); err != nil {
+		t.Fatalf("seed project owner: %v", err)
+	}
 }
 
 func newBusServer(t *testing.T) *Server {
