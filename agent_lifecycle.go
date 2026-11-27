@@ -409,6 +409,9 @@ func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, p
 		err = s.dropUnlinkedSavedAppMCPs(inst)
 	}
 	if err == nil {
+		err = s.dropUnusableSavedMCPs(inst)
+	}
+	if err == nil {
 		err = s.reconcileAgentBehavior(context.Background(), inst, 0)
 	}
 	if err != nil {

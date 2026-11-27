@@ -515,6 +515,85 @@ func (s *Server) dropUnlinkedSavedAppMCPs(inst *Agent) error {
 	return nil
 }
 
+// dropUnusableSavedMCPs removes MCP entries from an agent's saved
+// configuration that this agent may not use: a server that belongs to another
+// project, or one that no longer exists. Start copies saved entries into every
+// start and refuses to start on the first one that fails authorization, so one
+// such entry would otherwise keep the agent from ever starting. Each entry is
+// checked on its own and the rest are kept. The Apteva Server entry is managed
+// by its own setting and is left alone.
+func (s *Server) dropUnusableSavedMCPs(inst *Agent) error {
+	if inst == nil || strings.TrimSpace(inst.Config) == "" {
+		return nil
+	}
+	var cfg map[string]any
+	if json.Unmarshal([]byte(inst.Config), &cfg) != nil || cfg == nil {
+		return nil
+	}
+	saved, _ := cfg["mcp_servers"].([]any)
+	kept := make([]any, 0, len(saved))
+	var dropped []string
+	for _, raw := range saved {
+		entry, _ := raw.(map[string]any)
+		name, _ := entry["name"].(string)
+		if entry == nil || name == platformMCPName {
+			kept = append(kept, raw)
+			continue
+		}
+		// Authorization rewrites the entry it checks, so check a copy.
+		probe := make(map[string]any, len(entry))
+		for key, value := range entry {
+			probe[key] = value
+		}
+		if err := s.authorizeAgentMCPConfig(inst, map[string]any{"mcp_servers": []any{probe}}); err != nil {
+			dropped = append(dropped, fmt.Sprintf("%s(%v)", name, err))
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+	cfg["mcp_servers"] = kept
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	inst.Config = string(encoded)
+	if err := s.store.UpdateAgent(inst); err != nil {
+		return err
+	}
+	log.Printf("[MCP-ATTACH] dropped saved MCP entries the agent may not use agent=%d entries=%s", inst.ID, strings.Join(dropped, "; "))
+	return nil
+}
+
+// keepSavedMCPs trims the MCP entries in an agent's saved configuration to
+// the names in desired, the list just written to config.json. Start copies
+// saved entries that config.json lacks back in, so an entry left here after a
+// detach would return on the next start.
+func keepSavedMCPs(instCfg map[string]any, desired []any) {
+	saved, ok := instCfg["mcp_servers"].([]any)
+	if !ok {
+		return
+	}
+	names := map[string]bool{}
+	for _, raw := range desired {
+		if entry, ok := raw.(map[string]any); ok {
+			if name, _ := entry["name"].(string); name != "" {
+				names[name] = true
+			}
+		}
+	}
+	kept := make([]any, 0, len(saved))
+	for _, raw := range saved {
+		entry, _ := raw.(map[string]any)
+		if name, _ := entry["name"].(string); names[name] {
+			kept = append(kept, raw)
+		}
+	}
+	instCfg["mcp_servers"] = kept
+}
+
 func (s *Server) appInstallDisabled(installID int64) bool {
 	var status string
 	err := s.store.dbQueryRow(`SELECT status FROM app_installs WHERE id=?`, installID).Scan(&status)
