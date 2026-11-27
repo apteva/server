@@ -286,6 +286,10 @@ func openStore(path string, migrate bool) (*Store, error) {
 			db.Close()
 			return nil, fmt.Errorf("migrate agent template versions: %w", err)
 		}
+		if err := s.migratePasswordResetTokens(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("migrate password reset tokens: %w", err)
+		}
 	}
 	if s.apiKeyUsage, err = newAPIKeyUsageTracker(db); err != nil {
 		db.Close()
