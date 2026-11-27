@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -58,26 +59,75 @@ func officialAppPrefixes() []string {
 	return out
 }
 
-// isOfficialCaller reports whether m is an official Apteva app —
-// its runtime.source.repo matches one of the configured trusted
-// prefixes. Apps installed as binaries or container images have no
-// source repo and are NOT considered official by this function; if
-// a binary-shipped app ever needs dynamic-call access, add a
-// binary-source / image-digest check alongside this one.
+// isOfficialCaller reports whether m is an official Apteva app: the code
+// the server runs for it comes from a trusted location.
+//
+// The manifest names where its code comes from, and anyone can write a
+// manifest, so every location the server could take runnable code from has
+// to be trusted, not just runtime.source.repo:
+//
+//   - runtime.source.repo matches one of the trusted prefixes, and
+//   - every prebuilt artifact, binary and bundle the manifest lists is
+//     an https URL under one of them.
+//
+// A prebuilt artifact takes precedence over building from source, so
+// without the second rule a manifest could claim an official repo while
+// the server downloads and runs something else. Apps with no source repo
+// are NOT considered official by this function; if a binary-only app ever
+// needs dynamic-call access, add a digest check alongside this one.
 func isOfficialCaller(m *sdk.Manifest) bool {
 	if m == nil || m.Runtime.Source == nil {
 		return false
 	}
-	repo := m.Runtime.Source.Repo
-	if repo == "" {
+	prefixes := officialAppPrefixes()
+	if !officialLocation(m.Runtime.Source.Repo, prefixes) {
 		return false
 	}
-	for _, p := range officialAppPrefixes() {
-		if strings.HasPrefix(repo, p) {
+	for _, artifact := range m.Runtime.Artifacts {
+		if !officialDownload(artifact.URL, prefixes) {
+			return false
+		}
+	}
+	for _, binary := range m.Runtime.Binaries {
+		if !officialDownload(binary, prefixes) {
+			return false
+		}
+	}
+	if m.Runtime.Bundle != nil && !officialDownload(m.Runtime.Bundle.URL, prefixes) {
+		return false
+	}
+	return true
+}
+
+// officialLocation reports whether a host/path location such as
+// "github.com/apteva/apps" lies under a trusted prefix. Dot segments,
+// encoded characters and backslashes are refused: a fetcher may resolve
+// "github.com/apteva/../other/repo" to another owner's repository.
+func officialLocation(location string, prefixes []string) bool {
+	if location == "" || strings.ContainsAny(location, "%\\@?#") {
+		return false
+	}
+	for _, segment := range strings.Split(location, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(location, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// officialDownload reports whether a download URL is https and lies under
+// a trusted prefix. Local paths and other schemes are never official.
+func officialDownload(raw string, prefixes []string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Host == "" || u.Port() != "" {
+		return false
+	}
+	return officialLocation(strings.ToLower(u.Host)+u.EscapedPath(), prefixes)
 }
 
 // installProjectID returns the project_id for an install row. Empty
