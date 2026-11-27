@@ -321,6 +321,12 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	case serverModeResetPassword:
+		if err := runResetPassword(serverDBPath(), invocation.email, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "reset-password: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	case serverModeMCPGateway:
 		dbPath := os.Getenv("DB_PATH")
 		if dbPath == "" {
@@ -776,6 +782,8 @@ func main() {
 	apiMux.HandleFunc("/auth/logout", s.handleLogout)
 	apiMux.HandleFunc("/auth/me", s.handleMe)
 	apiMux.HandleFunc("/auth/password", s.authMiddleware(s.handleChangePassword))
+	apiMux.HandleFunc("/auth/password-reset", s.handlePasswordReset)
+	apiMux.HandleFunc("/auth/password-reset/check", s.handlePasswordResetCheck)
 	apiMux.HandleFunc("/auth/mfa", s.authMiddleware(s.handleMFAStatus))
 	apiMux.HandleFunc("/auth/mfa/enroll", s.authMiddleware(s.handleMFAEnroll))
 	apiMux.HandleFunc("/auth/mfa/confirm", s.authMiddleware(s.handleMFAConfirm))

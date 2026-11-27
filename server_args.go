@@ -18,12 +18,14 @@ const (
 	serverModeHostCheckSchema
 	serverModeMCPProxy
 	serverModeMCPGateway
+	serverModeResetPassword
 )
 
 type serverInvocation struct {
 	mode         serverInvocationMode
 	connectionID int64
 	userID       int64
+	email        string
 }
 
 // parseServerInvocation classifies every supported apteva-server invocation
@@ -80,6 +82,13 @@ func parseServerInvocation(args []string) (serverInvocation, error) {
 			return serverInvocation{}, err
 		}
 		return serverInvocation{mode: serverModeMCPGateway, userID: id}, nil
+	case "--reset-password":
+		// Internal mode behind `apteva reset-password`; the new password
+		// arrives on stdin so it never appears in a process listing.
+		if len(args) != 2 || !strings.HasPrefix(args[1], "--email=") || strings.TrimSpace(strings.TrimPrefix(args[1], "--email=")) == "" {
+			return serverInvocation{}, errors.New("reset-password requires exactly one --email=<email> argument")
+		}
+		return serverInvocation{mode: serverModeResetPassword, email: strings.TrimPrefix(args[1], "--email=")}, nil
 	default:
 		return serverInvocation{}, fmt.Errorf("unsupported argument %q", args[0])
 	}
@@ -112,5 +121,6 @@ func serverUsage() string {
 
 Internal modes:
   apteva-server --mcp-proxy --connection-id=<id>
-  apteva-server --mcp-gateway --user-id=<id>`
+  apteva-server --mcp-gateway --user-id=<id>
+  apteva-server --reset-password --email=<email>   (new password on stdin; use apteva reset-password)`
 }

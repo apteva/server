@@ -19,6 +19,7 @@ func TestParseServerInvocationAcceptsSupportedModes(t *testing.T) {
 		{name: "preflight", args: []string{"--preflight"}, mode: serverModePreflight},
 		{name: "mcp proxy", args: []string{"--mcp-proxy", "--connection-id=42"}, mode: serverModeMCPProxy, id: 42},
 		{name: "mcp gateway", args: []string{"--mcp-gateway", "--user-id=17"}, mode: serverModeMCPGateway, id: 17},
+		{name: "reset password", args: []string{"--reset-password", "--email=admin@example.test"}, mode: serverModeResetPassword},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -38,6 +39,10 @@ func TestParseServerInvocationAcceptsSupportedModes(t *testing.T) {
 				if got.userID != tt.id {
 					t.Fatalf("userID=%d, want %d", got.userID, tt.id)
 				}
+			case serverModeResetPassword:
+				if got.email != "admin@example.test" {
+					t.Fatalf("email=%q", got.email)
+				}
 			}
 		})
 	}
@@ -55,6 +60,10 @@ func TestParseServerInvocationRejectsArgumentsThatWouldOtherwiseStartServer(t *t
 		{"--mcp-proxy", "--connection-id=not-a-number"},
 		{"--mcp-gateway", "--connection-id=12"},
 		{"--mcp-gateway", "--user-id=1", "--extra"},
+		{"--reset-password"},
+		{"--reset-password", "--email="},
+		{"--reset-password", "admin@example.test"},
+		{"--reset-password", "--email=a@example.test", "--password=secret"},
 	}
 	for _, args := range tests {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {

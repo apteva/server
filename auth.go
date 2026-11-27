@@ -1159,6 +1159,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.store.DeletePasswordResetTokensForUser(userID); err != nil {
+		log.Printf("[AUTH] password changed user=%d but reset link cleanup failed: %v", userID, err)
+	}
+
 	// Keep the current session alive, revoke every other one.
 	currentToken := ""
 	if c, err := r.Cookie(cookieName); err == nil {

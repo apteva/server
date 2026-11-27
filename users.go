@@ -109,7 +109,8 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleUserByID dispatches /users/:id and /users/:id/password.
+// handleUserByID dispatches /users/:id, /users/:id/password and
+// /users/:id/password-reset-link.
 // Self can GET themselves; admin can GET anyone, DELETE non-admin non-self,
 // and PATCH password on anyone.
 func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
@@ -126,9 +127,13 @@ func (s *Server) handleUserByID(w http.ResponseWriter, r *http.Request) {
 		sub = parts[1]
 	}
 
-	// Sub-resource routing. Only /password is supported today.
+	// Sub-resource routing.
 	if sub == "password" {
 		s.handleUserPasswordReset(w, r, caller, targetID)
+		return
+	}
+	if sub == "password-reset-link" {
+		s.handleUserPasswordResetLink(w, r, caller, targetID)
 		return
 	}
 	if sub != "" {
@@ -267,6 +272,9 @@ func (s *Server) handleUserPasswordReset(w http.ResponseWriter, r *http.Request,
 	}
 	if err := s.store.DeleteSessionsForUser(targetID); err != nil {
 		log.Printf("[USERS] admin=%d reset pw for user=%d but session sweep failed: %v", caller, targetID, err)
+	}
+	if err := s.store.DeletePasswordResetTokensForUser(targetID); err != nil {
+		log.Printf("[USERS] admin=%d reset pw for user=%d but reset link cleanup failed: %v", caller, targetID, err)
 	}
 	s.closeUserDeviceLinks(targetID, "account sessions revoked")
 	log.Printf("[USERS] admin=%d reset password for user=%d", caller, targetID)
