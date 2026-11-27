@@ -3398,6 +3398,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		instCfg["include_channels"] = hasChannels
 		instCfg["include_apteva_server"] = hasPlatform
+		keepSavedMCPs(instCfg, mcpList)
 		if out, err := json.Marshal(instCfg); err == nil {
 			inst.Config = string(out)
 		}
