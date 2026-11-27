@@ -198,7 +198,9 @@ func (s *Server) handleCallbackPlatformInfo(w http.ResponseWriter, r *http.Reque
 // can dispatch against. Project-scoped installs see a singleton list
 // holding only their pinned project; global installs see every
 // project the owning user has access to. The SDK's worker dispatcher
-// uses this to fan workers out per project.
+// uses this to fan workers out per project. Each project carries the
+// colour chosen in Project Settings ("" when none), for apps that
+// want to show it; how they show it is up to them.
 //
 // No declared permission required — every install is allowed to
 // enumerate its own projection. The listing is scoped server-side
@@ -240,11 +242,11 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 	}
 	if installProject != "" {
 		// Singleton — same project as the install.
-		var name, description string
+		var name, description, color string
 		_ = s.store.dbQueryRowContext(r.Context(),
-			`SELECT COALESCE(name,''), COALESCE(description,'') FROM projects WHERE id=?`, installProject,
-		).Scan(&name, &description)
-		writeJSON(w, []map[string]any{{"id": installProject, "name": name, "description": description}})
+			`SELECT COALESCE(name,''), COALESCE(description,''), COALESCE(color,'') FROM projects WHERE id=?`, installProject,
+		).Scan(&name, &description, &color)
+		writeJSON(w, []map[string]any{{"id": installProject, "name": name, "description": description, "color": projectColorHex(color)}})
 		return
 	}
 	// Global install — return every project belonging to the owning
@@ -256,9 +258,26 @@ func (s *Server) handleCallbackProjects(w http.ResponseWriter, r *http.Request, 
 	}
 	out := make([]map[string]any, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, map[string]any{"id": p.ID, "name": p.Name, "description": p.Description})
+		out = append(out, map[string]any{"id": p.ID, "name": p.Name, "description": p.Description, "color": projectColorHex(p.Color)})
 	}
 	writeJSON(w, out)
+}
+
+// projectColorHex returns a project colour as lower-case #rgb or #rrggbb,
+// or "" when the stored value is empty or anything else. The colour is
+// stored as given, so apps only ever receive a value that is safe to use
+// in a style.
+func projectColorHex(raw string) string {
+	color := strings.ToLower(strings.TrimSpace(raw))
+	if len(color) != 4 && len(color) != 7 || color[0] != '#' {
+		return ""
+	}
+	for _, c := range color[1:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return ""
+		}
+	}
+	return color
 }
 
 // ─── /whoami ───────────────────────────────────────────────────────
