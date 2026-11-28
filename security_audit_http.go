@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -147,17 +146,16 @@ func (w *statusRecorder) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+// Flush and Hijack go through the response controller, which follows Unwrap.
+// Asking only the writer directly beneath fails when that writer is itself a
+// wrapper without the method: flushes were dropped and WebSocket upgrades
+// refused on routes wrapped by corsCredentialGuardWriter.
 func (w *statusRecorder) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 func (w *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
-	}
-	return nil, nil, errors.New("hijack not supported")
+	return http.NewResponseController(w.ResponseWriter).Hijack()
 }
 
 func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
