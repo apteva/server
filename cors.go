@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -54,6 +56,21 @@ func (w *corsCredentialGuardWriter) Write(body []byte) (int, error) {
 
 func (w *corsCredentialGuardWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
+}
+
+// Flush can send the response headers without passing through WriteHeader,
+// so the credentials header is removed here too.
+func (w *corsCredentialGuardWriter) Flush() {
+	w.sanitize()
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+// Hijack hands the connection to the caller, which writes the upgrade
+// response itself; this writer cannot filter it. That is acceptable: CORS
+// headers have no meaning on a protocol upgrade, and browsers do not apply
+// CORS to WebSocket handshakes.
+func (w *corsCredentialGuardWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return http.NewResponseController(w.ResponseWriter).Hijack()
 }
 
 func newCORSConfig(env string) *corsConfig {
