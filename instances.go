@@ -317,11 +317,18 @@ func channelsMCPConfig(url string) map[string]any {
 }
 
 func managementGatewayConfig(inst *Agent, serverBin, serverPort string) map[string]any {
+	loading := map[string]any{"default": "deferred"}
+	if inst != nil && inst.Kind == "platform_helper" {
+		// The Helper reaches project apps only through this pair, and a call
+		// always follows a search. Deferred, each needed its own search_tools
+		// round before the first app call; kept loaded, none is needed.
+		loading["tools"] = map[string]any{"app_tool_search": "always", "app_tool_call": "always"}
+	}
 	return map[string]any{
 		"name":         platformMCPName,
 		"url":          "http://127.0.0.1:" + serverPort + platformMCPPath,
 		"transport":    "http",
-		"tool_loading": map[string]any{"default": "deferred"},
+		"tool_loading": loading,
 	}
 }
 

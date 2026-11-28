@@ -115,6 +115,25 @@ func TestManagementGatewayConfigUsesSharedHTTPTransport(t *testing.T) {
 	if ordinary["transport"] != "http" || ordinary["command"] != nil || ordinary["url"] != helper["url"] {
 		t.Fatalf("ordinary gateway=%#v", ordinary)
 	}
+	// The Helper keeps its two app tools loaded; every other server tool, and
+	// every tool for other agents, stays deferred.
+	helperLoading := helper["tool_loading"].(map[string]any)
+	pinned, _ := helperLoading["tools"].(map[string]any)
+	if helperLoading["default"] != "deferred" || len(pinned) != 2 || pinned["app_tool_search"] != "always" || pinned["app_tool_call"] != "always" {
+		t.Fatalf("helper tool_loading=%#v", helperLoading)
+	}
+	for _, definition := range helperAppToolDefinitions() {
+		name, _ := definition.(map[string]any)["name"].(string)
+		if pinned[name] != "always" {
+			t.Fatalf("Helper app tool %q is not kept loaded", name)
+		}
+	}
+	for _, other := range []*Agent{{ID: 2, UserID: 7, Kind: "user"}, nil} {
+		loading := managementGatewayConfig(other, "/server", "5280")["tool_loading"].(map[string]any)
+		if loading["default"] != "deferred" || loading["tools"] != nil {
+			t.Fatalf("non-Helper tool_loading=%#v", loading)
+		}
+	}
 }
 
 func TestPlatformMCPAppDetailsAreAvailableAndProjectScoped(t *testing.T) {
