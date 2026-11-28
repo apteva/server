@@ -248,3 +248,70 @@ func TestResolveDynamicTarget_UndeclaredAppRevealsNothing(t *testing.T) {
 		t.Fatalf("absent=%q present=%q, want the same plain refusal", absent, present)
 	}
 }
+
+// A manifest that names an official repo but takes its runnable code from
+// somewhere else is not official: prebuilt downloads win over source.
+func TestIsOfficialCaller_EveryCodeLocationMustBeTrusted(t *testing.T) {
+	const good = "https://github.com/apteva/apps/releases/download/functions/v1.23.0/functions-linux-amd64.tgz"
+	official := func(edit func(*sdk.Manifest)) bool {
+		m := officialManifest("functions", true)
+		edit(&m)
+		return isOfficialCaller(&m)
+	}
+	artifact := func(url string) func(*sdk.Manifest) {
+		return func(m *sdk.Manifest) {
+			m.Runtime.Artifacts = map[string]sdk.BundleSpec{"linux-amd64": {URL: url, SHA256: strings.Repeat("a", 64)}}
+		}
+	}
+
+	if !official(func(*sdk.Manifest) {}) {
+		t.Fatal("source-only official manifest refused")
+	}
+	if !official(artifact(good)) {
+		t.Fatal("official artifact refused")
+	}
+	if !official(func(m *sdk.Manifest) { m.Runtime.Binaries = map[string]string{"darwin-arm64": good} }) {
+		t.Fatal("official binary refused")
+	}
+
+	refused := map[string]func(*sdk.Manifest){
+		"artifact on another host":       artifact("https://evil.example/functions.tgz"),
+		"artifact in another owner":      artifact("https://github.com/evil/apps/releases/download/x.tgz"),
+		"artifact with dot segments":     artifact("https://github.com/apteva/../evil/apps/releases/x.tgz"),
+		"artifact with encoded segments": artifact("https://github.com/apteva/%2e%2e/evil/x.tgz"),
+		"artifact over http":             artifact("http://github.com/apteva/apps/releases/x.tgz"),
+		"artifact with userinfo":         artifact("https://github.com@evil.example/apteva/apps/x.tgz"),
+		"artifact on a lookalike host":   artifact("https://github.com.evil.example/apteva/apps/x.tgz"),
+		"artifact with a port":           artifact("https://github.com:8443/apteva/apps/x.tgz"),
+		"local artifact":                 artifact("/tmp/functions.tgz"),
+		"file artifact":                  artifact("file:///tmp/functions.tgz"),
+		"one bad artifact among good": func(m *sdk.Manifest) {
+			m.Runtime.Artifacts = map[string]sdk.BundleSpec{"linux-amd64": {URL: good}, "darwin-arm64": {URL: "https://evil.example/x.tgz"}}
+		},
+		"binary on another host": func(m *sdk.Manifest) {
+			m.Runtime.Binaries = map[string]string{"linux-amd64": "https://evil.example/bin"}
+		},
+		"bundle on another host":    func(m *sdk.Manifest) { m.Runtime.Bundle = &sdk.BundleSpec{URL: "https://evil.example/ui.tgz"} },
+		"repo with dot segments":    func(m *sdk.Manifest) { m.Runtime.Source.Repo = "github.com/apteva/../evil/apps" },
+		"repo in a lookalike owner": func(m *sdk.Manifest) { m.Runtime.Source.Repo = "github.com/apteva-evil/apps" },
+	}
+	for name, edit := range refused {
+		if official(edit) {
+			t.Errorf("%s: manifest reported official", name)
+		}
+	}
+}
+
+// The spoofed manifest gets no dynamic access to other apps.
+func TestResolveDynamicTarget_SpoofedOfficialManifestStaysBlocked(t *testing.T) {
+	s := newTestServer(t)
+	m := officialManifest("functions", true)
+	m.Runtime.Artifacts = map[string]sdk.BundleSpec{"linux-amd64": {URL: "https://evil.example/functions.tgz", SHA256: strings.Repeat("a", 64)}}
+	caller := seedRunningInstall(t, s, "functions", "proj-1", m, nil)
+	seedRunningInstall(t, s, "tables", "proj-1", sdk.Manifest{Name: "tables"}, nil)
+
+	id, msg, ok := s.resolveDynamicTarget(caller, "tables", "")
+	if ok || id != 0 || !strings.Contains(msg, "app not bound") {
+		t.Fatalf("spoofed official caller: id=%d ok=%v msg=%q, want refused", id, ok, msg)
+	}
+}
