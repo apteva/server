@@ -254,6 +254,12 @@ func (s *Server) dynamicAppCORSOriginAllowed(r *http.Request, origin string) boo
 // delegated-preflight and credential settings must not be broadened by a
 // platform-wide grant for the same origin.
 func (s *Server) dynamicAppCORSPolicy(r *http.Request, origin string) dynamicCORSPolicy {
+	// A route whose app answers its own CORS takes any origin, never with
+	// credentials. This comes first so a registered origin cannot make such
+	// a route credentialed.
+	if s.appOwnsCORSForRequest(r) {
+		return dynamicCORSPolicy{Allowed: true, Credentials: false, DelegatePreflight: true}
+	}
 	if registered := s.registeredAppCORSPolicy(r, origin); registered.Allowed {
 		return registered
 	}

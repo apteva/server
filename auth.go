@@ -182,6 +182,11 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// These identity headers are owned by the server. A network client
 		// cannot select a user or app install by supplying them directly.
 		clearPrincipalHeaders(r)
+		// A route whose app answers its own CORS is open to any origin, so
+		// the platform session cookie must not authenticate requests to it.
+		if s.appOwnsCORSForRequest(r) {
+			dropSessionCookie(r)
+		}
 		token := privateRequestToken(r)
 		// Runtime credentials have no installation-token prefix. Accept them
 		// on the same loopback-only app routes used by agent MCP connections,
