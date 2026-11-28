@@ -404,6 +404,9 @@ func (s *Server) startManagedAgent(inst *Agent, providerEnv map[string]string, p
 		return coreRuntimeInfo{}, readErr
 	}
 	*inst = *latest
+	if inst.UserID > 0 && s.store.UserDisabled(inst.UserID) {
+		return coreRuntimeInfo{}, errAgentOwnerDisabled
+	}
 	err = s.refreshAgentAppMCPConfigs(inst)
 	if err == nil {
 		err = s.dropUnlinkedSavedAppMCPs(inst)
@@ -438,6 +441,9 @@ func (s *Server) reattachManagedAgent(inst *Agent, channelConfigs ...ChannelConf
 }
 
 func (s *Server) reattachManagedAgentMode(inst *Agent, preserveOnFailure bool, channelConfigs ...ChannelConfig) (coreRuntimeInfo, error) {
+	if inst.UserID > 0 && s.store.UserDisabled(inst.UserID) {
+		return coreRuntimeInfo{}, errAgentOwnerDisabled
+	}
 	unlockConfig := s.lockAgentConfig(inst.ID)
 	err := s.refreshAgentAppMCPConfigs(inst)
 	unlockConfig()

@@ -18,8 +18,10 @@ package main
 //   GET    /api/admin/users                         — list users (admin)
 //   PATCH  /api/admin/users/:id                     — set platform role (admin)
 //
-// /admin/users/:id/deactivate (kills sessions + revokes keys + drops
-// memberships) is left as a Phase-2 follow-up — see the proposal §9.
+// Disabling and re-enabling an account is in security_handlers.go:
+//
+//   POST   /api/security/users/:id/disable          — block the account (admin)
+//   POST   /api/security/users/:id/enable           — restore it (admin)
 
 import (
 	"encoding/json"
