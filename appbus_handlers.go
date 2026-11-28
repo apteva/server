@@ -276,10 +276,9 @@ func (s *Server) checkFirehoseAccess(r *http.Request) error {
 //
 // Two principal kinds:
 //
-//   - Browser session (X-User-ID set, no install header). Any
-//     logged-in user is permitted — the dashboard enforces project
-//     switching on the client side. Membership refinement is a
-//     follow-up once project membership is formally modelled.
+//   - Browser session or API key (X-User-ID set, no install header).
+//     Permitted for platform admins and for members of the project,
+//     at any role: reading events needs no more than viewing does.
 //
 //   - Sidecar (X-Apteva-App-Install-ID set, X-User-ID also set).
 //     Permitted when the install belongs to the same project being
@@ -315,15 +314,25 @@ func (s *Server) checkProjectAccess(r *http.Request, projectID string) error {
 		return nil
 	}
 
-	if r.Header.Get("X-User-ID") == "" {
+	userID := getUserID(r)
+	if userID == 0 {
 		return errors.New("login required")
 	}
-	// Verify the project actually exists. Membership refinement is a
-	// follow-up — for now any authenticated user can attach.
-	var exists int
-	err := s.store.dbQueryRowContext(r.Context(), `SELECT 1 FROM projects WHERE id = ?`, projectID).Scan(&exists)
+	platform, err := s.store.GetPlatformRoleContext(r.Context(), userID)
 	if err != nil {
-		return fmt.Errorf("project not found")
+		return errors.New("access check unavailable")
+	}
+	if platform == PlatformAdmin {
+		var exists int
+		if err := s.store.dbQueryRowContext(r.Context(), `SELECT 1 FROM projects WHERE id = ?`, projectID).Scan(&exists); err != nil {
+			return fmt.Errorf("project not found")
+		}
+		return nil
+	}
+	// A project that does not exist and one the caller is not in get the
+	// same answer, so the stream cannot be used to probe project ids.
+	if _, err := s.store.GetProjectRoleContext(r.Context(), projectID, userID); err != nil {
+		return errors.New("not a project member")
 	}
 	return nil
 }
