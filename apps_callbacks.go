@@ -1296,6 +1296,11 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 			return
 		}
 	}
+	asserted, err := s.assertedSubjectPrincipal(r, installID, callerAppName, effectiveProjectID)
+	if err != nil {
+		writeAssertedSubjectError(w, err)
+		return
+	}
 	authDone := time.Now()
 	// Replace rather than preserve routing metadata. The value above is
 	// pinned by the caller install or validated against its owning user.
@@ -1339,6 +1344,7 @@ func (s *Server) handleCallbackApps(w http.ResponseWriter, r *http.Request, part
 	req.Header.Set(sdk.HeaderBoundCallerInstallID, strconv.FormatInt(installID, 10))
 	req.Header.Set(sdk.HeaderBoundCallerAppName, callerAppName)
 	setAppCallbackCallerHeaders(req, requestContext, effectiveProjectID)
+	setTrustedAppPrincipalHeaders(req, target.Token, asserted)
 	if deadline, ok := requestContext.Deadline(); ok {
 		req.Header.Set(sdk.HeaderAppCallDeadline, strconv.FormatInt(deadline.UnixMilli(), 10))
 	}
@@ -1514,6 +1520,11 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 	}
 	q.Set("project_id", requestedProjectID)
 	r.URL.RawQuery = q.Encode()
+	asserted, err := s.assertedSubjectPrincipal(r, callerInstallID, callerAppName, requestedProjectID)
+	if err != nil {
+		writeAssertedSubjectError(w, err)
+		return
+	}
 	for _, part := range tailParts {
 		if part == "." || part == ".." {
 			http.Error(w, "invalid proxy path", http.StatusBadRequest)
@@ -1533,6 +1544,8 @@ func (s *Server) handleCallbackAppProxy(w http.ResponseWriter, r *http.Request, 
 		req.URL.Path = "/" + strings.Join(tailParts, "/")
 		req.URL.RawPath = ""
 		setBoundAppCallHeaders(req, target, callerInstallID, callerAppName, callerUserID, requestedProjectID)
+		clearAssertedSubjectHeaders(req)
+		setTrustedAppPrincipalHeaders(req, target.Token, asserted)
 	}
 	configureAppClientIP(proxy, r, target.Token)
 	proxy.ServeHTTP(w, r)
