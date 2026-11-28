@@ -217,17 +217,23 @@ func TestHelperAppToolSearchUsesAppMetadata(t *testing.T) {
 		}
 		text := result["content"].([]any)[0].(map[string]any)["text"].(string)
 		var out struct {
-			Tools []struct {
-				Name        string `json:"name"`
+			Apps []struct {
 				DisplayName string `json:"app_display_name"`
 				Description string `json:"app_description"`
+			} `json:"apps"`
+			Tools []struct {
+				Name string `json:"name"`
 			} `json:"tools"`
 		}
 		if err := json.Unmarshal([]byte(text), &out); err != nil {
 			t.Fatal(err)
 		}
-		if len(out.Tools) != 1 || out.Tools[0].Name != "tickets_list" || out.Tools[0].DisplayName != entry.Manifest.DisplayName || out.Tools[0].Description != entry.Manifest.Description {
+		if len(out.Tools) != 1 || out.Tools[0].Name != "tickets_list" || len(out.Apps) != 1 || out.Apps[0].DisplayName != entry.Manifest.DisplayName || out.Apps[0].Description != entry.Manifest.Description {
 			t.Fatalf("app metadata query %q did not discover filtered tools: %s", query, text)
+		}
+		// The app's description is sent once, in its apps entry.
+		if n := strings.Count(text, entry.Manifest.Description); n != 1 {
+			t.Fatalf("app description sent %d times, want once: %s", n, text)
 		}
 		if strings.Contains(text, "internal_secret") {
 			t.Fatal("metadata search exposed private tool")
@@ -301,6 +307,7 @@ type helperSearchReply struct {
 		App       string         `json:"app"`
 		Name      string         `json:"name"`
 		Reference string         `json:"reference"`
+		ExpiresAt string         `json:"expires_at"`
 		Schema    map[string]any `json:"inputSchema"`
 	} `json:"tools"`
 	Others []struct {
@@ -342,12 +349,18 @@ func (r helperSearchReply) app(name string) []string {
 func TestHelperAppToolSearchListsEveryToolOfAWideApp(t *testing.T) {
 	f := newHelperBrokerFixture(t)
 	wide := addHelperWideApp(t, f)
-	for _, args := range []map[string]any{
-		{"query": "create workspace"},
-		{"query": "create a new workspace"},
-		{"query": "list workspaces"},
-		{"query": "anything at all", "app": "workspaces"},
+	// best is the tool each task search must detail first, so that one
+	// search is enough to call it. Empty means no tool matches the query.
+	for _, c := range []struct {
+		args map[string]any
+		best string
+	}{
+		{map[string]any{"query": "create workspace"}, "workspaces_create"},
+		{map[string]any{"query": "create a new workspace"}, "workspaces_create"},
+		{map[string]any{"query": "list workspaces"}, "workspaces_list"},
+		{map[string]any{"query": "anything at all", "app": "workspaces"}, ""},
 	} {
+		args := c.args
 		out := f.searchWith(t, args)
 		got := out.app("workspaces")
 		if strings.Join(got, ",") != strings.Join(wide.names, ",") {
@@ -356,8 +369,21 @@ func TestHelperAppToolSearchListsEveryToolOfAWideApp(t *testing.T) {
 		if strings.Contains(out.text, "workspace_internal_sync") {
 			t.Fatalf("search %v exposed an app-only tool", args)
 		}
-		if len(out.Tools) != 0 {
-			t.Fatalf("search %v returned %d schemas for a wide listing, want names only", args, len(out.Tools))
+		if c.best == "" && len(out.Tools) != 0 {
+			t.Fatalf("search %v returned %d schemas with nothing matching, want names only", args, len(out.Tools))
+		}
+		if c.best != "" {
+			if len(out.Tools) == 0 || len(out.Tools) > helperBestMatches || out.Tools[0].Name != c.best {
+				t.Fatalf("search %v detailed %d tools, want up to %d led by %s, got first %q", args, len(out.Tools), helperBestMatches, c.best, firstToolName(out))
+			}
+			for _, tool := range out.Tools {
+				if tool.Schema == nil || len(tool.Reference) != 34 {
+					t.Fatalf("search %v: best match %s lacks a schema or reference", args, tool.Name)
+				}
+			}
+		}
+		if n := strings.Count(out.text, "durable development workspaces"); n != 1 {
+			t.Fatalf("search %v sent the app description %d times, want once", args, n)
 		}
 		if !strings.Contains(out.Note, "search again with tools") {
 			t.Fatalf("search %v did not say how to get a reference: %q", args, out.Note)
@@ -521,4 +547,69 @@ func TestHelperAppErrorTextIsBoundedPlainText(t *testing.T) {
 	if len(got) > helperAppErrorLimit+len("…") || !utf8.ValidString(got) {
 		t.Fatalf("len=%d valid=%v, want at most %d bytes of valid text", len(got), utf8.ValidString(got), helperAppErrorLimit)
 	}
+}
+
+// A task search is enough to call the tool: no second search for a reference.
+func TestHelperAppToolCallAfterOneSearch(t *testing.T) {
+	f := newHelperBrokerFixture(t)
+	wide := addHelperWideApp(t, f)
+	out := f.searchWith(t, map[string]any{"query": "create workspace"})
+	if len(out.Tools) == 0 || out.Tools[0].Name != "workspaces_create" {
+		t.Fatalf("first search did not lead with workspaces_create, got %q", firstToolName(out))
+	}
+	ref := out.Tools[0].Reference
+	// One reference serves several calls.
+	for i := 0; i < 2; i++ {
+		result := f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": map[string]any{"name": "demo"}})
+		if result["isError"] == true {
+			t.Fatalf("call %d with the first search's reference failed: %v", i+1, result)
+		}
+	}
+	if strings.Join(wide.called, ",") != "workspaces_create,workspaces_create" {
+		t.Fatalf("app received %v, want workspaces_create twice", wide.called)
+	}
+}
+
+// A reference says when it expires, and an expired one says so.
+func TestHelperAppToolReferenceLifetime(t *testing.T) {
+	f := newHelperBrokerFixture(t)
+	addHelperWideApp(t, f)
+	out := f.searchWith(t, map[string]any{"query": "create workspace"})
+	if len(out.Tools) == 0 {
+		t.Fatalf("no detailed tool: %s", out.text)
+	}
+	expires, err := time.Parse(time.RFC3339, out.Tools[0].ExpiresAt)
+	if err != nil {
+		t.Fatalf("expires_at %q: %v", out.Tools[0].ExpiresAt, err)
+	}
+	if left := time.Until(expires); left < helperReferenceTTL-time.Minute || left > helperReferenceTTL+time.Minute {
+		t.Fatalf("reference expires in %v, want about %v", left, helperReferenceTTL)
+	}
+	if !strings.Contains(out.Note, "15 minutes") {
+		t.Fatalf("note does not state the lifetime: %q", out.Note)
+	}
+
+	ref := out.Tools[0].Reference
+	f.s.helperToolRefsMu.Lock()
+	stored := f.s.helperToolRefs[ref]
+	stored.Expires = time.Now().Add(-time.Minute).Unix()
+	f.s.helperToolRefs[ref] = stored
+	f.s.helperToolRefsMu.Unlock()
+	// Another search must not make the expired reference look unknown.
+	f.searchWith(t, map[string]any{"query": "list workspaces"})
+	text := helperCallErrorText(t, f.request(t, "app_tool_call", map[string]any{"reference": ref, "arguments": map[string]any{}}))
+	if !strings.Contains(text, "reference expired") || !strings.Contains(text, "search again") {
+		t.Fatalf("expired reference error = %q", text)
+	}
+	text = helperCallErrorText(t, f.request(t, "app_tool_call", map[string]any{"reference": "r_" + strings.Repeat("0", 32), "arguments": map[string]any{}}))
+	if !strings.Contains(text, "unknown reference") {
+		t.Fatalf("unknown reference error = %q", text)
+	}
+}
+
+func firstToolName(out helperSearchReply) string {
+	if len(out.Tools) == 0 {
+		return ""
+	}
+	return out.Tools[0].Name
 }
