@@ -571,6 +571,12 @@ func (s *Server) handleCallbackAppBatch(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
+	// A batch has no per-call identity. Refuse an asserted subject here
+	// instead of running the calls without it.
+	if r.Header.Get(sdk.HeaderAssertSubjectType) != "" || r.Header.Get(sdk.HeaderAssertSubjectID) != "" {
+		http.Error(w, "asserted subjects are not supported on batch calls; use single calls", http.StatusBadRequest)
+		return
+	}
 	var body appCallBatchRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20))
 	if err := decoder.Decode(&body); err != nil {
